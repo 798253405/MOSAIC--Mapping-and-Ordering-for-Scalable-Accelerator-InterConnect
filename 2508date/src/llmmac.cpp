@@ -3,6 +3,7 @@
 #include "llmmacnet.hpp"
 #include <ctime>
 #include <iomanip>
+#include <cstdlib>
 
 // Debug macro switch - 强制开启
 #define LLM_DEBUG_PRINT_ENABLED
@@ -247,13 +248,25 @@ void LLMMAC::llmRunOneStep() {
 			request = routing_table.front();
 			tmp_requestID = request;
 			routing_table.pop_front();
+			
+			// Start timing for new task
+			current_task_timing = TaskTiming();
+			current_task_timing.task_id = request;
+			current_task_timing.request_send_cycle = cycles;
 
 			if (selfMACid < 10) {
-				LLM_DEBUG("MAC " << selfMACid << " sending request for task " << request);
+				LLM_DEBUG("MAC " << selfMACid << " sending request for task " << request << " at cycle " << cycles);
 			}
 
 			llmInject(0, dest_mem_id, 1, request, net->vcNetwork->NI_list[NI_id],
 					  packet_id + request, selfMACid);
+			
+			// Calculate expected hops for request (Manhattan distance in mesh)
+			int src_x = NI_id % X_NUM;
+			int src_y = NI_id / X_NUM;
+			int dst_x = dest_mem_id % X_NUM;
+			int dst_y = dest_mem_id / X_NUM;
+			current_task_timing.request_hops = abs(dst_x - src_x) + abs(dst_y - src_y);
 			selfstatus = 2;
 			pecycle = cycles;
 		}
@@ -270,6 +283,9 @@ void LLMMAC::llmRunOneStep() {
 				return;
 			}
 
+			// Track response arrival time (this is when we process it)
+			current_task_timing.response_arrive_cycle = cycles;
+			
 			if (selfMACid < 10) {
 				LLM_DEBUG("MAC " << selfMACid << " received response, processing task " << tmp_requestID);
 				LLM_DEBUG("Input buffer size: " << input_buffer.size());
@@ -315,6 +331,9 @@ void LLMMAC::llmRunOneStep() {
 		}
 		// State 3: COMPUTE
 		else if (selfstatus == 3) {
+			// Track computation start
+			current_task_timing.compute_start_cycle = cycles;
+			
 			if (selfMACid < 10) {
 				LLM_DEBUG("MAC " << selfMACid << " computing attention for task " << tmp_requestID);
 			}
@@ -330,11 +349,18 @@ void LLMMAC::llmRunOneStep() {
 			int calc_time = (query_data.size() / PE_NUM_OP + 1) * 20;
 			selfstatus = 4;
 			pecycle = cycles + calc_time;
+			
+			// Track computation end and result send
+			current_task_timing.compute_end_cycle = cycles + calc_time;
+			current_task_timing.result_send_cycle = cycles + calc_time;
 
 			// Changed: Send type 3 (final result) instead of type 2 (intermediate)
 			// Since we're computing the final attention value for each pixel
 			llmInject(3, dest_mem_id, 1, attention_output,
 					  net->vcNetwork->NI_list[NI_id], packet_id + tmp_requestID, selfMACid);
+			
+			// Calculate result packet hops (same as request)
+			current_task_timing.result_hops = current_task_timing.request_hops;
 			
 			// WORKAROUND: Directly update output table due to NoC routing issues
 			// This simulates the result reaching memory instantly
@@ -357,6 +383,9 @@ void LLMMAC::llmRunOneStep() {
 				LLM_DEBUG("MAC " << selfMACid << " task " << tmp_requestID << " completed, remaining tasks: "
 				          << routing_table.size());
 			}
+			
+			// Save completed task timing
+			task_timings.push_back(current_task_timing);
 
 			this->send = 0;
 			if (this->routing_table.size() == 0) {
@@ -441,6 +470,12 @@ void LLMMAC::llmResetForNextTask() {
 
 void LLMMAC::llmReceive(Message* re_msg) {
 	if (re_msg->msgtype == 1) {
+		// Track when response actually arrives at MAC
+		current_task_timing.response_arrive_cycle = cycles;
+		
+		// Calculate response hops (same as request typically in symmetric routing)
+		current_task_timing.response_hops = current_task_timing.request_hops;
+		
 		input_buffer.clear();
 		input_buffer.assign(re_msg->yzMSGPayload.begin(), re_msg->yzMSGPayload.end());
 		request = -1;

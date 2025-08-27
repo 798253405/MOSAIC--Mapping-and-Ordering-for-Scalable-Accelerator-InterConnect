@@ -4,6 +4,7 @@
 #include <cassert>
 #include <ctime>
 #include <iomanip>
+#include <climits>
 
 // Debug macro switch - 强制开启详细调试
 #define LLM_DEBUG_PRINT_ENABLED
@@ -468,9 +469,9 @@ void LLMMACnet::llmCheckStatus() {
 	if (assigned_macs > 0 && active_count == 0) {
 		completion_wait_cycles++;
 		
-		// Wait for 10000 cycles after all MACs finish to ensure messages are delivered
-		// (Network latency can be high in 32x32 NoC)
-		if (completion_wait_cycles < 10000) {
+		// Wait for 100 cycles after all MACs finish to ensure messages are delivered
+		// This is sufficient since we're directly updating the output table
+		if (completion_wait_cycles < 100) {
 			return;
 		}
 		LLM_DEBUG("\n=== All small matrix tasks completed at cycle " << cycles << " ===");
@@ -498,6 +499,9 @@ void LLMMACnet::llmCheckStatus() {
 
 		std::cout << "\n统计: " << non_zero_count << " 个非零值, " << zero_count << " 个零值" << std::endl;
 
+		// Print timing statistics
+		llmPrintTimingStatistics();
+
 		// 导出验证结果
 		llmExportVerificationResults();
 
@@ -517,7 +521,7 @@ void LLMMACnet::llmRunOneStep() {
 		LLMMAC_list[i]->llmRunOneStep();
 	}
 
-	if (run_step_count % 10000 == 0) {
+	if (run_step_count % 50000 == 0) {
 		int active_macs = 0;
 		for (int i = 0; i < macNum; i++) {
 			if (LLMMAC_list[i]->selfstatus != 5) {
@@ -576,6 +580,9 @@ void LLMMACnet::llmRunOneStep() {
 
 			if (tmpLLMMAC->selfstatus == 2) {
 				int task_id = tmpPacket->message.data[0];
+				
+				// Track when request arrives at memory
+				tmpLLMMAC->current_task_timing.request_arrive_cycle = cycles;
 
 				if (task_id >= 0 && task_id < all_tasks.size()) {
 					LLMTask& task = all_tasks[task_id];
@@ -591,13 +598,16 @@ void LLMMACnet::llmRunOneStep() {
 					tmpLLMMAC->input_buffer.insert(tmpLLMMAC->input_buffer.end(),
 						task.key_data.begin(), task.key_data.end());
 
-					LLM_DEBUG("Memory " << mem_id << " sending data to MAC " << src_mac
-					          << " for task " << task_id
+					LLM_DEBUG("Memory " << mem_id << " received request from MAC " << src_mac
+					          << " for task " << task_id << " at cycle " << cycles
 					          << " [pixel(" << task.pixel_x << "," << task.pixel_y
 					          << "), ts=" << task.time_slice << "]");
 
 					int mem_delay = static_cast<int>(ceil((task.query_data.size() * 2 + 1) * MEM_read_delay)) + CACHE_DELAY;
 					LLMMAC_list[mem_id]->pecycle = cycles + mem_delay;
+					
+					// Track when response will be sent
+					tmpLLMMAC->current_task_timing.response_send_cycle = cycles + mem_delay;
 					LLMMAC_list[mem_id]->input_buffer = tmpLLMMAC->input_buffer;
 					LLMMAC_list[mem_id]->llmInject(1, src, tmpLLMMAC->input_buffer.size(),
 						1.0f, vcNetwork->NI_list[mem_id], pid_signal_id, src_mac);
@@ -731,6 +741,191 @@ void LLMMACnet::llmRunOneStep() {
 
 
 }  // End of llmRunOneStep()
+
+void LLMMACnet::llmPrintTimingStatistics() {
+	std::cout << "\n=== Task Timing Statistics ===" << std::endl;
+	
+	// Collect timing data from all MACs
+	std::vector<int> all_request_travel_times;
+	std::vector<int> all_response_travel_times;
+	std::vector<int> all_compute_times;
+	std::vector<int> all_result_travel_times;
+	std::vector<int> all_total_times;
+	std::vector<int> all_request_hops;
+	std::vector<int> all_response_hops;
+	std::vector<int> all_result_hops;
+	
+	// Per-MAC statistics with tracking of maximum
+	std::cout << "\n--- Per-MAC Timing Statistics ---" << std::endl;
+	
+	// Variables to track the MAC with maximum average total time
+	int max_avg_mac_id = -1;
+	float max_avg_total_time = 0;
+	float max_avg_req_travel = 0;
+	float max_avg_resp_travel = 0;
+	float max_avg_compute = 0;
+	float max_avg_req_hops = 0;
+	float max_avg_resp_hops = 0;
+	float max_avg_res_hops = 0;
+	int max_avg_ni_id = 0;
+	int max_avg_task_count = 0;
+	
+	for (int i = 0; i < macNum; i++) {
+		if (LLMMAC_list[i]->task_timings.size() == 0) continue;
+		
+		int mac_req_travel = 0, mac_resp_travel = 0, mac_comp_total = 0;
+		int mac_req_hops = 0, mac_resp_hops = 0, mac_res_hops = 0;
+		int task_count = LLMMAC_list[i]->task_timings.size();
+		
+		for (const auto& timing : LLMMAC_list[i]->task_timings) {
+			// Request travel time = arrival at memory - send from MAC
+			int req_travel = timing.request_arrive_cycle - timing.request_send_cycle;
+			// Response travel time = arrival at MAC - send from memory
+			int resp_travel = timing.response_arrive_cycle - timing.response_send_cycle;
+			// Compute time
+			int comp_time = timing.compute_end_cycle - timing.compute_start_cycle;
+			// Total end-to-end time
+			int total_time = timing.compute_end_cycle - timing.request_send_cycle;
+			
+			mac_req_travel += req_travel;
+			mac_resp_travel += resp_travel;
+			mac_comp_total += comp_time;
+			mac_req_hops += timing.request_hops;
+			mac_resp_hops += timing.response_hops;
+			mac_res_hops += timing.result_hops;
+			
+			all_request_travel_times.push_back(req_travel);
+			all_response_travel_times.push_back(resp_travel);
+			all_compute_times.push_back(comp_time);
+			all_total_times.push_back(total_time);
+			all_request_hops.push_back(timing.request_hops);
+			all_response_hops.push_back(timing.response_hops);
+			all_result_hops.push_back(timing.result_hops);
+		}
+		
+		if (task_count > 0) {
+			float avg_total = (float)(mac_req_travel + mac_resp_travel + mac_comp_total)/task_count;
+			
+			// Check if this MAC has the maximum average total time
+			if (avg_total > max_avg_total_time) {
+				max_avg_total_time = avg_total;
+				max_avg_mac_id = i;
+				max_avg_req_travel = (float)mac_req_travel/task_count;
+				max_avg_resp_travel = (float)mac_resp_travel/task_count;
+				max_avg_compute = (float)mac_comp_total/task_count;
+				max_avg_req_hops = (float)mac_req_hops/task_count;
+				max_avg_resp_hops = (float)mac_resp_hops/task_count;
+				max_avg_res_hops = (float)mac_res_hops/task_count;
+				max_avg_ni_id = LLMMAC_list[i]->NI_id;
+				max_avg_task_count = task_count;
+			}
+			
+			std::cout << "MAC " << i << " (NI_id=" << LLMMAC_list[i]->NI_id 
+			          << ", Tasks: " << task_count << "):" << std::endl;
+			std::cout << "  Request Packet: Travel=" << (float)mac_req_travel/task_count 
+			          << " cycles, Hops=" << (float)mac_req_hops/task_count << std::endl;
+			std::cout << "  Response Packet: Travel=" << (float)mac_resp_travel/task_count 
+			          << " cycles, Hops=" << (float)mac_resp_hops/task_count << std::endl;
+			std::cout << "  Computation: " << (float)mac_comp_total/task_count << " cycles" << std::endl;
+			std::cout << "  Result Packet: Hops=" << (float)mac_res_hops/task_count 
+			          << " (travel time not tracked due to NoC issue)" << std::endl;
+			std::cout << "  Total End-to-End: " << avg_total << " cycles" << std::endl;
+		}
+	}
+	
+	// Print MAC with maximum average total time
+	if (max_avg_mac_id != -1) {
+		std::cout << "\n*** MAC WITH MAXIMUM AVERAGE TOTAL TIME ***" << std::endl;
+		std::cout << "MAC ID: " << max_avg_mac_id << " (NI_id=" << max_avg_ni_id << ")" << std::endl;
+		std::cout << "Position: (" << (max_avg_ni_id % X_NUM) << ", " << (max_avg_ni_id / X_NUM) << ")" << std::endl;
+		std::cout << "Tasks Processed: " << max_avg_task_count << std::endl;
+		std::cout << "\nTiming Breakdown:" << std::endl;
+		std::cout << "  Average Total Time: " << max_avg_total_time << " cycles" << std::endl;
+		std::cout << "  - Request Travel: " << max_avg_req_travel << " cycles (Hops: " << max_avg_req_hops << ")" << std::endl;
+		std::cout << "  - Response Travel: " << max_avg_resp_travel << " cycles (Hops: " << max_avg_resp_hops << ")" << std::endl;
+		std::cout << "  - Computation: " << max_avg_compute << " cycles" << std::endl;
+		std::cout << "  - Result Hops: " << max_avg_res_hops << std::endl;
+		std::cout << "\nPercentage Breakdown:" << std::endl;
+		std::cout << "  Request: " << (max_avg_req_travel * 100.0 / max_avg_total_time) << "%" << std::endl;
+		std::cout << "  Response: " << (max_avg_resp_travel * 100.0 / max_avg_total_time) << "%" << std::endl;
+		std::cout << "  Compute: " << (max_avg_compute * 100.0 / max_avg_total_time) << "%" << std::endl;
+		std::cout << "  Queueing/Other: " << ((max_avg_total_time - max_avg_req_travel - max_avg_resp_travel - max_avg_compute) * 100.0 / max_avg_total_time) << "%" << std::endl;
+	}
+	
+	// Network-wide statistics
+	std::cout << "\n--- Network-wide Timing Statistics ---" << std::endl;
+	
+	if (all_request_travel_times.size() > 0) {
+		int total_req_travel = 0, total_resp_travel = 0, total_comp = 0, total_all = 0;
+		int total_req_hops = 0, total_resp_hops = 0, total_res_hops = 0;
+		int min_req = INT_MAX, min_resp = INT_MAX, min_comp = INT_MAX, min_total = INT_MAX;
+		int max_req = 0, max_resp = 0, max_comp = 0, max_total = 0;
+		
+		for (size_t i = 0; i < all_request_travel_times.size(); i++) {
+			total_req_travel += all_request_travel_times[i];
+			total_resp_travel += all_response_travel_times[i];
+			total_comp += all_compute_times[i];
+			total_all += all_total_times[i];
+			total_req_hops += all_request_hops[i];
+			total_resp_hops += all_response_hops[i];
+			total_res_hops += all_result_hops[i];
+			
+			min_req = std::min(min_req, all_request_travel_times[i]);
+			min_resp = std::min(min_resp, all_response_travel_times[i]);
+			min_comp = std::min(min_comp, all_compute_times[i]);
+			min_total = std::min(min_total, all_total_times[i]);
+			
+			max_req = std::max(max_req, all_request_travel_times[i]);
+			max_resp = std::max(max_resp, all_response_travel_times[i]);
+			max_comp = std::max(max_comp, all_compute_times[i]);
+			max_total = std::max(max_total, all_total_times[i]);
+		}
+		
+		int task_count = all_request_travel_times.size();
+		std::cout << "Total Tasks Completed: " << task_count << std::endl;
+		
+		std::cout << "\n=== REQUEST PACKET ===" << std::endl;
+		std::cout << "  Travel Time: Avg=" << (float)total_req_travel/task_count 
+		          << " cycles, Min=" << min_req << ", Max=" << max_req << std::endl;
+		std::cout << "  Hop Count: Avg=" << (float)total_req_hops/task_count 
+		          << ", Total=" << total_req_hops << std::endl;
+		std::cout << "  Cycles per Hop: " << (total_req_hops > 0 ? (float)total_req_travel/total_req_hops : 0) 
+		          << std::endl;
+		
+		std::cout << "\n=== RESPONSE PACKET ===" << std::endl;
+		std::cout << "  Travel Time: Avg=" << (float)total_resp_travel/task_count 
+		          << " cycles, Min=" << min_resp << ", Max=" << max_resp << std::endl;
+		std::cout << "  Hop Count: Avg=" << (float)total_resp_hops/task_count 
+		          << ", Total=" << total_resp_hops << std::endl;
+		std::cout << "  Cycles per Hop: " << (total_resp_hops > 0 ? (float)total_resp_travel/total_resp_hops : 0) 
+		          << std::endl;
+		
+		std::cout << "\n=== COMPUTATION ===" << std::endl;
+		std::cout << "  Time: Avg=" << (float)total_comp/task_count 
+		          << " cycles, Min=" << min_comp << ", Max=" << max_comp << std::endl;
+		
+		std::cout << "\n=== RESULT PACKET ===" << std::endl;
+		std::cout << "  Hop Count: Avg=" << (float)total_res_hops/task_count 
+		          << ", Total=" << total_res_hops << std::endl;
+		std::cout << "  (Travel time not tracked due to NoC routing issue)" << std::endl;
+		
+		std::cout << "\n=== END-TO-END LATENCY ===" << std::endl;
+		std::cout << "  Total: Avg=" << (float)total_all/task_count 
+		          << " cycles, Min=" << min_total << ", Max=" << max_total << std::endl;
+		
+		// Time breakdown percentage
+		std::cout << "\nTime Breakdown (Average):" << std::endl;
+		std::cout << "  Request Travel: " << (total_req_travel*100.0/total_all) << "%" << std::endl;
+		std::cout << "  Response Travel: " << (total_resp_travel*100.0/total_all) << "%" << std::endl;
+		std::cout << "  Computation: " << (total_comp*100.0/total_all) << "%" << std::endl;
+		std::cout << "  Unaccounted (queueing/waiting): " 
+		          << ((total_all - total_req_travel - total_resp_travel - total_comp)*100.0/total_all) << "%" << std::endl;
+	} else {
+		std::cout << "No timing data available!" << std::endl;
+	}
+	
+	std::cout << "\n=== End of Timing Statistics ===" << std::endl;
+}
 
 // Destructor
 LLMMACnet::~LLMMACnet() {

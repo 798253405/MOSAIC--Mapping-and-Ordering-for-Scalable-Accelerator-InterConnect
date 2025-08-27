@@ -92,6 +92,39 @@ class LLMMAC
 		deque<int> routing_table;
 
 		LLMMAC* nextLLMMAC;
+		
+		// Timing tracking for task phases with packet travel details
+		struct TaskTiming {
+			int task_id;
+			
+			// Request packet timing
+			int request_send_cycle;      // When request was sent
+			int request_arrive_cycle;    // When request arrived at memory
+			int request_hops;            // Number of hops for request
+			
+			// Response packet timing  
+			int response_send_cycle;     // When memory sent response
+			int response_arrive_cycle;   // When response arrived at MAC
+			int response_hops;           // Number of hops for response
+			
+			// Computation timing
+			int compute_start_cycle;
+			int compute_end_cycle;
+			
+			// Result packet timing
+			int result_send_cycle;       // When result was sent
+			int result_arrive_cycle;     // When result arrived at memory (if tracked)
+			int result_hops;            // Number of hops for result
+			
+			TaskTiming() : task_id(-1), 
+			               request_send_cycle(0), request_arrive_cycle(0), request_hops(0),
+			               response_send_cycle(0), response_arrive_cycle(0), response_hops(0),
+			               compute_start_cycle(0), compute_end_cycle(0),
+			               result_send_cycle(0), result_arrive_cycle(0), result_hops(0) {}
+		};
+		
+		std::vector<TaskTiming> task_timings;
+		TaskTiming current_task_timing;
 
 		// Core functions
 		bool llmInject(int type, int d_id, int data_length, float t_output, NI* t_NI, int p_id, int mac_src);

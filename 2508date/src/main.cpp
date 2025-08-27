@@ -17,6 +17,7 @@
 #include "MACnet.hpp"
 #include "Model.hpp"
 #include <ctime>  // For time()
+#include <chrono>  // For high resolution timing
 
 #include "llmmacnet.hpp"
 #include "llmmac.hpp"
@@ -292,11 +293,35 @@ int main(int arg_num, char *arg_vet[]) {
 
 	cout << "Starting LLM attention simulation..." << endl;
 	cout << "Maximum simulation cycles: " << simulate_cycles << endl;
+	
+	// Track real-time performance
+	auto simulation_start = std::chrono::high_resolution_clock::now();
+	int last_cycle_count = 0;
+	auto last_time = simulation_start;
 
 	// Main simulation loop
 	for (; cycles < simulate_cycles; cycles++) {
 		// Check and manage LLM attention tasks
 		llmMacnet->llmCheckStatus();
+		
+		// Print performance metrics every 1000 cycles
+		if (cycles % 1000 == 0 && cycles > 0) {
+			auto current_time = std::chrono::high_resolution_clock::now();
+			auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - simulation_start);
+			auto interval_duration = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_time);
+			
+			float total_cycles_per_sec = (cycles * 1000.0f) / (total_duration.count() + 1);
+			float interval_cycles_per_sec = ((cycles - last_cycle_count) * 1000.0f) / (interval_duration.count() + 1);
+			
+			std::cout << "[PERF] Cycle " << cycles 
+			          << " | Total time: " << total_duration.count() << "ms"
+			          << " | Avg speed: " << total_cycles_per_sec << " cycles/sec"
+			          << " | Recent speed: " << interval_cycles_per_sec << " cycles/sec"
+			          << " | Flits: " << YZGlobalFlit_id << std::endl;
+			
+			last_cycle_count = cycles;
+			last_time = current_time;
+		}
 
 		// Check if all attention computation is complete
 		if (llmMacnet->ready_flag == 2) {

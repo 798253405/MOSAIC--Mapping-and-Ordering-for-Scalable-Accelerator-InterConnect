@@ -57,6 +57,7 @@ public:
 	void llmExportMatricesToFile();
 	void llmExportTasksToFile();
 	void llmExportVerificationResults();
+	void llmPrintTimingStatistics();
 
 	// Network and execution management
 	void llmRunOneStep();

@@ -43,10 +43,16 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	time_slice = 0;
 
 	// Calculate tile position based on NI_id
-	int tile_id = NI_id;
-	int tiles_per_row = 8;  // 对应 32x32 NoC with 4x4 tiles (32/4=8)
+	// 对于32x32矩阵，4x4 tiles，我们有8x8=64个tiles
+	// 但是NoC有1024个节点，所以需要正确映射
+	int tiles_per_row = 8;  // 32/4 = 8
+	int tile_id = NI_id % 64; // 确保tile_id在0-63范围内
 	tile_x_start = (tile_id % tiles_per_row) * tile_size;
 	tile_y_start = (tile_id / tiles_per_row) * tile_size;
+
+	// 确保坐标在有效范围内
+	if (tile_x_start >= 32) tile_x_start = tile_x_start % 32;
+	if (tile_y_start >= 32) tile_y_start = tile_y_start % 32;
 
 	// Find destination memory ID based on position
 	int xid = NI_id / X_NUM;
@@ -124,10 +130,32 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 
 	msg.QoS = 0;
 
-	msg.data.assign(1, t_output);
-	msg.data.push_back(tile_x_start);
-	msg.data.push_back(tile_y_start);
-	msg.data.push_back(time_slice);
+	// 对于结果消息(type==2)，我们需要发送正确的像素坐标
+	if (type == 2) {
+		// 从当前处理的任务获取正确的像素坐标
+		int current_task_id = tmp_requestID;
+		if (current_task_id >= 0 && net && current_task_id < net->all_tasks.size()) {
+			int pixel_x = net->all_tasks[current_task_id].pixel_x;
+			int pixel_y = net->all_tasks[current_task_id].pixel_y;
+
+			msg.data.assign(1, t_output);
+			msg.data.push_back(pixel_x);  // 使用实际的像素坐标
+			msg.data.push_back(pixel_y);  // 使用实际的像素坐标
+			msg.data.push_back(net->all_tasks[current_task_id].time_slice);
+		} else {
+			// 后备方案
+			msg.data.assign(1, t_output);
+			msg.data.push_back(0);
+			msg.data.push_back(0);
+			msg.data.push_back(time_slice);
+		}
+	} else {
+		// 对于其他类型的消息，使用tile坐标
+		msg.data.assign(1, t_output);
+		msg.data.push_back(tile_x_start);
+		msg.data.push_back(tile_y_start);
+		msg.data.push_back(time_slice);
+	}
 
 	msg.destination = d_id;
 	msg.out_cycle = pecycle;
@@ -141,9 +169,16 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 
 	if (msg.type == 0) { // Request
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
+		if (selfMACid < 3) {
+			LLM_DEBUG("MAC " << selfMACid << " sending request (type 0) to " << d_id);
+		}
 	} else if (msg.type == 2) { // Result
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
 		msg.yzMSGPayload[0] = t_output;
+		if (selfMACid < 3) {
+			LLM_DEBUG("MAC " << selfMACid << " sending result (type 2) to " << d_id
+			          << " pixel(" << msg.data[1] << "," << msg.data[2] << ") value: " << t_output);
+		}
 	} else if (msg.type == 1) { // Response with data
 		msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), input_buffer.begin() + 4,
 								input_buffer.end());
@@ -152,6 +187,14 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 		std::fill_n(std::back_inserter(msg.yzMSGPayload),
 					(flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size()),
 					0.0f);
+
+		if (selfMACid < 3) {
+			LLM_DEBUG("MAC " << selfMACid << " sending response (type 1) to " << d_id);
+			LLM_DEBUG("Payload size: " << msg.yzMSGPayload.size() << " (before padding: " << (input_buffer.size() - 4) << ")");
+			if (msg.yzMSGPayload.size() > 4) {
+				LLM_DEBUG("First few payload values: " << msg.yzMSGPayload[0] << ", " << msg.yzMSGPayload[1] << ", " << msg.yzMSGPayload[2] << ", " << msg.yzMSGPayload[3]);
+			}
+		}
 	} else {
 		LLM_DEBUG("Unknown message type: " << msg.type);
 	}
@@ -235,9 +278,15 @@ void LLMMAC::llmRunOneStep() {
 			if (input_buffer.size() >= 4 + 32) {
 				query_data.assign(input_buffer.begin() + 4, input_buffer.begin() + 4 + 16);
 				key_data.assign(input_buffer.begin() + 4 + 16, input_buffer.begin() + 4 + 32);
+
+				if (selfMACid < 3) {
+					LLM_DEBUG("MAC " << selfMACid << " extracted data - Query size: " << query_data.size() << ", Key size: " << key_data.size());
+					LLM_DEBUG("First few query values: " << query_data[0] << ", " << query_data[1] << ", " << query_data[2]);
+					LLM_DEBUG("First few key values: " << key_data[0] << ", " << key_data[1] << ", " << key_data[2]);
+				}
 			} else {
 				LLM_DEBUG("ERROR: MAC " << selfMACid << " insufficient input buffer size: "
-				          << input_buffer.size());
+				          << input_buffer.size() << " (need at least " << (4 + 32) << ")");
 			}
 
 			attention_output = 0.0;
@@ -295,19 +344,37 @@ void LLMMAC::llmComputeAttention() {
 	// Ensure we have data
 	if (query_data.size() < 16 || key_data.size() < 16) {
 		LLM_DEBUG("ERROR: MAC " << selfMACid << " insufficient data for attention computation");
+		LLM_DEBUG("Query data size: " << query_data.size() << ", Key data size: " << key_data.size());
 		return;
 	}
 
-	// Compute Q·K (dot product)
-	for (int i = 0; i < 16; i++) {
-		attention_output += query_data[i] * key_data[i];
+	LLM_DEBUG("MAC " << selfMACid << " computing attention with " << query_data.size() << " query elements and " << key_data.size() << " key elements");
+
+	// Print first few elements for debugging
+	if (selfMACid < 3) {
+		LLM_DEBUG("Query[0-3]: " << query_data[0] << ", " << query_data[1] << ", " << query_data[2] << ", " << query_data[3]);
+		LLM_DEBUG("Key[0-3]: " << key_data[0] << ", " << key_data[1] << ", " << key_data[2] << ", " << key_data[3]);
 	}
 
+	// Compute Q·K (dot product)
+	float dot_product = 0.0;
+	for (int i = 0; i < 16; i++) {
+		float product = query_data[i] * key_data[i];
+		dot_product += product;
+		if (selfMACid < 3 && i < 4) {
+			LLM_DEBUG("  Q[" << i << "] * K[" << i << "] = " << query_data[i] << " * " << key_data[i] << " = " << product);
+		}
+	}
+
+	LLM_DEBUG("MAC " << selfMACid << " dot product: " << dot_product);
+
 	// Apply simple scaling (attention_output / sqrt(d_k))
-	attention_output = attention_output / sqrt(16.0);
+	attention_output = dot_product / sqrt(16.0);
+	LLM_DEBUG("MAC " << selfMACid << " after scaling: " << attention_output);
 
 	// Apply tanh activation (simplified softmax)
 	attention_output = tanh(attention_output);
+	LLM_DEBUG("MAC " << selfMACid << " final attention output: " << attention_output);
 }
 
 void LLMMAC::llmComputeQueryKeyDot() {
@@ -356,6 +423,13 @@ void LLMMAC::llmReceive(Message* re_msg) {
 		if (selfMACid < 3) {
 			LLM_DEBUG("MAC " << selfMACid << " received response message, buffer size: "
 			          << input_buffer.size());
+			LLM_DEBUG("Message payload size: " << re_msg->yzMSGPayload.size());
+			if (input_buffer.size() > 4) {
+				LLM_DEBUG("First few buffer values: " << input_buffer[0] << ", " << input_buffer[1] << ", " << input_buffer[2] << ", " << input_buffer[3]);
+				if (input_buffer.size() > 8) {
+					LLM_DEBUG("Data values [4-7]: " << input_buffer[4] << ", " << input_buffer[5] << ", " << input_buffer[6] << ", " << input_buffer[7]);
+				}
+			}
 		}
 	}
 }

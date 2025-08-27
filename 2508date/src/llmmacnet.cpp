@@ -135,6 +135,13 @@ void LLMMACnet::llmGenerateAllTasks() {
 					task.value_data[i] = attention_value_table[pixel_y][(pixel_x + data_idx) % matrix_size];
 				}
 
+				// Debug: Print first few tasks' data
+				if (task_id <= 5) {
+					LLM_DEBUG("Task " << task_id - 1 << " [(" << pixel_x << "," << pixel_y << "), ts=" << ts << "]:");
+					LLM_DEBUG("  Query[0-3]: " << task.query_data[0] << ", " << task.query_data[1] << ", " << task.query_data[2] << ", " << task.query_data[3]);
+					LLM_DEBUG("  Key[0-3]: " << task.key_data[0] << ", " << task.key_data[1] << ", " << task.key_data[2] << ", " << task.key_data[3]);
+				}
+
 				all_tasks.push_back(task);
 			}
 		}
@@ -306,13 +313,44 @@ void LLMMACnet::llmCheckStatus() {
 	}
 
 	if (status_check_count % 100000 == 0) {
-		LLM_DEBUG("Status: " << finished_count << " finished, " << active_count << " active");
+		LLM_DEBUG("Status: " << finished_count << " finished, " << active_count << " active out of " << macNum << " total MACs");
 	}
 
-	if (finished_count == macNum - (total_tasks < macNum ? macNum - total_tasks : 0)) {
-		// All assigned MAC units are finished
+	// 计算实际分配了任务的MAC数量
+	int assigned_macs = 0;
+	for (int i = 0; i < macNum; i++) {
+		if (mapping_table[i].size() > 0) {
+			assigned_macs++;
+		}
+	}
+
+	if (finished_count >= assigned_macs) {
+		// 所有分配了任务的MAC单元都已完成
 		LLM_DEBUG("All LLM attention tasks completed at cycle " << cycles);
+		LLM_DEBUG("Assigned MACs: " << assigned_macs << ", Finished: " << finished_count);
 		LLM_DEBUG("Total packets sent: " << packet_id);
+
+		// 统计有多少非零结果
+		int non_zero_count = 0;
+		int total_positions = 0;
+		float min_val = 1e10, max_val = -1e10;
+		for (int i = 0; i < matrix_size; i++) {
+			for (int j = 0; j < matrix_size; j++) {
+				total_positions++;
+				float val = attention_output_table[i][j];
+				if (abs(val) > 1e-10) {
+					non_zero_count++;
+					min_val = std::min(min_val, val);
+					max_val = std::max(max_val, val);
+				}
+			}
+		}
+
+		LLM_DEBUG("Output statistics: " << non_zero_count << "/" << total_positions << " non-zero values");
+		if (non_zero_count > 0) {
+			LLM_DEBUG("Value range: " << min_val << " to " << max_val);
+		}
+
 		layer_latency.push_back(cycles);
 		ready_flag = 2; // Finished
 		last_layer_packet_id = packet_id;
@@ -392,6 +430,14 @@ void LLMMACnet::llmRunOneStep() {
 					tmpLLMMAC->input_buffer.insert(tmpLLMMAC->input_buffer.end(),
 						task.key_data.begin(), task.key_data.end());
 
+					// Debug: Print data being sent
+					if (src_mac < 3) {
+						LLM_DEBUG("Sending data to MAC " << src_mac << " for task " << task_id);
+						LLM_DEBUG("Query data[0-3]: " << task.query_data[0] << ", " << task.query_data[1] << ", " << task.query_data[2] << ", " << task.query_data[3]);
+						LLM_DEBUG("Key data[0-3]: " << task.key_data[0] << ", " << task.key_data[1] << ", " << task.key_data[2] << ", " << task.key_data[3]);
+						LLM_DEBUG("Total input buffer size: " << tmpLLMMAC->input_buffer.size());
+					}
+
 					// Send response
 					int mem_delay = static_cast<int>(ceil((32 * 2 + 1) * MEM_read_delay)) + CACHE_DELAY;
 					LLMMAC_list[mem_id]->pecycle = cycles + mem_delay;
@@ -423,8 +469,15 @@ void LLMMACnet::llmRunOneStep() {
 			// Store result in output matrix
 			int pixel_x = tmpPacket->message.data[1];
 			int pixel_y = tmpPacket->message.data[2];
+			float result_value = tmpPacket->message.data[0];
+
 			if (pixel_x < matrix_size && pixel_y < matrix_size) {
-				attention_output_table[pixel_y][pixel_x] = tmpPacket->message.data[0];
+				attention_output_table[pixel_y][pixel_x] = result_value;
+				if (src_mac < 3) {
+					LLM_DEBUG("Stored result from MAC " << src_mac << " at position (" << pixel_x << "," << pixel_y << "): " << result_value);
+				}
+			} else {
+				LLM_DEBUG("ERROR: Invalid pixel position (" << pixel_x << "," << pixel_y << ") from MAC " << src_mac);
 			}
 
 			if (tmpLLMMAC->selfstatus == 5) {

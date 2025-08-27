@@ -378,7 +378,7 @@ int main(int arg_num, char *arg_vet[]) {
 
 	// Save attention output matrix
 	cout << "Saving attention output matrix..." << endl;
-	ofstream output_file("output/llm_attention_output.txt", ios::out);
+	ofstream output_file("src/output/llm_attention_output.txt", ios::out);
 	if (output_file.is_open()) {
 		for (int i = 0; i < llmMacnet->matrix_size; i++) {
 			for (int j = 0; j < llmMacnet->matrix_size; j++) {

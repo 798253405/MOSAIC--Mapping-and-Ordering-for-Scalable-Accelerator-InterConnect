@@ -13,7 +13,6 @@
 
 #include "Model.hpp"
 #include "NoC/VCNetwork.hpp"
-// 注意: llmmac.hpp 会在 .cpp 文件中包含，避免循环依赖
 
 using namespace std;
 
@@ -36,10 +35,10 @@ public:
 	VCNetwork* vcNetwork;
 
 	// LLM-specific data structures
-	vector<vector<float>> attention_query_table;    // Query matrix (32x32)
-	vector<vector<float>> attention_key_table;      // Key matrix (32x32)
-	vector<vector<float>> attention_value_table;    // Value matrix (32x32)
-	vector<vector<float>> attention_output_table;   // Output matrix (32x32)
+	vector<vector<float>> attention_query_table;
+	vector<vector<float>> attention_key_table;
+	vector<vector<float>> attention_value_table;
+	vector<vector<float>> attention_output_table;
 
 	// Task mapping and scheduling
 	deque<deque<int>> mapping_table;
@@ -54,6 +53,11 @@ public:
 	void llmInitializeMatrices();
 	void llmTaskPartitioning();
 
+	// 新增：数据导出函数
+	void llmExportMatricesToFile();
+	void llmExportTasksToFile();
+	void llmExportVerificationResults();
+
 	// Network and execution management
 	void llmRunOneStep();
 	void llmCheckStatus();
@@ -65,13 +69,13 @@ public:
 	int current_layer;
 	int total_layers;
 
-	// Matrix dimensions (32x32 for fast testing)
+	// Matrix dimensions
 	int matrix_size;
-	int tile_size;        // 4x4 per tile
-	int tiles_per_dim;    // 8 tiles per dimension (32/4)
-	int total_tiles;      // 64 total tiles
-	int time_slices;      // 2 time slices per pixel
-	int total_tasks;      // Total tasks = 32*32*2
+	int tile_size;
+	int tiles_per_dim;
+	int total_tiles;
+	int time_slices;
+	int total_tasks;
 
 	// Execution state
 	int ready_flag;

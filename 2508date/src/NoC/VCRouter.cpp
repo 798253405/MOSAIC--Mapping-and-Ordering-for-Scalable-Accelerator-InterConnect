@@ -98,16 +98,16 @@ void VCRouter::outPortDequeue(){
 	  out_port_list[i]->out_link->rInPort->buffer_list[flit->vc]->enqueue(flit);
 
 	  YZGlobalFlitPass ++;
-	  if(flit->packet->message.type == 1) // only type 1 is recorded
+	  if(flit->packet->message.msgtype == 1) // only type 1 is recorded
 		  {
 		  YZGlobalRespFlitPass ++;
 		  }
-	   //if(flit->packet->message.type == 1) // only type 1 is recorded
+	   //if(flit->packet->message.msgtype == 1) // only type 1 is recorded
 	  {
 
 		  // cout <<" YZGlobalRespFlitPassinvcRouterCPP " <<  YZGlobalRespFlitPass <<endl;
 
-		   //cout<<"aaaa "<<cycles<<" yzflippinginrouter "<< yzRouterID <<" port "<<i<<" "<<flit->id <<" reqresprestype "<<flit->packet->message.type<<endl;
+		   //cout<<"aaaa "<<cycles<<" yzflippinginrouter "<< yzRouterID <<" port "<<i<<" "<<flit->id <<" reqresprestype "<<flit->packet->message.msgtype<<endl;
 
 		#ifdef  all128BitInvert //如果做convert，那link要用特别的link比较，现在是128bit + 1个bit invert line
 		  out_port_list[i]->out_link->rInPort->yzInportall128BitInvertFlippingCounts(flit,  yzRouterID ,/* i is the portseqID*/ i  );

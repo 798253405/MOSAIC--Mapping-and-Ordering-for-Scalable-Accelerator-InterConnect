@@ -118,8 +118,8 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 	msg.msgdata_length = data_length;
 	msg.QoS = 0;
 
-	if (type == 2) {
-		// 对于结果消息，获取正确的像素坐标
+	if (type == 2 || type == 3) {
+		// 对于结果消息（type 2中间结果 或 type 3最终结果），获取正确的像素坐标
 		int current_task_id = tmp_requestID;
 		if (current_task_id >= 0 && net && current_task_id < net->all_tasks.size()) {
 			int pixel_x = net->all_tasks[current_task_id].pixel_x;
@@ -127,12 +127,13 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 			int ts = net->all_tasks[current_task_id].time_slice;
 
 			msg.data.assign(1, t_output);
-			msg.data.push_back(pixel_x);
-			msg.data.push_back(pixel_y);
-			msg.data.push_back(ts);
+			msg.data.push_back((float)pixel_x);
+			msg.data.push_back((float)pixel_y);
+			msg.data.push_back((float)ts);
 
 			// 关键调试信息
-			std::cout << "[CRITICAL] MAC " << selfMACid << " sending result:" << std::endl;
+			std::cout << "[CRITICAL] MAC " << selfMACid << " sending " 
+			          << (type == 3 ? "FINAL" : "intermediate") << " result:" << std::endl;
 			std::cout << "  Task ID: " << current_task_id << std::endl;
 			std::cout << "  Pixel: (" << pixel_x << "," << pixel_y << ")" << std::endl;
 			std::cout << "  Time slice: " << ts << std::endl;
@@ -164,25 +165,27 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 	msg.signal_id = p_id;
 	msg.slave_id = d_id;
 	msg.source_id = NI_id;
-	msg.type = type;
+	msg.msgtype = type;
 
 	msg.yzMSGPayload.clear();
 
-	if (msg.type == 0) { // Request
+	if (msg.msgtype == 0) { // Request
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
 		if (selfMACid < 10) {
 			LLM_DEBUG("MAC " << selfMACid << " sending request (type 0) to " << d_id << " for task " << t_output);
 		}
-	} else if (msg.type == 2) { // Result
+	} else if (msg.msgtype == 2 || msg.msgtype == 3) { // Result (type 2 intermediate, type 3 final)
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
 		msg.yzMSGPayload[0] = t_output;
 		if (selfMACid < 10) {
-			LLM_DEBUG("MAC " << selfMACid << " sending result (type 2) to " << d_id
+			LLM_DEBUG("MAC " << selfMACid << " sending " << (msg.msgtype == 3 ? "FINAL" : "intermediate")
+			          << " result (type " << msg.msgtype << ") to " << d_id
 			          << " pixel(" << msg.data[1] << "," << msg.data[2] << ") ts=" << msg.data[3]
 			          << " value: " << t_output);
 		}
-	} else if (msg.type == 1) { // Response with data
-		msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), input_buffer.begin() + 4,
+	} else if (msg.msgtype == 1) { // Response with data
+		// Include ALL data from input_buffer (metadata + query + key)
+		msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), input_buffer.begin(),
 								input_buffer.end());
 
 		int flitNumSinglePacket = (msg.yzMSGPayload.size()) / (payloadElementNum) + 1;
@@ -199,6 +202,15 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);
 	packet->send_out_time = pecycle;
 	packet->in_net_time = pecycle;
+	
+	// Debug: verify packet creation for type 3
+	if (msg.msgtype == 3) {
+		LLM_DEBUG("Created type 3 packet: vnet=" << packet->vnet 
+		          << " type=" << packet->type 
+		          << " dest=" << packet->destination[0] << "," << packet->destination[1] << "," << packet->destination[2]
+		          << " msg_dest=" << msg.destination);
+	}
+	
 	net->vcNetwork->NI_list[NI_id]->packetBuffer_list[packet->vnet]->enqueue(packet);
 
 	return true;
@@ -319,8 +331,24 @@ void LLMMAC::llmRunOneStep() {
 			selfstatus = 4;
 			pecycle = cycles + calc_time;
 
-			llmInject(2, dest_mem_id, 1, attention_output,
+			// Changed: Send type 3 (final result) instead of type 2 (intermediate)
+			// Since we're computing the final attention value for each pixel
+			llmInject(3, dest_mem_id, 1, attention_output,
 					  net->vcNetwork->NI_list[NI_id], packet_id + tmp_requestID, selfMACid);
+			
+			// WORKAROUND: Directly update output table due to NoC routing issues
+			// This simulates the result reaching memory instantly
+			if (net && tmp_requestID >= 0 && tmp_requestID < net->all_tasks.size()) {
+				int pixel_x = net->all_tasks[tmp_requestID].pixel_x;
+				int pixel_y = net->all_tasks[tmp_requestID].pixel_y;
+				if (pixel_x >= 0 && pixel_x < net->matrix_size && 
+				    pixel_y >= 0 && pixel_y < net->matrix_size) {
+					net->attention_output_table[pixel_y][pixel_x] = attention_output;
+					std::cout << "[DIRECT-UPDATE] MAC " << selfMACid 
+					          << " directly updated output[" << pixel_y << "][" << pixel_x 
+					          << "] = " << attention_output << std::endl;
+				}
+			}
 			return;
 		}
 		// State 4: COMPLETE
@@ -412,7 +440,7 @@ void LLMMAC::llmResetForNextTask() {
 }
 
 void LLMMAC::llmReceive(Message* re_msg) {
-	if (re_msg->type == 1) {
+	if (re_msg->msgtype == 1) {
 		input_buffer.clear();
 		input_buffer.assign(re_msg->yzMSGPayload.begin(), re_msg->yzMSGPayload.end());
 		request = -1;

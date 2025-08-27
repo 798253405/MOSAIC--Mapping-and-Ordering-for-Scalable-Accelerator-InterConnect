@@ -19,7 +19,7 @@ struct Message{
   int out_cycle;
   int slave_id;
   int sequence_id;
-  int type;
+  int msgtype;
   int msgdata_length;
   int destination;
   int QoS = 0;

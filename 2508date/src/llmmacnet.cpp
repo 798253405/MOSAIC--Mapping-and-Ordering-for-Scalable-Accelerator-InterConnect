@@ -443,26 +443,36 @@ void LLMMACnet::llmCheckStatus() {
 
 	int finished_count = 0;
 	int active_count = 0;
+	int assigned_macs = 0;
+	
 	for (int i = 0; i < macNum; i++) {
-		if (LLMMAC_list[i]->selfstatus == 5 && LLMMAC_list[i]->send == 3) {
-			finished_count++;
-		} else if (LLMMAC_list[i]->selfstatus != 5) {
-			active_count++;
+		// Only count MACs that actually have tasks assigned
+		if (mapping_table[i].size() > 0) {
+			assigned_macs++;
+			if (LLMMAC_list[i]->selfstatus == 5 && LLMMAC_list[i]->send == 3) {
+				finished_count++;
+			} else if (LLMMAC_list[i]->selfstatus != 5) {
+				active_count++;
+			}
 		}
 	}
 
 	if (status_check_count % 10000 == 0) {
-		LLM_DEBUG("Status: " << finished_count << " finished, " << active_count << " active out of " << macNum << " total MACs");
+		LLM_DEBUG("Status: " << finished_count << " finished, " << active_count << " active out of " << assigned_macs << " assigned MACs");
 	}
 
-	int assigned_macs = 0;
-	for (int i = 0; i < macNum; i++) {
-		if (mapping_table[i].size() > 0) {
-			assigned_macs++;
+	// Complete when no MACs are active (all have finished their tasks)
+	// Add a delay to ensure messages are delivered through the network
+	static int completion_wait_cycles = 0;
+	
+	if (assigned_macs > 0 && active_count == 0) {
+		completion_wait_cycles++;
+		
+		// Wait for 10000 cycles after all MACs finish to ensure messages are delivered
+		// (Network latency can be high in 32x32 NoC)
+		if (completion_wait_cycles < 10000) {
+			return;
 		}
-	}
-
-	if (finished_count >= assigned_macs) {
 		LLM_DEBUG("\n=== All small matrix tasks completed at cycle " << cycles << " ===");
 		LLM_DEBUG("Assigned MACs: " << assigned_macs << ", Finished: " << finished_count);
 
@@ -499,7 +509,6 @@ void LLMMACnet::llmCheckStatus() {
 
 	ready_flag = 1;
 }
-
 void LLMMACnet::llmRunOneStep() {
 	static int run_step_count = 0;
 	run_step_count++;
@@ -508,7 +517,7 @@ void LLMMACnet::llmRunOneStep() {
 		LLMMAC_list[i]->llmRunOneStep();
 	}
 
-	if (run_step_count % 10000 == 0) {  // 更频繁的调试输出
+	if (run_step_count % 10000 == 0) {
 		int active_macs = 0;
 		for (int i = 0; i < macNum; i++) {
 			if (LLMMAC_list[i]->selfstatus != 5) {
@@ -529,16 +538,36 @@ void LLMMACnet::llmRunOneStep() {
 		mem_id = dest_list[memidx];
 		tmpNI = this->vcNetwork->NI_list[mem_id];
 
-		// Handle type 0 requests
+		// Process ALL message types in buffer[0]
 		pbuffer_size = tmpNI->packet_buffer_out[0].size();
+		
+		// Debug: check if we have any packets
+		static int debug_count = 0;
+		if (pbuffer_size > 0 && debug_count++ % 1000 == 0) {
+			LLM_DEBUG("Memory " << mem_id << " has " << pbuffer_size << " packets in buffer[0]");
+		}
+		
 		for (int j = 0; j < pbuffer_size; j++) {
 			tmpPacket = tmpNI->packet_buffer_out[0].front();
-
-			if (tmpPacket->message.type != 0 || tmpPacket->message.out_cycle >= cycles) {
-				tmpNI->packet_buffer_out[0].pop_front();
-				tmpNI->packet_buffer_out[0].push_back(tmpPacket);
-				continue;
+			
+			// Debug: log all packet types
+			static int pkt_debug_count = 0;
+			if (pkt_debug_count++ % 100 == 0) {
+				LLM_DEBUG("Memory " << mem_id << " processing packet type " << tmpPacket->message.msgtype 
+				          << " from MAC " << tmpPacket->message.mac_id);
 			}
+			if (tmpPacket->message.msgtype == 3) {
+				std::cout << "[TYPE3-FOUND] Memory " << mem_id << " found type 3 packet from MAC " 
+				          << tmpPacket->message.mac_id << std::endl;
+			}
+			
+			// Handle type 0 requests
+			if (tmpPacket->message.msgtype == 0) {
+				if (tmpPacket->message.out_cycle >= cycles) {
+					tmpNI->packet_buffer_out[0].pop_front();
+					tmpNI->packet_buffer_out[0].push_back(tmpPacket);
+					continue;
+				}
 
 			src = tmpPacket->message.source_id;
 			pid_signal_id = tmpPacket->message.signal_id;
@@ -546,17 +575,14 @@ void LLMMACnet::llmRunOneStep() {
 			tmpLLMMAC = LLMMAC_list[src_mac];
 
 			if (tmpLLMMAC->selfstatus == 2) {
-				int task_id = tmpPacket->message.data[0];  // 修正：从消息中获取task_id
-
-				LLM_DEBUG("Memory " << mem_id << " processing request from MAC " << src_mac
-				          << " for task " << task_id);
+				int task_id = tmpPacket->message.data[0];
 
 				if (task_id >= 0 && task_id < all_tasks.size()) {
 					LLMTask& task = all_tasks[task_id];
 
 					tmpLLMMAC->input_buffer.clear();
 					tmpLLMMAC->input_buffer.push_back(1.0f);
-					tmpLLMMAC->input_buffer.push_back(task.query_data.size());  // 实际数据大小
+					tmpLLMMAC->input_buffer.push_back(task.query_data.size());
 					tmpLLMMAC->input_buffer.push_back(task.time_slice);
 					tmpLLMMAC->input_buffer.push_back(task.pixel_x * matrix_size + task.pixel_y);
 
@@ -565,79 +591,95 @@ void LLMMACnet::llmRunOneStep() {
 					tmpLLMMAC->input_buffer.insert(tmpLLMMAC->input_buffer.end(),
 						task.key_data.begin(), task.key_data.end());
 
-					LLM_DEBUG("Memory sending data to MAC " << src_mac << " for task " << task_id
-					          << " [pixel(" << task.pixel_x << "," << task.pixel_y << "), ts=" << task.time_slice << "]");
-					LLM_DEBUG("Data size: " << task.query_data.size() << " Query + " << task.key_data.size() << " Key");
+					LLM_DEBUG("Memory " << mem_id << " sending data to MAC " << src_mac
+					          << " for task " << task_id
+					          << " [pixel(" << task.pixel_x << "," << task.pixel_y
+					          << "), ts=" << task.time_slice << "]");
 
 					int mem_delay = static_cast<int>(ceil((task.query_data.size() * 2 + 1) * MEM_read_delay)) + CACHE_DELAY;
 					LLMMAC_list[mem_id]->pecycle = cycles + mem_delay;
 					LLMMAC_list[mem_id]->input_buffer = tmpLLMMAC->input_buffer;
 					LLMMAC_list[mem_id]->llmInject(1, src, tmpLLMMAC->input_buffer.size(),
 						1.0f, vcNetwork->NI_list[mem_id], pid_signal_id, src_mac);
-				} else {
-					LLM_DEBUG("ERROR: Invalid task_id " << task_id);
 				}
+				tmpNI->packet_buffer_out[0].pop_front();
 			}
-			tmpNI->packet_buffer_out[0].pop_front();
-		}
-
-		// Handle type 2 results - 这是关键部分！
-		pbuffer_size = tmpNI->packet_buffer_out[1].size();
-
-		if (pbuffer_size > 0) {
-			std::cout << "[RESULT-BUFFER] Memory " << mem_id << " has " << pbuffer_size
-			          << " messages in result buffer" << std::endl;
-		}
-
-		for (int j = 0; j < pbuffer_size; j++) {
-			tmpPacket = tmpNI->packet_buffer_out[1].front();
-
-			if (tmpPacket->message.type != 2) {
-				tmpNI->packet_buffer_out[1].pop_front();
-				tmpNI->packet_buffer_out[1].push_back(tmpPacket);
-				continue;
-			}
-
-			src = tmpPacket->message.source_id;
-			src_mac = tmpPacket->message.mac_id;
-			tmpLLMMAC = LLMMAC_list[src_mac];
-
-			// 关键调试：检查消息内容
-			std::cout << "[RESULT-RECEIVE] Memory " << mem_id << " receiving result from MAC " << src_mac << std::endl;
-			std::cout << "  Message data size: " << tmpPacket->message.data.size() << std::endl;
-
-			if (tmpPacket->message.data.size() >= 4) {
-				float result_value = tmpPacket->message.data[0];
-				int pixel_x = tmpPacket->message.data[1];
-				int pixel_y = tmpPacket->message.data[2];
-				int time_slice = tmpPacket->message.data[3];
-
-				std::cout << "  Result value: " << std::fixed << std::setprecision(10) << result_value << std::endl;
-				std::cout << "  Pixel: (" << pixel_x << "," << pixel_y << ")" << std::endl;
-				std::cout << "  Time slice: " << time_slice << std::endl;
-
-				if (pixel_x < matrix_size && pixel_y < matrix_size) {
-					// 存储结果前的值
-					float old_value = attention_output_table[pixel_y][pixel_x];
-
-					// 存储新值
-					attention_output_table[pixel_y][pixel_x] = result_value;
-
-					std::cout << "[STORE-RESULT] Storing at pixel(" << pixel_x << "," << pixel_y << "):" << std::endl;
-					std::cout << "  Old value: " << old_value << std::endl;
-					std::cout << "  New value: " << result_value << std::endl;
-					std::cout << "  Verification: " << attention_output_table[pixel_y][pixel_x] << std::endl;
-				} else {
-					std::cout << "[ERROR] Invalid pixel coordinates: (" << pixel_x << "," << pixel_y << ")" << std::endl;
+			// Handle type 2 and 3 results in the same loop iteration
+			else if (tmpPacket->message.msgtype == 2 || tmpPacket->message.msgtype == 3) {
+				// Check out_cycle for result packets too
+				if (tmpPacket->message.out_cycle >= cycles) {
+					tmpNI->packet_buffer_out[0].pop_front();
+					tmpNI->packet_buffer_out[0].push_back(tmpPacket);
+					continue;
 				}
-			} else {
-				std::cout << "[ERROR] Message data too small: " << tmpPacket->message.data.size() << std::endl;
-			}
+				int msg_type = tmpPacket->message.msgtype;
+				src = tmpPacket->message.source_id;
+				src_mac = tmpPacket->message.mac_id;
+				tmpLLMMAC = LLMMAC_list[src_mac];
 
-			if (tmpLLMMAC->selfstatus == 5) {
-				tmpLLMMAC->send = 3;
+				if (tmpPacket->message.data.size() >= 4) {
+					float result_value = tmpPacket->message.data[0];
+					int pixel_x = tmpPacket->message.data[1];
+					int pixel_y = tmpPacket->message.data[2];
+					int time_slice = tmpPacket->message.data[3];
+
+					if (msg_type == 2) {
+						// Type 2: 中间结果，仅用于调试
+						LLM_DEBUG("[INTERMEDIATE] Memory " << mem_id
+						          << " received intermediate result from MAC " << src_mac
+						          << " for pixel(" << pixel_x << "," << pixel_y << ") ts=" << time_slice
+						          << " value=" << std::fixed << std::setprecision(6) << result_value);
+					}
+					else if (msg_type == 3) {
+						// Type 3: 最终聚合结果，更新输出表！
+						std::cout << "[FINAL-UPDATE] Memory " << mem_id
+						          << " received FINAL result from MAC " << src_mac << std::endl;
+						std::cout << "  Pixel: (" << pixel_x << "," << pixel_y << ")" << std::endl;
+						std::cout << "  Final value: " << std::fixed << std::setprecision(10) << result_value << std::endl;
+
+						if (pixel_x >= 0 && pixel_x < matrix_size &&
+						    pixel_y >= 0 && pixel_y < matrix_size) {
+
+							// 保存旧值用于比较
+							float old_value = attention_output_table[pixel_y][pixel_x];
+
+							// 更新输出表
+							attention_output_table[pixel_y][pixel_x] = result_value;
+
+							std::cout << "[TABLE-UPDATE] Updated output table:" << std::endl;
+							std::cout << "  Position [" << pixel_y << "][" << pixel_x << "]" << std::endl;
+							std::cout << "  Old value: " << std::fixed << std::setprecision(10) << old_value << std::endl;
+							std::cout << "  New value: " << std::fixed << std::setprecision(10) << result_value << std::endl;
+							std::cout << "  Verification: " << attention_output_table[pixel_y][pixel_x] << std::endl;
+
+							// 统计非零元素
+							int non_zero_count = 0;
+							for (int i = 0; i < matrix_size; i++) {
+								for (int j = 0; j < matrix_size; j++) {
+									if (attention_output_table[i][j] != 0.0) {
+										non_zero_count++;
+									}
+								}
+							}
+							std::cout << "  Total non-zero elements in table: " << non_zero_count
+							          << "/" << (matrix_size * matrix_size) << std::endl;
+						} else {
+							std::cout << "[ERROR] Invalid pixel coordinates: ("
+							          << pixel_x << "," << pixel_y << ")" << std::endl;
+						}
+					}
+				}
+
+				if (tmpLLMMAC->selfstatus == 5) {
+					tmpLLMMAC->send = 3;
+				}
+				tmpNI->packet_buffer_out[0].pop_front();
 			}
-			tmpNI->packet_buffer_out[1].pop_front();
+			else {
+				// Other message types - just cycle them
+				tmpNI->packet_buffer_out[0].pop_front();
+				tmpNI->packet_buffer_out[0].push_back(tmpPacket);
+			}
 		}
 	}
 
@@ -650,7 +692,7 @@ void LLMMACnet::llmRunOneStep() {
 
 		for (int j = 0; j < pbuffer_size; j++) {
 			tmpPacket = tmpNI->packet_buffer_out[0].front();
-			if (tmpPacket->message.type != 1) {
+			if (tmpPacket->message.msgtype != 1) {
 				tmpNI->packet_buffer_out[0].pop_front();
 				tmpNI->packet_buffer_out[0].push_back(tmpPacket);
 				continue;
@@ -658,9 +700,6 @@ void LLMMACnet::llmRunOneStep() {
 
 			src_mac = tmpPacket->message.mac_id;
 			tmpLLMMAC = LLMMAC_list[src_mac];
-
-			LLM_DEBUG("MAC " << src_mac << " receiving type 1 response");
-
 			tmpLLMMAC->llmReceive(&tmpPacket->message);
 			tmpNI->packet_buffer_out[0].pop_front();
 		}
@@ -671,18 +710,27 @@ void LLMMACnet::llmRunOneStep() {
 		std::cout << "\n[MATRIX-STATUS] Current output matrix at step " << run_step_count << ":" << std::endl;
 		int non_zero_count = 0;
 		for (int i = 0; i < matrix_size; i++) {
+			std::cout << "Row " << i << ": ";
 			for (int j = 0; j < matrix_size; j++) {
-				if (attention_output_table[i][j] != 0.0) {
+				float val = attention_output_table[i][j];
+				if (val != 0.0) {
 					non_zero_count++;
-					std::cout << "  [" << i << "][" << j << "] = "
-					          << std::fixed << std::setprecision(6)
-					          << attention_output_table[i][j] << std::endl;
+					std::cout << std::fixed << std::setprecision(6) << val << " ";
+				} else {
+					std::cout << "0.000000 ";
 				}
 			}
+			std::cout << std::endl;
 		}
-		std::cout << "  Non-zero elements: " << non_zero_count << "/" << (matrix_size * matrix_size) << std::endl;
+		std::cout << "Non-zero elements: " << non_zero_count << "/" << (matrix_size * matrix_size) << std::endl;
 	}
 }
+
+
+
+
+
+}  // End of llmRunOneStep()
 
 // Destructor
 LLMMACnet::~LLMMACnet() {

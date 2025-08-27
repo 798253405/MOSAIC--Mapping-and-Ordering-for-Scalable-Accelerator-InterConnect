@@ -458,8 +458,8 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 	            this->totalyzInportFlipping += flips;
 	           // cout<<"        flips of one floating point "<< flips<<" "<<yzPreviousFlitPayload[i]<<" "<<currentFlitInLink->packet->message.yzMSGPayload[i]<<" "<<  ieee1 <<" "<< ieee2<<endl;
 	    }
-	    //if(t_yztempFlit->packet->message.type  == 1)
-		 cout<<cycles<<" type "<< t_yztempFlit->packet->message.type <<" value: "<< t_yztempFlit->packet->message.yzMSGPayload.front()<<" size: "<<t_yztempFlit->packet->message.yzMSGPayload.size()<< " this->totalyzInportFlippingflipping " <<this->totalyzInportFlipping <<" line374"<<endl;//packet->message.type:  0=req  1=response  2=result
+	    //if(t_yztempFlit->packet->message.msgtype  == 1)
+		 cout<<cycles<<" type "<< t_yztempFlit->packet->message.msgtype <<" value: "<< t_yztempFlit->packet->message.yzMSGPayload.front()<<" size: "<<t_yztempFlit->packet->message.yzMSGPayload.size()<< " this->totalyzInportFlippingflipping " <<this->totalyzInportFlipping <<" line374"<<endl;//packet->message.msgtype:  0=req  1=response  2=result
 
 	yzPreviousFlitPayload.clear();
 	    yzPreviousMSGPayload.clear();

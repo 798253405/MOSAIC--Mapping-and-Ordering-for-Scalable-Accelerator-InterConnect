@@ -130,19 +130,19 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 	msg.signal_id = p_id;
 	msg.slave_id = d_id; //NI
 	msg.source_id = NI_id; // NI
-	msg.type = type; // 0 1 2 3
+	msg.msgtype = type; // 0 1 2 3
 
 	msg.yzMSGPayload.clear();
 
 	//int tempDataCount = FLIT_LENGTH/valueBytes; //32 bytes /2 bytes per data
 	//msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), inbuffer.begin(), inbuffer.end());
-	if (msg.type == 0)
+	if (msg.msgtype == 0)
 		msg.yzMSGPayload.assign(payloadElementNum, 0); // 替换为 16 个 0
-	else if (msg.type == 2){
+	else if (msg.msgtype == 2){
 		msg.yzMSGPayload.assign(payloadElementNum, 0); // 替换为 16 个 0
 		msg.yzMSGPayload[0] = t_output;
 	}
-	else if (msg.type == 1) { //response
+	else if (msg.msgtype == 1) { //response
 		//msg.yzMSGPayload.assign(FLIT_LENGTH/valueBytes-1, 1); // 替换为 15 个 1    256bit（32byte）/16bit（2byte）-1 = 16 -1 =15 或者7个1 ：256/32 - 1=8-1=7
 		msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), inbuffer.begin() + 3,
 				inbuffer.end());		 //inbuffer.end() //inbuffer.begin()+18
@@ -196,7 +196,7 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 		//	cout<<msg.yzMSGPayload.size() << " afterfltordering "<<"msg.yzMSGPayload.front() "<<msg.yzMSGPayload.front()<<" " << msg.yzMSGPayload.back() <<endl;
 #endif
 	} else
-		cout << " msg.type wierd " << msg.type << endl;
+		cout << " msg.msgtype wierd " << msg.msgtype << endl;
 	//assert (false);
 
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);

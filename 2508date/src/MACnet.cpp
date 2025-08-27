@@ -1508,7 +1508,7 @@ void MACnet::runOneStep() {
 			tmpPacket = tmpNI->packet_buffer_out[0].front();
 			// added check if reached out cycle
 			// check received packet at MEM from MAC type 0
-			if (tmpPacket->message.type != 0
+			if (tmpPacket->message.msgtype != 0
 					|| tmpPacket->message.out_cycle >= cycles) {
 				tmpNI->packet_buffer_out[0].pop_front();
 				tmpNI->packet_buffer_out[0].push_back(tmpPacket);
@@ -1529,7 +1529,7 @@ void MACnet::runOneStep() {
 			DNN_latency[pidSignalID * 3 + 1][3] = cycles;
 			//cout<<" tmpMAC->requestline1868 "<<tmpMAC->request<<endl;
 #endif
-			// cout<<cycles << " MEM " << tmpPacket->message.destination << " receive type " << tmpPacket->message.type << " from MAC " << src << endl;
+			// cout<<cycles << " MEM " << tmpPacket->message.destination << " receive type " << tmpPacket->message.msgtype << " from MAC " << src << endl;
 			tmpMAC = MAC_list[src_mac];
 			if (this->cnnmodel->all_layer_type[current_layerSeq] == 'c') { // conv layer fetch data
 				if (tmpMAC->selfstatus == 2) // request data && this->cnnmodel->all_layer_type[current_layerSeq]=='c'
@@ -1690,7 +1690,7 @@ void MACnet::runOneStep() {
 		pbuffersize = tmpNI->packet_buffer_out[1].size();
 		for (int j = 0; j < pbuffersize; j++) {
 			tmpPacket = tmpNI->packet_buffer_out[1].front();
-			if (tmpPacket->message.type != 2) {
+			if (tmpPacket->message.msgtype != 2) {
 				tmpNI->packet_buffer_out[1].pop_front();
 				tmpNI->packet_buffer_out[1].push_back(tmpPacket);
 				cout << "continue macnet: " << cycles << endl;
@@ -1700,7 +1700,7 @@ void MACnet::runOneStep() {
 			pidSignalID = tmpPacket->message.signal_id;
 			yzLastSeenPid = pidSignalID;
 			src_mac = tmpPacket->message.mac_id;
-			// cout << "MEM " << tmpPacket->message.destination <<  " receive type " << tmpPacket->message.type << " from MAC " << src << endl;
+			// cout << "MEM " << tmpPacket->message.destination <<  " receive type " << tmpPacket->message.msgtype << " from MAC " << src << endl;
 			tmpMAC = MAC_list[src_mac];
 
 #ifdef SoCC_Countlatency
@@ -1758,7 +1758,7 @@ void MACnet::runOneStep() {
 		pbuffersize = tmpNI->packet_buffer_out[0].size();
 		for (int j = 0; j < pbuffersize; j++) {
 			tmpPacket = tmpNI->packet_buffer_out[0].front();
-			if (tmpPacket->message.type != 1) {
+			if (tmpPacket->message.msgtype != 1) {
 				tmpNI->packet_buffer_out[0].pop_front();
 				tmpNI->packet_buffer_out[0].push_back(tmpPacket);
 				continue;

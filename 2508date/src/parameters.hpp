@@ -63,6 +63,8 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
     #define MAX_DEBUG_MAC_UNITS 3
 #endif
 
+
+
 // 通用LLM参数
 #define LLM_RANDOM_SEED 42  // 固定随机种子确保可重现性
 

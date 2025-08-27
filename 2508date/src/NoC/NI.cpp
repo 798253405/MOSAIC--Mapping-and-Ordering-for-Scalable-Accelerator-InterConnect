@@ -555,7 +555,7 @@ void NI::dequeue() {
 			assert(vcRouter != NULL);
 #ifdef SoCC_Countlatency
 			//statistics for head flit in all types
-			DNN_latency[flit->signalid * 3 + flit->packet->message.type][5] =
+			DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][5] =
 					cycles;//DNN_yzlatency[x+type][5]
 #endif
 #ifdef SHARED_VC
@@ -583,24 +583,24 @@ void NI::inputCheck() {
 #ifdef SoCC_Countlatency
 			if (flit->type == 1 || flit->type == 10) {
 				//statistics for tail flit arrived at NI in all types
-				if (DNN_latency[flit->signalid * 3 + flit->packet->message.type][6]
+				if (DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6]
 						== 0) {
-					DNN_latency[flit->signalid * 3 + flit->packet->message.type][6] =
+					DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6] =
 							cycles; ///DNN_yzlatency[x+type][6]
 					//0 and 1 is in samping window
-					if (flit->packet->message.type == 0) { //request  for req/response/ack
+					if (flit->packet->message.msgtype == 0) { //request  for req/response/ack
 						samplingAccumlatedCounter += 1;
 						samplingWindowDelay[(DNN_latency[flit->signalid * 3][2])] +=   // this nodes' overall latency (in this samping window)
 								DNN_latency[flit->signalid * 3][6]
 										- DNN_latency[flit->signalid* 3][5];
 
-					} else if (flit->packet->message.type == 1) { //response  for req/response/ack
+					} else if (flit->packet->message.msgtype == 1) { //response  for req/response/ack
 						samplingWindowDelay[(DNN_latency[flit->signalid * 3
-								+ flit->packet->message.type][2])] +=
+								+ flit->packet->message.msgtype][2])] +=
 								DNN_latency[flit->signalid * 3
-										+ flit->packet->message.type][6]
+										+ flit->packet->message.msgtype][6]
 										- DNN_latency[flit->signalid * 3
-												+ flit->packet->message.type][5];
+												+ flit->packet->message.msgtype][5];
 						samplingAccumlatedCounter += 1;
 
 					}

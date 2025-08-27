@@ -1,6 +1,6 @@
 // 修复的 llmmacnet.cpp
 #include "llmmacnet.hpp"
-#include "llmmac.hpp"
+#include "llmmac.hpp"  // 在 .cpp 文件中包含完整定义
 #include <cassert>
 #include <ctime>
 #include <iomanip>

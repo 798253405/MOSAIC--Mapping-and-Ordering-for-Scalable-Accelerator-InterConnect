@@ -15,10 +15,11 @@
 #include <deque>
 #include <cmath>
 #include <cassert>
+#include <algorithm>  // 添加 std::min
 #include "parameters.hpp"
 #include "NoC/Packet.hpp"
 #include "NoC/NI.hpp"
-#include "llmmacnet.hpp"
+// 注意: llmmacnet.hpp 会在 .cpp 文件中包含，避免循环依赖
 
 #if defined MemNode2_4x4
 	#define MEM_NODES 2
@@ -53,7 +54,7 @@ extern unsigned int cycles;
 extern vector<vector<int>> DNN_latency;
 extern double samplingWindowDelay[TOT_NUM];
 
-class LLMMACnet;
+class LLMMACnet;  // 前向声明
 class Packet;
 
 class LLMMAC
@@ -82,8 +83,8 @@ class LLMMAC
 
 		// LLM attention parameters
 		int tile_x_start, tile_y_start;  // Starting position of this tile
-		int tile_size;                   // Size of tile (16x16)
-		int time_slice;                  // Current time slice (0-3)
+		int tile_size;                   // Size of tile (4x4)
+		int time_slice;                  // Current time slice (0-1)
 		int dest_mem_id;                 // Memory node ID
 
 		float attention_output;          // Computed attention output

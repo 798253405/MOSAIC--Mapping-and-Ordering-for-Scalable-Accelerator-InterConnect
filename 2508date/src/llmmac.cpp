@@ -1,5 +1,6 @@
 // 修复的 llmmac.cpp
 #include "llmmac.hpp"
+#include "llmmacnet.hpp"  // 添加完整的头文件包含
 #include <ctime>
 #include <iomanip>
 
@@ -165,7 +166,6 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 
 void LLMMAC::llmRunOneStep() {
 	static int total_run_count = 0;
-	static int active_macs_last_report = 0;
 	total_run_count++;
 
 	// Debug: Print first few MAC units' status
@@ -175,7 +175,7 @@ void LLMMAC::llmRunOneStep() {
 		          << " request: " << request << " cycle: " << pecycle << "/" << cycles);
 	}
 
-	if (pecycle < cycles) {
+	if ((int)pecycle < (int)cycles) {  // 修复符号比较警告
 		// State 0: IDLE - check if we have tasks to process
 		if (selfstatus == 0) {
 			if (routing_table.size() == 0) {
@@ -227,9 +227,9 @@ void LLMMAC::llmRunOneStep() {
 
 			// Extract LLM attention data from input_buffer
 			fn = input_buffer[0]; // Function type (attention operation)
-			int data_size = input_buffer[1]; // Size of query/key/value data
+			// int data_size = input_buffer[1]; // Size of query/key/value data (unused)
 			time_slice = input_buffer[2]; // Current time slice
-			int pixel_id = input_buffer[3]; // Pixel ID within tile
+			// int pixel_id = input_buffer[3]; // Pixel ID within tile (unused)
 
 			// Extract query, key, value data (16 + 16 = 32 elements total)
 			if (input_buffer.size() >= 4 + 32) {
@@ -313,7 +313,8 @@ void LLMMAC::llmComputeAttention() {
 void LLMMAC::llmComputeQueryKeyDot() {
 	// Detailed Q·K computation if needed for more complex attention
 	float dot_product = 0.0;
-	for (int i = 0; i < query_data.size() && i < key_data.size(); i++) {
+	size_t min_size = std::min(query_data.size(), key_data.size());
+	for (size_t i = 0; i < min_size; i++) {  // 修复符号比较警告
 		dot_product += query_data[i] * key_data[i];
 	}
 	attention_output = dot_product;

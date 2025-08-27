@@ -24,6 +24,47 @@ constexpr int SEQUENCE_LENGTH = 512;
 constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 // Debug控制开关 - 注释掉这一行来关闭所有LLM调试输出
 #define LLM_DEBUG_PRINT_ENABLED
+// 新增：小矩阵调试模式开关
+#define SMALL_MATRIX_DEBUG_MODE  // 启用4x4小矩阵调试模式
+
+// LLM矩阵尺寸配置 - 可调整
+#ifdef SMALL_MATRIX_DEBUG_MODE
+    // 小矩阵调试配置
+    #define LLM_MATRIX_SIZE 4
+    #define LLM_TILE_SIZE 2
+    #define LLM_TIME_SLICES 2
+    #define LLM_DATA_ELEMENTS_PER_VECTOR LLM_MATRIX_SIZE
+    #define LLM_TOTAL_TASKS (LLM_MATRIX_SIZE * LLM_MATRIX_SIZE * LLM_TIME_SLICES)
+
+    // 调试输出控制
+    #define LLM_DEBUG_PRINT_ENABLED
+    #define LLM_VERBOSE_DEBUG
+
+    // 输出路径
+    #define LLM_OUTPUT_PATH "src/output/"
+
+    // 最大调试MAC数量
+    #define MAX_DEBUG_MAC_UNITS 10
+
+
+
+#else
+    // 正常大矩阵配置
+    #define LLM_MATRIX_SIZE 32
+    #define LLM_TILE_SIZE 4
+    #define LLM_TIME_SLICES 2
+    #define LLM_DATA_ELEMENTS_PER_VECTOR 16
+    #define LLM_TOTAL_TASKS (LLM_MATRIX_SIZE * LLM_MATRIX_SIZE * LLM_TIME_SLICES)
+
+    // 正常输出路径
+    #define LLM_OUTPUT_PATH "output/"
+
+    // 限制调试输出
+    #define MAX_DEBUG_MAC_UNITS 3
+#endif
+
+// 通用LLM参数
+#define LLM_RANDOM_SEED 42  // 固定随机种子确保可重现性
 
 
 /*******************************/    // noc size and MC NUM

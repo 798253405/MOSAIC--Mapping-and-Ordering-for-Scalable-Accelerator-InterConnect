@@ -22,7 +22,8 @@ constexpr int DIM_MODEL = 4096;
 constexpr int NUM_HEAD = 32;
 constexpr int SEQUENCE_LENGTH = 512;
 constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
-
+// Debug控制开关 - 注释掉这一行来关闭所有LLM调试输出
+#define LLM_DEBUG_PRINT_ENABLED
 
 
 /*******************************/    // noc size and MC NUM

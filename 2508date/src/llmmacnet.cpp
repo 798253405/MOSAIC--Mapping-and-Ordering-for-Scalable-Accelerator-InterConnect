@@ -15,6 +15,19 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	pe_y = t_pe_y;
 	vcNetwork = t_Network;
 
+    // 在构造函数的末尾添加这个循环
+	for (int i = 0; i < macNum; i++)  {
+		int temp_ni_id = i % TOT_NUM;
+        LLMMAC *llmmac = new LLMMAC(i, this, temp_ni_id);
+        LLMMAC_list.push_back(llmmac);
+    }
+
+
+
+
+    cout << "LLMMACnet created successfully!" << endl; // 你可以保留这行输出来确认
+
+
 	// LLM-specific initialization
 	current_layer = 0;
 	total_layers = 1; // For now, single attention layer

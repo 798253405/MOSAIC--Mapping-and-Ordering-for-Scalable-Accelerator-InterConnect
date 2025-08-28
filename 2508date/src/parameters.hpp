@@ -22,64 +22,52 @@ constexpr int DIM_MODEL = 4096;
 constexpr int NUM_HEAD = 32;
 constexpr int SEQUENCE_LENGTH = 512;
 constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
-// Debug控制开关 - 注释掉这一行来关闭所有LLM调试输出
-#define LLM_DEBUG_PRINT_ENABLED
-// 新增：小矩阵调试模式开关
-#define SMALL_MATRIX_DEBUG_MODE  // 启用4x4小矩阵调试模式
-
-// LLM矩阵尺寸配置 - 可调整
-#ifdef SMALL_MATRIX_DEBUG_MODE
-    // 小矩阵调试配置
-    #define LLM_MATRIX_SIZE 4
-    #define LLM_TILE_SIZE 2
-    #define LLM_TIME_SLICES 2
-    #define LLM_DATA_ELEMENTS_PER_VECTOR LLM_MATRIX_SIZE
-    #define LLM_TOTAL_TASKS (LLM_MATRIX_SIZE * LLM_MATRIX_SIZE * LLM_TIME_SLICES)
-
-    // 调试输出控制
-    #define LLM_DEBUG_PRINT_ENABLED
-    #define LLM_VERBOSE_DEBUG
-
-    // 输出路径
-    #define LLM_OUTPUT_PATH "src/output/"
-
-    // 最大调试MAC数量
-    #define MAX_DEBUG_MAC_UNITS 10
+// Note: Debug control is now managed by LLM_TEST_CASE below
 
 
 
-#else
-    // 正常大矩阵配置
-    #define LLM_MATRIX_SIZE 32
-    #define LLM_TILE_SIZE 4
-    #define LLM_TIME_SLICES 2
-    #define LLM_DATA_ELEMENTS_PER_VECTOR 16
-    #define LLM_TOTAL_TASKS (LLM_MATRIX_SIZE * LLM_MATRIX_SIZE * LLM_TIME_SLICES)
 
-    // 正常输出路径
-    #define LLM_OUTPUT_PATH "output/"
+// Common output path
+#define LLM_OUTPUT_PATH "src/output/"
+// ==================== LLM TEST CASE CONFIGURATION ====================
+// 选择测试用例：根据实际需求选择合适的测试规模  (实际值在llmmacnet.cpp中定义):
+// Test Case 1: 小规模验证 (4x4矩阵) - 用于快速功能验证
+// Test Case 2: 中等规模 (128x128矩阵) - 模拟实际LLaMA注意力计算
+// Test Case 3: 大规模测试 (256x256矩阵) - 性能压力测试
+#define LLM_TEST_CASE 2  // <-- 修改这里切换测试用例
 
-    // 限制调试输出
-    #define MAX_DEBUG_MAC_UNITS 3
+// Debug output control (applies to all test cases)
+#ifdef LLM_TEST_CASE
+    #if LLM_TEST_CASE == 1
+        // Enable verbose debug for small test case
+        #define LLM_DEBUG_PRINT_ENABLED
+        #define LLM_VERBOSE_DEBUG
+        #define MAX_DEBUG_MAC_UNITS 10
+    #else
+        // Limit debug output for larger test cases
+        #define MAX_DEBUG_MAC_UNITS 3
+        // #define LLM_DEBUG_PRINT_ENABLED  // Uncomment to enable debug for large cases
+    #endif
 #endif
-
 
 
 // 通用LLM参数
 #define LLM_RANDOM_SEED 42  // 固定随机种子确保可重现性
 
 
-/*******************************/    // noc size and MC NUM
-//#define MemNode2_4x4  // 2 MC cores (for 4*4)  every4x4has2MC
-//#define MemNode4_4X4  // 4 MC cores  // every4x4has4MC
-//#define MemNode4_8X8  // 4 MC cores  // every4x4has4MC
-//#define MemNode4_16X16  // 4 MC cores  // every4x4has4MC
-#define MemNode4_32X32  // 4 MC cores  // every4x4has4MC
+// ==================== NoC SIZE AND MEMORY CONFIGURATION ====================
+// 选择NoC规模（根据测试用例选择合适的NoC大小）
+// 推荐配置：Test Case 1 -> 4x4, Test Case 2 -> 16x16, Test Case 3 -> 32x32
+//#define MemNode2_4x4    // 4x4 NoC, 2 MC cores (适合Test Case 1)
+//#define MemNode4_4X4    // 4x4 NoC, 4 MC cores (适合Test Case 1)
+//#define MemNode4_8X8    // 8x8 NoC, 4 MC cores
+#define MemNode4_16X16   // 16x16 NoC, 4 MC cores (适合Test Case 2)
+//#define MemNode4_32X32  // 32x32 NoC, 4 MC cores (适合Test Case 3)
 
 
-/******************************/ //Affilated Ordering or seperated ordering
- //#define flitLevelFlippingSwitch
-//#define  reArrangeInput  //  reArrangeInput shoude be enable after  flitLevelFlippingSwitch is enabled. other wise useless.
+// ==================== ORDERING OPTIMIZATION ====================
+// Flit级别翻转优化（降低功耗）
+//#define flitLevelFlippingSwitch  // 取消注释以启用Ordering优化
 
  //#define all128BitInvert
 //#define partionedInvert
@@ -97,16 +85,17 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 #define flitcomparison  //rinport.cpp
 
 
-/******************************/
-#define rowmapping
-//#define colmapping
-//#define randmapping
-//#define YZrandmapping
-//#define YZDistanacemappingw
-//#define YZSAMOSSampleMapping
+// ==================== TASK MAPPING STRATEGY ====================
+// 注意：rowmapping和YZSAMOSSampleMapping互斥，只能选择一个！
+#define rowmapping           // 基准行映射（默认）
+//#define colmapping         // 列映射
+//#define randmapping        // 随机映射
+//#define YZrandmapping      // YZ随机映射
+//#define YZDistanacemappingw // 距离感知映射
+//#define YZSAMOSSampleMapping // SAMOS自适应映射（高级优化）
 #define SoCC_Countlatency		// open recording of packet level delay // note 	DNN_latency.resize(3000000); is not enough for large dnn
 
-#define samplingWindowLength 10
+#define samplingWindowLength 10  // Standard sampling window
 //////////////////////////////////
 #define VN_NUM 1   //2
 #define VC_PER_VN  4  ///<1 A: control URS (control all in other 3 modes)

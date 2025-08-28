@@ -33,14 +33,54 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	current_layer = 0;
 	total_layers = 1;
 
-	// 小矩阵配置 - 修改为4x4 tile和1个时间片
-	matrix_size = 4;    // 4x4矩阵
-	tile_size = 4;      // 改为4x4 tile（整个矩阵作为一个tile）
-	time_slices = 1;    // 改为1个时间片
+	// Use configuration from parameters.hpp
+	#if LLM_TEST_CASE == 1
+	// Test Case 1: Small matrix test
+	matrix_size = 4;
+	tile_size = 4;
+	time_slices = 1;
+	std::cout << "\n[LLM Config] Test Case 1: Small 4x4 matrix" << std::endl;
+	
+	#elif LLM_TEST_CASE == 2
+	// Test Case 2: Scaled LLaMA attention matrix (128x128 for testing)
+	matrix_size = 128;  // Scaled down for comprehensive testing
+	tile_size = 16;     // 16x16 tiles
+	time_slices = 64;   // 128/16 * 128/16 = 8 * 8 = 64 tiles
+	std::cout << "\n[LLM Config] Test Case 2: Scaled LLaMA 128x128 attention matrix with 64 tiles" << std::endl;
+	
+	#elif LLM_TEST_CASE == 3
+	// Test Case 3: Large configuration for SAMOS testing
+	matrix_size = 256;
+	tile_size = 16;
+	time_slices = 4;
+	std::cout << "\n[LLM Config] Test Case 3: Large 256x256 for SAMOS testing" << std::endl;
+	
+	#else
+	// Default to test case 1 if not specified
+	matrix_size = 4;
+	tile_size = 4;
+	time_slices = 1;
+	std::cout << "\n[LLM Config] Default: Test Case 1 (4x4 matrix)" << std::endl;
+	#endif
 
-	tiles_per_dim = matrix_size / tile_size;  // 1
-	total_tiles = tiles_per_dim * tiles_per_dim;  // 1
-	total_tasks = matrix_size * matrix_size * time_slices;  // 4*4*1 = 16
+	// Calculate derived parameters
+	tiles_per_dim = matrix_size / tile_size;
+	total_tiles = tiles_per_dim * tiles_per_dim;
+	
+	// For small matrices where tile_size == matrix_size, we process each pixel as a task
+	if (tile_size == matrix_size) {
+		// Each pixel is a task
+		total_tasks = matrix_size * matrix_size * time_slices;
+	} else {
+		// Each tile generates tile_size x tile_size tasks
+		total_tasks = total_tiles * tile_size * tile_size * time_slices;
+	}
+	
+	std::cout << "  Matrix: " << matrix_size << "x" << matrix_size << std::endl;
+	std::cout << "  Tile size: " << tile_size << "x" << tile_size << std::endl;
+	std::cout << "  Tiles: " << tiles_per_dim << "x" << tiles_per_dim << " = " << total_tiles << std::endl;
+	std::cout << "  Time slices: " << time_slices << std::endl;
+	std::cout << "  Total tasks: " << total_tasks << std::endl;
 
 	ready_flag = 0;
 	mapping_again = 0;
@@ -130,7 +170,7 @@ void LLMMACnet::llmExportMatricesToFile() {
 	LLM_DEBUG("Exporting small matrices to output/ for verification...");
 
 	// Export Query matrix
-	std::ofstream query_file("output/cpp_query_matrix.txt");
+	std::ofstream query_file("src/output/cpp_query_matrix.txt");
 	if (query_file.is_open()) {
 		for (int i = 0; i < matrix_size; i++) {
 			for (int j = 0; j < matrix_size; j++) {
@@ -140,11 +180,11 @@ void LLMMACnet::llmExportMatricesToFile() {
 			query_file << "\n";
 		}
 		query_file.close();
-		LLM_DEBUG("Query matrix exported to output/cpp_query_matrix.txt");
+		LLM_DEBUG("Query matrix exported to src/output/cpp_query_matrix.txt");
 	}
 
 	// Export Key matrix
-	std::ofstream key_file("output/cpp_key_matrix.txt");
+	std::ofstream key_file("src/output/cpp_key_matrix.txt");
 	if (key_file.is_open()) {
 		for (int i = 0; i < matrix_size; i++) {
 			for (int j = 0; j < matrix_size; j++) {
@@ -154,11 +194,11 @@ void LLMMACnet::llmExportMatricesToFile() {
 			key_file << "\n";
 		}
 		key_file.close();
-		LLM_DEBUG("Key matrix exported to output/cpp_key_matrix.txt");
+		LLM_DEBUG("Key matrix exported to src/output/cpp_key_matrix.txt");
 	}
 
 	// Export Value matrix
-	std::ofstream value_file("output/cpp_value_matrix.txt");
+	std::ofstream value_file("src/output/cpp_value_matrix.txt");
 	if (value_file.is_open()) {
 		for (int i = 0; i < matrix_size; i++) {
 			for (int j = 0; j < matrix_size; j++) {
@@ -168,7 +208,7 @@ void LLMMACnet::llmExportMatricesToFile() {
 			value_file << "\n";
 		}
 		value_file.close();
-		LLM_DEBUG("Value matrix exported to output/cpp_value_matrix.txt");
+		LLM_DEBUG("Value matrix exported to src/output/cpp_value_matrix.txt");
 	}
 }
 
@@ -178,48 +218,56 @@ void LLMMACnet::llmGenerateAllTasks() {
 	all_tasks.reserve(total_tasks);
 
 	int task_id = 0;
-	// 只有1个时间片
+	
+	// Generate tasks based on tiles and time slices
 	for (int ts = 0; ts < time_slices; ts++) {
-		for (int pixel_y = 0; pixel_y < matrix_size; pixel_y++) {
-			for (int pixel_x = 0; pixel_x < matrix_size; pixel_x++) {
-				LLMTask task;
-				task.task_id = task_id;
-				task.pixel_x = pixel_x;
-				task.pixel_y = pixel_y;
-				task.time_slice = ts;
-				task.tile_id = 0;  // 只有一个tile
+		for (int tile_y = 0; tile_y < tiles_per_dim; tile_y++) {
+			for (int tile_x = 0; tile_x < tiles_per_dim; tile_x++) {
+				// Each tile generates tile_size x tile_size tasks (one per pixel in tile)
+				for (int in_tile_y = 0; in_tile_y < tile_size; in_tile_y++) {
+					for (int in_tile_x = 0; in_tile_x < tile_size; in_tile_x++) {
+						int pixel_x = tile_x * tile_size + in_tile_x;
+						int pixel_y = tile_y * tile_size + in_tile_y;
+						
+						// Skip if out of bounds (for non-divisible matrices)
+						if (pixel_x >= matrix_size || pixel_y >= matrix_size)
+							continue;
+						
+						LLMTask task;
+						task.task_id = task_id;
+						task.pixel_x = pixel_x;
+						task.pixel_y = pixel_y;
+						task.time_slice = ts;
+						task.tile_id = tile_y * tiles_per_dim + tile_x;
 
-				// Generate query and key data (4 elements for small matrix)
-				int data_elements = matrix_size; // 4 elements for 4x4 matrix
-				task.query_data.resize(data_elements);
-				task.key_data.resize(data_elements);
-				task.value_data.resize(data_elements);
+						// Generate query and key data
+						int data_elements = tile_size;  // Process tile_size elements per task
+						task.query_data.resize(data_elements);
+						task.key_data.resize(data_elements);
+						task.value_data.resize(data_elements);
 
-				for (int i = 0; i < data_elements; i++) {
-					int data_idx = (ts * data_elements + i) % matrix_size;
-					task.query_data[i] = attention_query_table[pixel_y][(pixel_x + data_idx) % matrix_size];
-					task.key_data[i] = attention_key_table[pixel_y][(pixel_x + data_idx) % matrix_size];
-					task.value_data[i] = attention_value_table[pixel_y][(pixel_x + data_idx) % matrix_size];
+						for (int i = 0; i < data_elements; i++) {
+							int data_idx = (ts * data_elements + i) % matrix_size;
+							task.query_data[i] = attention_query_table[pixel_y][(pixel_x + data_idx) % matrix_size];
+							task.key_data[i] = attention_key_table[pixel_y][(pixel_x + data_idx) % matrix_size];
+							task.value_data[i] = attention_value_table[pixel_y][(pixel_x + data_idx) % matrix_size];
+						}
+
+						// Print debug info for first few tasks only
+						if (task_id < 3) {
+							LLM_DEBUG("Task " << task_id << " [pixel(" << pixel_x << "," << pixel_y << "), ts=" << ts << ", tile=" << task.tile_id << "]:");
+							std::cout << "  Query data: ";
+							for (int i = 0; i < data_elements; i++) {
+								std::cout << std::fixed << std::setprecision(6) << task.query_data[i];
+								if (i < data_elements - 1) std::cout << ",";
+							}
+							std::cout << std::endl;
+						}
+
+						all_tasks.push_back(task);
+						task_id++;
+					}
 				}
-
-				// 打印每个任务的详细信息
-				LLM_DEBUG("Task " << task_id << " [pixel(" << pixel_x << "," << pixel_y << "), ts=" << ts << "]:");
-				std::cout << "  Query data: ";
-				for (int i = 0; i < data_elements; i++) {
-					std::cout << std::fixed << std::setprecision(6) << task.query_data[i];
-					if (i < data_elements - 1) std::cout << ",";
-				}
-				std::cout << std::endl;
-
-				std::cout << "  Key data: ";
-				for (int i = 0; i < data_elements; i++) {
-					std::cout << std::fixed << std::setprecision(6) << task.key_data[i];
-					if (i < data_elements - 1) std::cout << ",";
-				}
-				std::cout << std::endl;
-
-				all_tasks.push_back(task);
-				task_id++;
 			}
 		}
 	}
@@ -230,7 +278,7 @@ void LLMMACnet::llmGenerateAllTasks() {
 void LLMMACnet::llmExportTasksToFile() {
 	LLM_DEBUG("Exporting all tasks to output/cpp_tasks.txt...");
 
-	std::ofstream tasks_file("output/cpp_tasks.txt");
+	std::ofstream tasks_file("src/output/cpp_tasks.txt");
 	if (tasks_file.is_open()) {
 		// 导出所有任务的详细信息
 		for (int i = 0; i < all_tasks.size(); i++) {
@@ -263,7 +311,7 @@ void LLMMACnet::llmExportTasksToFile() {
 void LLMMACnet::llmExportVerificationResults() {
 	LLM_DEBUG("Exporting verification results...");
 
-	std::ofstream verify_file("output/cpp_verification.txt");
+	std::ofstream verify_file("src/output/cpp_verification.txt");
 	if (verify_file.is_open()) {
 		verify_file << "=== C++ Small Matrix Verification Results ===\n";
 		verify_file << "Matrix size: " << matrix_size << "x" << matrix_size << "\n";
@@ -315,11 +363,11 @@ void LLMMACnet::llmExportVerificationResults() {
 		}
 
 		verify_file.close();
-		LLM_DEBUG("Verification results exported to output/cpp_verification.txt");
+		LLM_DEBUG("Verification results exported to src/output/cpp_verification.txt");
 	}
 
 	// 导出最终输出矩阵到单独文件
-	std::ofstream output_file("output/llm_attention_output.txt");
+	std::ofstream output_file("src/output/llm_attention_output.txt");
 	if (output_file.is_open()) {
 		for (int i = 0; i < matrix_size; i++) {
 			for (int j = 0; j < matrix_size; j++) {
@@ -403,6 +451,106 @@ void LLMMACnet::llmLoadBalanceMapping(int total_tasks) {
 	llmXMapping(total_tasks);  // 对于小矩阵，使用简单映射即可
 }
 
+int LLMMACnet::llmSAMOSSampleMapping(int task_count) {
+	// Clear and prepare mapping table
+	this->mapping_table.clear();
+	this->mapping_table.resize(macNum);
+	
+	// 1) Collect compute nodes (exclude memory nodes)
+	std::vector<int> pe_ids;
+	pe_ids.reserve(macNum);
+	for (int id = 0; id < macNum; ++id) {
+		if (!contains(dest_list, id))
+			pe_ids.push_back(id);
+	}
+	if (pe_ids.empty() || task_count <= 0)
+		return 0;
+	
+	// 2) Calculate average latency for each node (from sampling window)
+	//    Fallback strategy: use average of all non-zero samples if any node has no samples
+	double sum_lat = 0.0;
+	int nz = 0;
+	for (int id : pe_ids) {
+		double lat = double(samplingWindowDelay[id]) / std::max(1, samplingWindowLength);
+		if (lat > 0.0) {
+			sum_lat += lat;
+			++nz;
+		}
+	}
+	const double default_lat = (nz > 0) ? (sum_lat / nz) : 1.0; // Default to 1 if all zeros
+	const double eps = 1e-12;
+	
+	struct NodeW {
+		int id;
+		double w;     // Weight = 1/latency
+		double want;  // Ideal allocation
+		int alloc;    // Actual integer allocation
+		double frac;  // Fractional remainder
+	};
+	
+	std::vector<NodeW> nodes;
+	nodes.reserve(pe_ids.size());
+	
+	double sumW = 0.0;
+	for (int id : pe_ids) {
+		double lat = double(samplingWindowDelay[id]) / std::max(1, samplingWindowLength);
+		if (lat <= 0.0)
+			lat = default_lat;
+		double w = 1.0 / (lat + eps);
+		nodes.push_back({id, w, 0.0, 0, 0.0});
+		sumW += w;
+	}
+	
+	if (sumW <= 0.0) { // Extreme fallback: uniform distribution
+		int base = task_count / int(nodes.size());
+		int rem = task_count - base * int(nodes.size());
+		int j = 0;
+		for (auto &n : nodes) {
+			for (int k = 0; k < base; ++k)
+				this->mapping_table[n.id].push_back(j++);
+		}
+		for (int i = 0; i < rem; ++i)
+			this->mapping_table[nodes[i].id].push_back(j++);
+		return 0;
+	}
+	
+	// 3) Hamilton's method (largest remainder)
+	int allocated = 0;
+	for (auto &n : nodes) {
+		double exact = task_count * (n.w / sumW);
+		n.want = exact;
+		n.alloc = int(std::floor(exact));
+		n.frac = exact - n.alloc;
+		allocated += n.alloc;
+	}
+	int remainder = task_count - allocated;
+	
+	// Allocate remaining tasks to nodes with largest fractional parts
+	std::sort(nodes.begin(), nodes.end(), [](const NodeW &a, const NodeW &b) {
+		return a.frac > b.frac;
+	});
+	for (int i = 0; i < remainder; ++i)
+		nodes[i % nodes.size()].alloc++;
+	
+	// 4) Generate specific routing mapping (task ids increment continuously)
+	int j = 0;
+	for (auto &n : nodes) {
+		for (int k = 0; k < n.alloc; ++k)
+			this->mapping_table[n.id].push_back(j++);
+	}
+	
+	// Debug output for LLM SAMOS mapping
+	std::cout << "[LLM-SAMOS] Total tasks=" << task_count << " Total PEs=" 
+	          << nodes.size() << " Total allocated=" << j << "\n";
+	for (auto &n : nodes) {
+		double avgLat = double(samplingWindowDelay[n.id]) / std::max(1, samplingWindowLength);
+		std::cout << "  MAC " << n.id << " lat=" << avgLat << " w=" << n.w
+		          << " want=" << n.want << " alloc=" << n.alloc << "\n";
+	}
+	
+	return 0;
+}
+
 void LLMMACnet::llmCheckStatus() {
 	static int status_check_count = 0;
 	status_check_count++;
@@ -419,10 +567,65 @@ void LLMMACnet::llmCheckStatus() {
 			this->vcNetwork->resetVNRoundRobin();
 		}
 
+		// SAMOS mapping logic for LLM
+		#ifdef YZSAMOSSampleMapping
+		// Calculate how many tasks per MAC for sampling window
+		int available_macs = macNum - MEM_NODES;  // Exclude memory nodes
+		
+		if (total_tasks / available_macs < samplingWindowLength) {
+			// If tasks are fewer than sampling window, use normal row mapping
+			std::cout << "[LLM-SAMOS] Layer has fewer tasks than sampling window!" << std::endl;
+			std::cout << "  Total tasks: " << total_tasks << ", Available MACs: " << available_macs << std::endl;
+			std::cout << "  Tasks per MAC: " << (total_tasks / available_macs) << " < " << samplingWindowLength << std::endl;
+			std::cout << "  Using row mapping instead of SAMOS" << std::endl;
+			this->llmXMapping(total_tasks);
+		} else {
+			if (mapping_again == 0) {
+				// First phase: run sampling window
+				int sampling_tasks = available_macs * samplingWindowLength;
+				std::cout << "[LLM-SAMOS] Starting sampling phase" << std::endl;
+				std::cout << "  Sampling tasks: " << sampling_tasks << " (" << available_macs 
+				          << " MACs * " << samplingWindowLength << " window)" << std::endl;
+				
+				// Reset sampling statistics
+				std::fill_n(samplingWindowDelay, TOT_NUM, 0);
+				
+				// Map sampling window tasks using row mapping
+				this->llmXMapping(sampling_tasks);
+				mapping_again = 1;  // Mark that sampling is being done
+				
+			} else if (mapping_again == 2) {
+				// Second phase: map remaining tasks based on sampling results
+				int remaining_tasks = total_tasks - (available_macs * samplingWindowLength);
+				packet_id = packet_id + (available_macs * samplingWindowLength);
+				
+				std::cout << "[LLM-SAMOS] Applying SAMOS mapping for remaining tasks" << std::endl;
+				std::cout << "  Remaining tasks: " << remaining_tasks << std::endl;
+				
+				// Use SAMOS mapping based on latency measurements
+				this->llmSAMOSSampleMapping(remaining_tasks);
+				
+				// Adjust task IDs to account for sampling window tasks
+				const int offset = available_macs * samplingWindowLength;
+				for (int i = 0; i < macNum; ++i) {
+					for (int &task_id : this->mapping_table[i]) {
+						task_id += offset;
+					}
+				}
+				
+				std::cout << "[LLM-SAMOS] Second phase mapping complete" << std::endl;
+				mapping_again = 0;  // Reset for next layer
+			} else {
+				std::cout << "[LLM-SAMOS] ERROR: Invalid mapping_again state: " << mapping_again << std::endl;
+			}
+		}
+		#else
+		// Normal mapping without SAMOS
 		#ifdef rowmapping
 		this->llmXMapping(total_tasks);
 		#else
 		this->llmLoadBalanceMapping(total_tasks);
+		#endif
 		#endif
 
 		int active_macs = 0;
@@ -474,6 +677,22 @@ void LLMMACnet::llmCheckStatus() {
 		if (completion_wait_cycles < 100) {
 			return;
 		}
+		
+		#ifdef YZSAMOSSampleMapping
+		// Check if we just completed sampling phase
+		if (mapping_again == 1) {
+			// Sampling phase complete, now do SAMOS mapping for remaining tasks
+			std::cout << "[LLM-SAMOS] Sampling phase complete at cycle " << cycles << std::endl;
+			std::cout << "  Collected latency data, now applying SAMOS mapping" << std::endl;
+			
+			// Reset for second phase
+			completion_wait_cycles = 0;
+			ready_flag = 0;
+			mapping_again = 2;  // Move to SAMOS mapping phase
+			return;
+		}
+		#endif
+		
 		LLM_DEBUG("\n=== All small matrix tasks completed at cycle " << cycles << " ===");
 		LLM_DEBUG("Assigned MACs: " << assigned_macs << ", Finished: " << finished_count);
 
@@ -507,6 +726,21 @@ void LLMMACnet::llmCheckStatus() {
 
 		layer_latency.push_back(cycles);
 		ready_flag = 2;
+		
+		// Adjust packet_id for next layer based on actual tasks processed
+		#ifdef YZSAMOSSampleMapping
+		int available_macs = macNum - MEM_NODES;
+		if (total_tasks / available_macs < samplingWindowLength) {
+			// Used normal mapping, add all tasks
+			packet_id = packet_id + total_tasks;
+		} else {
+			// Used SAMOS mapping, already adjusted during mapping
+			// No need to adjust here as it was done incrementally
+		}
+		#else
+		packet_id = packet_id + total_tasks;
+		#endif
+		
 		last_layer_packet_id = packet_id;
 		return;
 	}

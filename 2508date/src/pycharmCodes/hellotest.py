@@ -12,18 +12,49 @@ import os
 
 
 class SmallMatrixLLMVerification:
-    def __init__(self):
-        # 小矩阵参数 - 与修改后的C++完全一致
-        self.matrix_size = 4
-        self.tile_size = 4  # 改为4x4 tile（整个矩阵作为一个tile）
-        self.time_slices = 1  # 改为1个时间片
-        self.data_elements = self.matrix_size  # 4 elements per vector
+    def __init__(self, test_case=2):
+        # Test case selection matching C++ LLM_TEST_CASE
+        self.test_case = test_case
+        
+        if test_case == 1:
+            # Test Case 1: Small 4x4 matrix
+            self.matrix_size = 4
+            self.tile_size = 4
+            self.time_slices = 1
+            print(f"=== Test Case 1: Small 4x4 matrix ===")
+        elif test_case == 2:
+            # Test Case 2: Scaled LLaMA attention matrix (128x128 for testing)
+            self.matrix_size = 128
+            self.tile_size = 16
+            self.time_slices = 64
+            print(f"=== Test Case 2: Scaled LLaMA 128x128 attention matrix ===")
+        elif test_case == 3:
+            # Test Case 3: Large 256x256
+            self.matrix_size = 256
+            self.tile_size = 16
+            self.time_slices = 4
+            print(f"=== Test Case 3: Large 256x256 ===")
+        else:
+            # Default to test case 1
+            self.matrix_size = 4
+            self.tile_size = 4
+            self.time_slices = 1
+            print(f"=== Default: Small 4x4 matrix ===")
+        
+        # Calculate derived parameters
+        self.tiles_per_dim = self.matrix_size // self.tile_size
+        self.total_tiles = self.tiles_per_dim * self.tiles_per_dim
+        
+        # Data elements per task depends on configuration
+        if self.tile_size == self.matrix_size:
+            # For small matrices, each pixel is a task
+            self.total_tasks = self.matrix_size * self.matrix_size * self.time_slices
+            self.data_elements = self.matrix_size
+        else:
+            # For tiled matrices
+            self.total_tasks = self.total_tiles * self.tile_size * self.tile_size * self.time_slices
+            self.data_elements = self.tile_size
 
-        self.tiles_per_dim = self.matrix_size // self.tile_size  # 1
-        self.total_tiles = self.tiles_per_dim * self.tiles_per_dim  # 1
-        self.total_tasks = self.matrix_size * self.matrix_size * self.time_slices  # 4*4*1 = 16
-
-        print(f"=== 小矩阵LLM Python验证脚本 ===")
         print(f"矩阵大小: {self.matrix_size}x{self.matrix_size}")
         print(f"Tile大小: {self.tile_size}x{self.tile_size}")
         print(f"时间片: {self.time_slices}")
@@ -50,14 +81,17 @@ class SmallMatrixLLMVerification:
             self.attention_value_table = self.load_matrix_from_file(f"{base_path}/cpp_value_matrix.txt")
             print(f"✓ 成功加载Value矩阵: {self.attention_value_table.shape}")
 
-            # 打印完整的小矩阵用于验证
-            print(f"\n=== Python读取的Query矩阵 ===")
-            for i in range(self.matrix_size):
-                print(f"Row {i}: {self.attention_query_table[i]}")
+            # Only print matrices for small test case
+            if self.test_case == 1:
+                print(f"\n=== Python读取的Query矩阵 ===")
+                for i in range(self.matrix_size):
+                    print(f"Row {i}: {self.attention_query_table[i]}")
 
-            print(f"\n=== Python读取的Key矩阵 ===")
-            for i in range(self.matrix_size):
-                print(f"Row {i}: {self.attention_key_table[i]}")
+                print(f"\n=== Python读取的Key矩阵 ===")
+                for i in range(self.matrix_size):
+                    print(f"Row {i}: {self.attention_key_table[i]}")
+            else:
+                print(f"\n矩阵太大，跳过详细打印 (size: {self.matrix_size}x{self.matrix_size})")
 
         except FileNotFoundError as e:
             print(f"错误：找不到C++导出的数据文件: {e}")
@@ -74,8 +108,9 @@ class SmallMatrixLLMVerification:
             for line in f:
                 line = line.strip()
                 if line:
-                    row = [float(x) for x in line.split(',')]
-                    matrix_data.append(row)
+                    row = [float(x) for x in line.split(',') if x.strip()]
+                    if row:  # Only add non-empty rows
+                        matrix_data.append(row)
 
         return np.array(matrix_data)
 
@@ -120,38 +155,80 @@ class SmallMatrixLLMVerification:
         task_id = 0
         all_results = []
 
-        # 注意：与C++匹配的任务生成顺序（时间片在外层）
-        for time_slice in range(self.time_slices):
-            for pixel_y in range(self.matrix_size):
-                for pixel_x in range(self.matrix_size):
-                    print(f"\n--- 任务 {task_id}: 像素({pixel_x},{pixel_y}), 时间片{time_slice} ---")
+        # 根据是否有tiles来决定迭代顺序
+        if self.tile_size < self.matrix_size:
+            # 有tiles的情况（test case 2, 3）：按tile迭代
+            for time_slice in range(self.time_slices):
+                for tile_y in range(self.tiles_per_dim):
+                    for tile_x in range(self.tiles_per_dim):
+                        for in_tile_y in range(self.tile_size):
+                            for in_tile_x in range(self.tile_size):
+                                pixel_x = tile_x * self.tile_size + in_tile_x
+                                pixel_y = tile_y * self.tile_size + in_tile_y
+                                
+                                if pixel_x >= self.matrix_size or pixel_y >= self.matrix_size:
+                                    continue
+                                    
+                                print(f"\n--- 任务 {task_id}: 像素({pixel_x},{pixel_y}), 时间片{time_slice} ---")
 
-                    # 生成任务数据（使用与C++相同的算法）
-                    query_data, key_data = self.generate_task_data(pixel_x, pixel_y, time_slice)
+                                # 生成任务数据（使用与C++相同的算法）
+                                query_data, key_data = self.generate_task_data(pixel_x, pixel_y, time_slice)
 
-                    print(f"  Query数据: {[f'{x:.6f}' for x in query_data]}")
-                    print(f"  Key数据:   {[f'{x:.6f}' for x in key_data]}")
+                                print(f"  Query数据: {[f'{x:.6f}' for x in query_data]}")
+                                print(f"  Key数据:   {[f'{x:.6f}' for x in key_data]}")
 
-                    # 计算注意力（使用与C++相同的算法）
-                    attention_output, dot_product, scaled = self.compute_attention(query_data, key_data)
+                                # 计算注意力（使用与C++相同的算法）
+                                attention_output, dot_product, scaled = self.compute_attention(query_data, key_data)
 
-                    print(f"  点积: {dot_product:.10f}")
-                    print(f"  缩放后: {scaled:.10f}")
-                    print(f"  Tanh输出: {attention_output:.10f}")
+                                print(f"  点积: {dot_product:.10f}")
+                                print(f"  缩放后: {scaled:.10f}")
+                                print(f"  Tanh输出: {attention_output:.10f}")
 
-                    # 由于只有1个时间片，直接存储结果
-                    python_output[pixel_y, pixel_x] = attention_output
+                                # 覆盖写入结果（与C++一致）
+                                python_output[pixel_y, pixel_x] = attention_output
 
-                    all_results.append({
-                        'task_id': task_id,
-                        'pixel_x': pixel_x,
-                        'pixel_y': pixel_y,
-                        'time_slice': time_slice,
-                        'attention_output': attention_output
-                    })
+                                all_results.append({
+                                    'task_id': task_id,
+                                    'pixel_x': pixel_x,
+                                    'pixel_y': pixel_y,
+                                    'time_slice': time_slice,
+                                    'attention_output': attention_output
+                                })
 
-                    task_id += 1
+                                task_id += 1
+        else:
+            # 没有tiles的情况（test case 1）：直接按像素迭代
+            for time_slice in range(self.time_slices):
+                for pixel_y in range(self.matrix_size):
+                    for pixel_x in range(self.matrix_size):
+                        print(f"\n--- 任务 {task_id}: 像素({pixel_x},{pixel_y}), 时间片{time_slice} ---")
 
+                        # 生成任务数据（使用与C++相同的算法）
+                        query_data, key_data = self.generate_task_data(pixel_x, pixel_y, time_slice)
+
+                        print(f"  Query数据: {[f'{x:.6f}' for x in query_data]}")
+                        print(f"  Key数据:   {[f'{x:.6f}' for x in key_data]}")
+
+                        # 计算注意力（使用与C++相同的算法）
+                        attention_output, dot_product, scaled = self.compute_attention(query_data, key_data)
+
+                        print(f"  点积: {dot_product:.10f}")
+                        print(f"  缩放后: {scaled:.10f}")
+                        print(f"  Tanh输出: {attention_output:.10f}")
+
+                        # 覆盖写入结果（与C++一致）
+                        python_output[pixel_y, pixel_x] = attention_output
+
+                        all_results.append({
+                            'task_id': task_id,
+                            'pixel_x': pixel_x,
+                            'pixel_y': pixel_y,
+                            'time_slice': time_slice,
+                            'attention_output': attention_output
+                        })
+
+                        task_id += 1
+            
         return python_output, all_results
 
     def compare_with_cpp_output(self):
@@ -166,14 +243,14 @@ class SmallMatrixLLMVerification:
             print(f"✓ 成功加载C++输出矩阵: {cpp_output.shape}")
 
             print(f"\n=== C++输出矩阵 ===")
-            for i in range(self.matrix_size):
+            for i in range(min(self.matrix_size, cpp_output.shape[0])):
                 print(f"Row {i}: {cpp_output[i]}")
 
             # 计算Python结果
             python_output, all_results = self.verify_all_tasks_detailed()
 
             print(f"\n=== Python计算的输出矩阵 ===")
-            for i in range(self.matrix_size):
+            for i in range(min(self.matrix_size, python_output.shape[0])):
                 print(f"Row {i}: {python_output[i]}")
 
             # 比较差异
@@ -187,7 +264,7 @@ class SmallMatrixLLMVerification:
 
             # 详细差异矩阵
             print(f"\n=== 差异矩阵 ===")
-            for i in range(self.matrix_size):
+            for i in range(min(self.matrix_size, diff.shape[0])):
                 print(f"Row {i}: {diff[i]}")
 
             tolerance = 1e-6
@@ -218,9 +295,9 @@ class SmallMatrixLLMVerification:
         base_path = "../output"  # 修正路径
 
         with open(f"{base_path}/python_small_matrix_output.txt", 'w') as f:
-            for i in range(self.matrix_size):
+            for i in range(min(self.matrix_size, python_output.shape[0])):
                 row_values = []
-                for j in range(self.matrix_size):
+                for j in range(min(self.matrix_size, python_output.shape[1])):
                     row_values.append(f"{python_output[i][j]:.10f}")
                 f.write(",".join(row_values) + "\n")
 
@@ -309,12 +386,17 @@ class SmallMatrixLLMVerification:
 
 
 def main():
-    print("=== 小矩阵LLM Attention Python验证脚本 ===")
-    print("配置: 4x4矩阵, 4x4 tile, 1个时间片\n")
+    import sys
+    
+    # Get test case from command line or default to 2
+    test_case = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+    
+    print("=== LLM Attention Python验证脚本 ===")
+    print(f"使用测试用例: {test_case}\n")
 
     try:
         # 创建验证实例
-        verifier = SmallMatrixLLMVerification()
+        verifier = SmallMatrixLLMVerification(test_case=test_case)
 
         # 综合调试
         is_match = verifier.comprehensive_debug()

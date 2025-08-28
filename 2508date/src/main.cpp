@@ -413,7 +413,7 @@ int main(int arg_num, char *arg_vet[]) {
 			output_file << endl;
 		}
 		output_file.close();
-		cout << "Attention output saved to output/llm_attention_output.txt" << endl;
+		cout << "Attention output saved to src/output/llm_attention_output.txt" << endl;
 	} else {
 		cout << "Warning: Could not open output matrix file" << endl;
 	}

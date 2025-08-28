@@ -386,6 +386,20 @@ void LLMMAC::llmRunOneStep() {
 			
 			// Save completed task timing
 			task_timings.push_back(current_task_timing);
+			
+			// Update sampling window delay for SAMOS mapping
+			#ifdef YZSAMOSSampleMapping
+			if (net && net->mapping_again == 1) {  // Only during sampling phase
+				// Calculate total latency for this task
+				int total_latency = current_task_timing.compute_end_cycle - current_task_timing.request_send_cycle;
+				samplingWindowDelay[selfMACid] += total_latency;
+				
+				if (selfMACid < 10) {
+					LLM_DEBUG("[SAMOS] MAC " << selfMACid << " task latency: " << total_latency 
+					          << ", accumulated: " << samplingWindowDelay[selfMACid]);
+				}
+			}
+			#endif
 
 			this->send = 0;
 			if (this->routing_table.size() == 0) {

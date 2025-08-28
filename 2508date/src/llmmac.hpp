@@ -140,6 +140,7 @@ class LLMMAC
 		// State management
 		bool llmIsWaitingForData();
 		void llmResetForNextTask();
+		void llmApplyOrdering(std::deque<float>& payload);  // LLM payload ordering
 
 		~LLMMAC();
 };

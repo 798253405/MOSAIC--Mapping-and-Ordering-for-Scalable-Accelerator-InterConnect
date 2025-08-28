@@ -4,17 +4,52 @@
 #include <ctime>
 #include <iomanip>
 #include <cstdlib>
+#include <chrono>
 
-// Debug macro switch - 强制开启
-#define LLM_DEBUG_PRINT_ENABLED
-#define LLM_DEBUG_SMALL_MATRIX
-#ifdef LLM_DEBUG_PRINT_ENABLED
-    #define LLM_DEBUG(x) do { \
-        std::cout << "[MAC-DEBUG] " << x << std::endl; \
-    } while(0)
-#else
-    #define LLM_DEBUG(x) do {} while(0)
-#endif
+// Hierarchical debug macros based on LLM_DEBUG_LEVEL from parameters.hpp
+#include "parameters.hpp"
+
+// Helper function to get current time string
+static inline std::string getCurrentTimeStr() {
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    struct tm* timeinfo = localtime(&time_t);
+    char buffer[10];
+    strftime(buffer, sizeof(buffer), "%H:%M", timeinfo);
+    return std::string(buffer);
+}
+
+// With cycle info and system time (for runtime use) 
+#define LLM_INFO(x) do { \
+    if (LLM_DEBUG_LEVEL >= 1) { \
+        std::cout << "[" << getCurrentTimeStr() << "] [MAC-INFO @" << cycles << "] " << x << std::endl; \
+    } \
+} while(0)
+
+#define LLM_DEBUG(x) do { \
+    if (LLM_DEBUG_LEVEL >= 2) { \
+        std::cout << "[MAC-DEBUG @" << cycles << "] " << x << std::endl; \
+    } \
+} while(0)
+
+#define LLM_TRACE(x) do { \
+    if (LLM_DEBUG_LEVEL >= 3) { \
+        std::cout << "[MAC-TRACE @" << cycles << "] " << x << std::endl; \
+    } \
+} while(0)
+
+// Without cycle info (for initialization)
+#define LLM_DEBUG_INIT(x) do { \
+    if (LLM_DEBUG_LEVEL >= 2) { \
+        std::cout << "[MAC-DEBUG @init] " << x << std::endl; \
+    } \
+} while(0)
+
+#define LLM_TRACE_INIT(x) do { \
+    if (LLM_DEBUG_LEVEL >= 3) { \
+        std::cout << "[MAC-TRACE @init] " << x << std::endl; \
+    } \
+} while(0)
 
 LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	selfMACid = t_id;
@@ -106,8 +141,8 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 
 	routing_table.clear();
 
-	if (selfMACid < 10) {
-		LLM_DEBUG("LLMMAC " << selfMACid << " created: NI_id=" << NI_id
+	if (selfMACid < 10 && LLM_DEBUG_LEVEL >= 2) {
+		LLM_DEBUG_INIT("LLMMAC " << selfMACid << " created: NI_id=" << NI_id
 		          << " dest_mem_id=" << dest_mem_id << " position=(" << xid << "," << yid << ")");
 	}
 }
@@ -133,13 +168,15 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 			msg.data.push_back((float)ts);
 
 			// 关键调试信息
-			std::cout << "[CRITICAL] MAC " << selfMACid << " sending " 
-			          << (type == 3 ? "FINAL" : "intermediate") << " result:" << std::endl;
-			std::cout << "  Task ID: " << current_task_id << std::endl;
-			std::cout << "  Pixel: (" << pixel_x << "," << pixel_y << ")" << std::endl;
-			std::cout << "  Time slice: " << ts << std::endl;
-			std::cout << "  Attention value: " << std::fixed << std::setprecision(10) << t_output << std::endl;
-			std::cout << "  Destination: " << d_id << std::endl;
+			if (LLM_DEBUG_LEVEL >= 2) {
+				std::cout << "[CRITICAL @" << cycles << "] MAC " << selfMACid << " sending " 
+				          << (type == 3 ? "FINAL" : "intermediate") << " result:" << std::endl;
+				std::cout << "  Task ID: " << current_task_id << std::endl;
+				std::cout << "  Pixel: (" << pixel_x << "," << pixel_y << ")" << std::endl;
+				std::cout << "  Time slice: " << ts << std::endl;
+				std::cout << "  Attention value: " << std::fixed << std::setprecision(10) << t_output << std::endl;
+				std::cout << "  Destination: " << d_id << std::endl;
+			}
 		} else {
 			LLM_DEBUG("ERROR: Invalid task ID " << current_task_id);
 			msg.data.assign(1, t_output);
@@ -168,13 +205,23 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 	msg.source_id = NI_id;
 	msg.msgtype = type;
 
+
 	msg.yzMSGPayload.clear();
 
 	if (msg.msgtype == 0) { // Request
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
+		// Add some test data to observe ordering effects
+		for (int i = 0; i < payloadElementNum && i < 16; i++) {
+			msg.yzMSGPayload[i] = 10.0f - (float)(i % 3) + 0.1f * selfMACid + 0.01f * cycles;
+		}
 		if (selfMACid < 10) {
 			LLM_DEBUG("MAC " << selfMACid << " sending request (type 0) to " << d_id << " for task " << t_output);
 		}
+
+#ifdef flitLevelFlippingSwitch
+		// Apply LLM ordering to request payload
+		llmApplyOrdering(msg.yzMSGPayload);
+#endif
 	} else if (msg.msgtype == 2 || msg.msgtype == 3) { // Result (type 2 intermediate, type 3 final)
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
 		msg.yzMSGPayload[0] = t_output;
@@ -193,6 +240,11 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 		std::fill_n(std::back_inserter(msg.yzMSGPayload),
 					(flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size()),
 					0.0f);
+
+#ifdef flitLevelFlippingSwitch
+		// Apply LLM ordering to response payload  
+		llmApplyOrdering(msg.yzMSGPayload);
+#endif
 
 		if (selfMACid < 10) {
 			LLM_DEBUG("MAC " << selfMACid << " sending response (type 1) to " << d_id
@@ -305,19 +357,21 @@ void LLMMAC::llmRunOneStep() {
 					          << " - Query size: " << query_data.size()
 					          << ", Key size: " << key_data.size());
 
-					std::cout << "Query data: ";
-					for (int i = 0; i < query_data.size(); i++) {
-						std::cout << std::fixed << std::setprecision(6) << query_data[i];
-						if (i < query_data.size() - 1) std::cout << ",";
-					}
-					std::cout << std::endl;
+					if (LLM_DEBUG_LEVEL >= 3) {
+						std::cout << "Query data: ";
+						for (int i = 0; i < query_data.size(); i++) {
+							std::cout << std::fixed << std::setprecision(6) << query_data[i];
+							if (i < query_data.size() - 1) std::cout << ",";
+						}
+						std::cout << std::endl;
 
-					std::cout << "Key data: ";
-					for (int i = 0; i < key_data.size(); i++) {
-						std::cout << std::fixed << std::setprecision(6) << key_data[i];
-						if (i < key_data.size() - 1) std::cout << ",";
+						std::cout << "Key data: ";
+						for (int i = 0; i < key_data.size(); i++) {
+							std::cout << std::fixed << std::setprecision(6) << key_data[i];
+							if (i < key_data.size() - 1) std::cout << ",";
+						}
+						std::cout << std::endl;
 					}
-					std::cout << std::endl;
 				}
 			} else {
 				LLM_DEBUG("ERROR: MAC " << selfMACid << " insufficient input buffer size: "
@@ -341,10 +395,12 @@ void LLMMAC::llmRunOneStep() {
 			llmComputeAttention();
 
 			// 验证计算结果
-			std::cout << "[COMPUTE-VERIFY] MAC " << selfMACid
-			          << " task " << tmp_requestID
-			          << " computed attention: " << std::fixed << std::setprecision(10)
-			          << attention_output << std::endl;
+			if (LLM_DEBUG_LEVEL >= 2) {
+				std::cout << "[COMPUTE-VERIFY @" << cycles << "] MAC " << selfMACid
+				          << " task " << tmp_requestID
+				          << " computed attention: " << std::fixed << std::setprecision(10)
+				          << attention_output << std::endl;
+			}
 
 			int calc_time = (query_data.size() / PE_NUM_OP + 1) * 20;
 			selfstatus = 4;
@@ -370,9 +426,11 @@ void LLMMAC::llmRunOneStep() {
 				if (pixel_x >= 0 && pixel_x < net->matrix_size && 
 				    pixel_y >= 0 && pixel_y < net->matrix_size) {
 					net->attention_output_table[pixel_y][pixel_x] = attention_output;
-					std::cout << "[DIRECT-UPDATE] MAC " << selfMACid 
-					          << " directly updated output[" << pixel_y << "][" << pixel_x 
-					          << "] = " << attention_output << std::endl;
+					if (LLM_DEBUG_LEVEL >= 2) {
+						std::cout << "[DIRECT-UPDATE @" << cycles << "] MAC " << selfMACid 
+						          << " directly updated output[" << pixel_y << "][" << pixel_x 
+						          << "] = " << attention_output << std::endl;
+					}
 				}
 			}
 			return;
@@ -444,11 +502,13 @@ void LLMMAC::llmComputeAttention() {
 	attention_output = tanh(scaled);
 
 	// 详细调试输出
-	std::cout << "[ATTENTION-CALC] MAC " << selfMACid << " task " << tmp_requestID << ":" << std::endl;
-	std::cout << "  Vector size: " << query_data.size() << std::endl;
-	std::cout << "  Dot product: " << std::fixed << std::setprecision(10) << dot_product << std::endl;
-	std::cout << "  Scaled (dot/sqrt(" << query_data.size() << ")): " << std::fixed << std::setprecision(10) << scaled << std::endl;
-	std::cout << "  Final output (tanh): " << std::fixed << std::setprecision(10) << attention_output << std::endl;
+	if (LLM_DEBUG_LEVEL >= 3) {
+		std::cout << "[ATTENTION-CALC @" << cycles << "] MAC " << selfMACid << " task " << tmp_requestID << ":" << std::endl;
+		std::cout << "  Vector size: " << query_data.size() << std::endl;
+		std::cout << "  Dot product: " << std::fixed << std::setprecision(10) << dot_product << std::endl;
+		std::cout << "  Scaled (dot/sqrt(" << query_data.size() << ")): " << std::fixed << std::setprecision(10) << scaled << std::endl;
+		std::cout << "  Final output (tanh): " << std::fixed << std::setprecision(10) << attention_output << std::endl;
+	}
 }
 
 void LLMMAC::llmComputeQueryKeyDot() {
@@ -480,6 +540,21 @@ void LLMMAC::llmResetForNextTask() {
 	value_data.clear();
 	input_buffer.clear();
 	attention_output = 0.0;
+}
+
+void LLMMAC::llmApplyOrdering(std::deque<float>& payload) {
+	// Simple LLM-specific payload ordering to reduce bit flips
+	// Strategy: Sort similar values to be adjacent, reducing IEEE754 bit transitions
+	if (payload.size() < 4) return; // Skip if too small
+	
+	// Group values by similarity (simple approach: sort sections)
+	int section_size = 8;  // Process in chunks of 8 floats
+	for (int start = 0; start < payload.size(); start += section_size) {
+		int end = std::min((int)payload.size(), start + section_size);
+		
+		// Sort this section to group similar values
+		std::sort(payload.begin() + start, payload.begin() + end);
+	}
 }
 
 void LLMMAC::llmReceive(Message* re_msg) {

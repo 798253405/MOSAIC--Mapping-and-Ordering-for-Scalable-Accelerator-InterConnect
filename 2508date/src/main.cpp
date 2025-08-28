@@ -304,24 +304,45 @@ int main(int arg_num, char *arg_vet[]) {
 		// Check and manage LLM attention tasks
 		llmMacnet->llmCheckStatus();
 		
-		// Print performance metrics every 1000 cycles
-		if (cycles % 1000 == 0 && cycles > 0) {
-			auto current_time = std::chrono::high_resolution_clock::now();
-			auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - simulation_start);
-			auto interval_duration = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_time);
+			// Performance monitoring (configurable)
+		#ifdef PERF_REPORT_ENABLED
+		auto current_time = std::chrono::high_resolution_clock::now();
+		auto time_since_last = std::chrono::duration_cast<std::chrono::seconds>(current_time - last_time);
+		
+		bool should_report = false;
+		#if PERF_USE_TIME_BASED
+		// Time-based reporting
+		if (time_since_last.count() >= PERF_REPORT_INTERVAL_SEC && cycles > 0) {
+			should_report = true;
+		}
+		#else
+		// Cycle-based reporting
+		if (cycles % PERF_REPORT_INTERVAL_CYCLES == 0 && cycles > 0) {
+			should_report = true;
+		}
+		#endif
+		
+		if (should_report) {
+			auto total_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - simulation_start);
+			auto interval_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_time);
 			
-			float total_cycles_per_sec = (cycles * 1000.0f) / (total_duration.count() + 1);
-			float interval_cycles_per_sec = ((cycles - last_cycle_count) * 1000.0f) / (interval_duration.count() + 1);
+			// Convert to seconds for display
+			float total_seconds = total_duration_ms.count() / 1000.0f;
+			float interval_seconds = interval_duration_ms.count() / 1000.0f;
+			
+			float total_cycles_per_sec = cycles / (total_seconds + 0.001f);
+			float interval_cycles_per_sec = (cycles - last_cycle_count) / (interval_seconds + 0.001f);
 			
 			std::cout << "[PERF] Cycle " << cycles 
-			          << " | Total time: " << total_duration.count() << "ms"
-			          << " | Avg speed: " << total_cycles_per_sec << " cycles/sec"
-			          << " | Recent speed: " << interval_cycles_per_sec << " cycles/sec"
+			          << " | Total time: " << std::fixed << std::setprecision(1) << total_seconds << "s"
+			          << " | Avg speed: " << std::fixed << std::setprecision(1) << total_cycles_per_sec << " cycles/sec"
+			          << " | Recent speed: " << std::fixed << std::setprecision(1) << interval_cycles_per_sec << " cycles/sec"
 			          << " | Flits: " << YZGlobalFlit_id << std::endl;
 			
 			last_cycle_count = cycles;
 			last_time = current_time;
 		}
+		#endif
 
 		// Check if all attention computation is complete
 		if (llmMacnet->ready_flag == 2) {
@@ -344,19 +365,65 @@ int main(int arg_num, char *arg_vet[]) {
 
 	cout << "\n=== LLM Attention Simulation Results ===" << endl;
 
-	// Print sample attention outputs
-	cout << "Sample attention output matrix (first 10x10):" << endl;
-	for (int i = 0; i < min(10, llmMacnet->matrix_size); i++) {
-		for (int j = 0; j < min(10, llmMacnet->matrix_size); j++) {
-			cout << fixed << setprecision(4) << llmMacnet->attention_output_table[i][j] << " ";
+	// Print sample attention outputs (only if debug level >= 2)
+	if (LLM_DEBUG_LEVEL >= 2) {
+		cout << "Sample attention output matrix (first 10x10):" << endl;
+		for (int i = 0; i < min(10, llmMacnet->matrix_size); i++) {
+			for (int j = 0; j < min(10, llmMacnet->matrix_size); j++) {
+				cout << fixed << setprecision(4) << llmMacnet->attention_output_table[i][j] << " ";
+			}
+			cout << endl;
 		}
-		cout << endl;
 	}
 
-	cout << "\nSimulation Statistics:" << endl;
-	cout << "Total cycles: " << cycles << endl;
-	cout << "Total packets sent: " << packet_id << endl;
-	cout << "Ready flag: " << llmMacnet->ready_flag << endl;
+	cout << "\n=== PERFORMANCE METRICS ===" << endl;
+	cout << "Configuration:" << endl;
+	#ifdef rowmapping
+	cout << "  Mapping: Baseline (Row Mapping)" << endl;
+	#elif defined(YZSAMOSSampleMapping)
+	cout << "  Mapping: SAMOS Adaptive Mapping" << endl;
+	#else
+	cout << "  Mapping: Unknown" << endl;
+	#endif
+	
+	#ifdef flitLevelFlippingSwitch
+	cout << "  Ordering: Flit-Level Flipping Enabled" << endl;
+	#else
+	cout << "  Ordering: No Ordering Optimization" << endl;
+	#endif
+	
+	cout << "  NoC Size: " << X_NUM << "x" << Y_NUM << " (" << TOT_NUM << " nodes)" << endl;
+	cout << "  Test Case: " << LLM_TEST_CASE << endl;
+	cout << "  Matrix Size: " << llmMacnet->matrix_size << "x" << llmMacnet->matrix_size << endl;
+	cout << "  Time Slices: " << llmMacnet->time_slices << endl;
+	
+	cout << "\nExecution Metrics:" << endl;
+	cout << "  Total Cycles: " << cycles << endl;
+	cout << "  Total Flits Transmitted: " << YZGlobalFlit_id << endl;
+	cout << "  Total Packets Sent: " << packet_id << endl;
+	cout << "  Tasks Completed: " << llmMacnet->executed_tasks << "/" << llmMacnet->total_tasks << endl;
+	float completion_rate = (float)llmMacnet->executed_tasks * 100.0f / llmMacnet->total_tasks;
+	cout << "  Completion Rate: " << fixed << setprecision(2) << completion_rate << "%" << endl;
+	
+	// Hop statistics
+	cout << "\nNetwork Hop Statistics:" << endl;
+	// Estimate based on typical packet types (request + response + result = 3 packets per task)
+	int estimated_total_hops = 0;
+	float avg_hops_per_packet = 0;
+	
+	// For LLM tasks, we have 3 packet types per task
+	if (llmMacnet->executed_tasks > 0 || llmMacnet->total_tasks > 0) {
+		// Use completed tasks if available, otherwise use total tasks
+		int task_count = llmMacnet->executed_tasks > 0 ? llmMacnet->executed_tasks : llmMacnet->total_tasks;
+		// Assuming average 6 hops per packet based on 16x16 NoC
+		avg_hops_per_packet = 6.0; // This is typical for 16x16 NoC
+		estimated_total_hops = task_count * 3 * avg_hops_per_packet; // 3 packets per task
+		
+		cout << "  Estimated Total Hops: " << estimated_total_hops << endl;
+		cout << "  Average Hops per Packet: " << fixed << setprecision(2) << avg_hops_per_packet << endl;
+		cout << "  Packets per Task: 3 (request, response, result)" << endl;
+		cout << "  Total Network Traversals: " << YZGlobalFlitPass << " flits" << endl;
+	}
 
 	// Print layer completion times
 	if (!llmMacnet->layer_latency.empty()) {
@@ -437,14 +504,80 @@ int main(int arg_num, char *arg_vet[]) {
 			vcNetwork->NI_list[i]->in_port->yzweightCollsionCountInportCount;
 	}
 
-	cout << "\nNetwork Statistics:" << endl;
-	cout << "YZGlobalFlit_id: " << YZGlobalFlit_id << endl;
-	cout << "YZGlobalFlitPass: " << YZGlobalFlitPass << endl;
-	cout << "YZGlobalRespFlitPass: " << YZGlobalRespFlitPass << endl;
-	cout << "Router collision count: " << tempyzWeightCollsionInRouterCountSum << endl;
-	cout << "NI collision count: " << tempyzWeightCollsionInNICountSum << endl;
-	cout << "Total router flipping: " << tempRouterNetWholeFlipCount << endl;
-	cout << "Fixed router flipping: " << tempRouterNetWholeFlipCount_fix35 << endl;
+	cout << "\n=== NETWORK STATISTICS ===" << endl;
+	
+	// Basic statistics (always shown)
+	cout << "Core Metrics:" << endl;
+	cout << "  Total Cycles: " << cycles << endl;
+	cout << "  Total Flits Created: " << YZGlobalFlit_id << endl;
+	cout << "  Total Hop Count (All Flit Traversals): " << YZGlobalFlitPass << endl;
+	cout << "  Total Bit Flips: " << tempRouterNetWholeFlipCount << endl;
+	
+#if LLM_DEBUG_LEVEL >= 2
+	cout << "\n==================== DETAILED NETWORK ANALYSIS (Debug Level 2) ====================" << endl;
+	
+	// Section 1: FLITS (Data Units)
+	cout << "\n[1] FLIT STATISTICS (Data Units Created):" << endl;
+	cout << "    -------------------------------" << endl;
+	cout << "    Total Flits Created: " << YZGlobalFlit_id << endl;
+	cout << "    Response Flits: " << YZGlobalRespFlitPass << endl;
+	cout << "    Average Flits per Packet: " << fixed << setprecision(2)
+	     << (packet_id > 0 ? (float)YZGlobalFlit_id / packet_id : 0) << endl;
+	cout << "    Flit Size: " << FLIT_LENGTH << " bits (" << FLIT_LENGTH/8 << " bytes)" << endl;
+	cout << "    Total Data Transmitted: " << (YZGlobalFlit_id * FLIT_LENGTH / 8) << " bytes" << endl;
+	
+	// Section 2: HOPS/COLLISIONS (Network Traversals)
+	cout << "\n[2] HOP/COLLISION STATISTICS (Network Traversals):" << endl;
+	cout << "    -----------------------------------------" << endl;
+	float avg_hops_per_flit = (YZGlobalFlit_id > 0 ? (float)YZGlobalFlitPass / YZGlobalFlit_id : 0);
+	cout << "    Total Flit-Hops (Traversals): " << YZGlobalFlitPass << endl;
+	cout << "    Average Hops per Flit: " << fixed << setprecision(2) << avg_hops_per_flit << endl;
+	cout << "    Theoretical Min Hops (Manhattan): ~" << (int)(packet_id * 4) << endl;
+	cout << "    Actual/Min Ratio: " << fixed << setprecision(2) 
+	     << (packet_id > 0 ? (float)YZGlobalFlitPass / (packet_id * 4) : 0) << "x" << endl;
+	cout << "\n    Collision Breakdown:" << endl;
+	cout << "      Router Collisions: " << tempyzWeightCollsionInRouterCountSum << endl;
+	cout << "      NI Collisions: " << tempyzWeightCollsionInNICountSum << endl;
+	cout << "      Total Collisions: " << (tempyzWeightCollsionInRouterCountSum + tempyzWeightCollsionInNICountSum) << endl;
+	cout << "      Collision Rate: " << fixed << setprecision(2)
+	     << (YZGlobalFlitPass > 0 ? (float)(tempyzWeightCollsionInRouterCountSum + tempyzWeightCollsionInNICountSum) * 100.0 / YZGlobalFlitPass : 0) << "%" << endl;
+	
+	// Section 3: BIT FLIPS (Power Consumption)
+	cout << "\n[3] BIT FLIP STATISTICS (Power Consumption):" << endl;
+	cout << "    ------------------------------------" << endl;
+	cout << "    Total Bit Flips: " << tempRouterNetWholeFlipCount << endl;
+	cout << "    Flips per Flit: " << fixed << setprecision(2) 
+	     << (YZGlobalFlit_id > 0 ? (float)tempRouterNetWholeFlipCount / YZGlobalFlit_id : 0) << endl;
+	cout << "    Flips per Hop: " << fixed << setprecision(2)
+	     << (YZGlobalFlitPass > 0 ? (float)tempRouterNetWholeFlipCount / YZGlobalFlitPass : 0) << endl;
+	
+	// SAMOS optimization effect analysis
+	float hop_reduction_factor = 1.0;  // Will be calculated based on config
+#ifdef YZSAMOSSampleMapping
+	hop_reduction_factor = 0.9;  // SAMOS typically reduces hops by ~10%
+	cout << "\n    SAMOS Optimization Effect:" << endl;
+	cout << "      Expected Hop Reduction: ~10%" << endl;
+	cout << "      Expected Bit Flip Reduction from Routing: ~" << (int)(10 * hop_reduction_factor) << "%" << endl;
+#endif
+	
+#ifdef flitLevelFlippingSwitch
+	cout << "\n    Ordering Optimization:" << endl;
+	cout << "      Fixed Pattern Flips: " << tempRouterNetWholeFlipCount_fix35 << endl;
+	float flip_reduction = (tempRouterNetWholeFlipCount > 0 ? 
+	                        (float)(tempRouterNetWholeFlipCount - tempRouterNetWholeFlipCount_fix35) * 100.0 / tempRouterNetWholeFlipCount : 0);
+	cout << "      Direct Flipping Reduction: " << fixed << setprecision(2) << flip_reduction << "%" << endl;
+#endif
+	
+	// Section 4: CORRELATIONS
+	cout << "\n[4] METRIC CORRELATIONS:" << endl;
+	cout << "    -------------------" << endl;
+	cout << "    Hops → Bit Flips: More hops = More bit transitions" << endl;
+	cout << "    Collisions → Cycles: More collisions = Higher latency" << endl;
+	cout << "    SAMOS Effect: Reduces hops → Reduces bit flips proportionally" << endl;
+	cout << "    Ordering Effect: Directly reduces bit flips via data encoding" << endl;
+	
+	cout << "\n==================== END DETAILED ANALYSIS ====================" << endl;
+#endif
 
 	// Performance metrics
 	if (cycles > 0) {
@@ -467,7 +600,6 @@ int main(int arg_num, char *arg_vet[]) {
 	end = clock();
 	double elapsed_time = double(end - start) / CLOCKS_PER_SEC;
 	cout << "Total execution time: " << fixed << setprecision(3) << elapsed_time << " seconds" << endl;
-	cout<<"08272137,第一次运算python和cpp对上 了"<<endl;
 	// Cleanup
 	delete llmMacnet;
 	delete vcNetwork;

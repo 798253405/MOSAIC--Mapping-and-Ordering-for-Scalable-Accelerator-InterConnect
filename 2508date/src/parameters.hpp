@@ -34,7 +34,13 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 // Test Case 1: 小规模验证 (4x4矩阵) - 用于快速功能验证
 // Test Case 2: 中等规模 (128x128矩阵) - 模拟实际LLaMA注意力计算
 // Test Case 3: 大规模测试 (256x256矩阵) - 性能压力测试
-#define LLM_TEST_CASE 2  // <-- 修改这里切换测试用例
+#define LLM_TEST_CASE 2
+
+// ==================== DEBUG LEVEL CONTROL ====================
+// Level 1: Basic cycle progress + layer info (DEFAULT)
+// Level 2: Task and node level details  
+// Level 3: Detailed packet-level debug
+#define LLM_DEBUG_LEVEL 1
 
 // Debug output control (applies to all test cases)
 #ifdef LLM_TEST_CASE
@@ -67,8 +73,8 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 
 // ==================== ORDERING OPTIMIZATION ====================
 // Flit级别翻转优化（降低功耗）
-//#define flitLevelFlippingSwitch  // 取消注释以启用Ordering优化
-
+#define flitLevelFlippingSwitch
+//belowbusinvertcoding
  //#define all128BitInvert
 //#define partionedInvert
 
@@ -87,12 +93,12 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 
 // ==================== TASK MAPPING STRATEGY ====================
 // 注意：rowmapping和YZSAMOSSampleMapping互斥，只能选择一个！
-#define rowmapping           // 基准行映射（默认）
+//#define rowmapping
 //#define colmapping         // 列映射
 //#define randmapping        // 随机映射
 //#define YZrandmapping      // YZ随机映射
 //#define YZDistanacemappingw // 距离感知映射
-//#define YZSAMOSSampleMapping // SAMOS自适应映射（高级优化）
+#define YZSAMOSSampleMapping
 #define SoCC_Countlatency		// open recording of packet level delay // note 	DNN_latency.resize(3000000); is not enough for large dnn
 
 #define samplingWindowLength 10  // Standard sampling window
@@ -139,6 +145,12 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 #define FREQUENCY 2 // GHz
 #define MEM_read_delay  0.0625//0.0625 //0.0625  //0.31255  // 0.1575 / //0.0787 / delay for 2byte / 1 data  // 0.3125 =12.8GB/s pc3-12800  0.0625 =  64GB/S PC5-64000.
 #define PE_NUM_OP 64//64 // 25
+// Performance monitoring configuration
+#define PERF_REPORT_ENABLED        // Enable/disable performance reporting
+#define PERF_REPORT_INTERVAL_SEC 30 // Report every N seconds (time-based)
+#define PERF_REPORT_INTERVAL_CYCLES 50000 // OR report every N cycles (cycle-based)
+#define PERF_USE_TIME_BASED true   // true = use time interval, false = use cycle interval
+
 #define PRINT 100000
 
 

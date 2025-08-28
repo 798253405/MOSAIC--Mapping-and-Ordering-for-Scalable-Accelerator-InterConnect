@@ -170,7 +170,6 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 #ifdef flitLevelFlippingSwitch
 		if (inbuffer[0] != 8)		 //if(not pooling  )
 				{
-			// std::cout<<inbuffer[0] <<" "<< flitNumSinglePacket <<" "<<" msg.yzMSGPayload "<<msg.yzMSGPayload.size()<<" m_sizeinsideMAC "<<m_size  <<" inbuffer[2] "<<inbuffer[2]<<" inbuffer[1] "<<inbuffer[1]<<" macid "<<selfMACid<<endl;
 			reArrangeHalfInputHalfWeight(msg.yzMSGPayload,
 					inbuffer[2] * inbuffer[1] /* t_inputCount */,
 					inbuffer[2]

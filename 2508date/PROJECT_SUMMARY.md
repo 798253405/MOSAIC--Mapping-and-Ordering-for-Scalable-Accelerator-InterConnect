@@ -15,7 +15,9 @@
 ### 关键特性
 1. **SAMOS自适应映射**: 基于采样的动态任务分配（Hamilton最大余数法）
 2. **Flit级别翻转优化**: 减少数据传输功耗
-3. **三种测试配置**:
+3. **分层调试系统**: 三级调试输出控制（Level 1-3）
+4. **可配置性能监控**: 支持时间和周期双模式报告
+5. **三种测试配置**:
    - Test Case 1: 4×4小矩阵（快速验证）
    - Test Case 2: 128×128矩阵（LLaMA风格）
    - Test Case 3: 256×256大矩阵（性能测试）
@@ -60,6 +62,38 @@
 | SAMOS | 0% | 10-20% | 15-30% |
 | Ordering | 0% | 5-10% | 5-15% |
 | SAMOS+Ordering | 0% | 15-25% | 20-35% |
+
+## 配置选项
+
+### 调试级别控制 (parameters.hpp)
+```cpp
+// 三级调试系统
+#define LLM_DEBUG_LEVEL 1  // 1-3，控制调试信息详细程度
+
+// Level 1: 基础周期进度 + 层级信息 + 系统时间戳
+// Level 2: 任务级别和节点级别详细信息  
+// Level 3: 详细的数据包级别调试
+```
+
+### 性能监控配置 (parameters.hpp)
+```cpp
+// 性能监控配置
+#define PERF_REPORT_ENABLED        // 启用/禁用性能报告
+#define PERF_REPORT_INTERVAL_SEC 30 // 时间间隔报告（秒）
+#define PERF_REPORT_INTERVAL_CYCLES 50000 // 周期间隔报告
+#define PERF_USE_TIME_BASED true   // true=时间模式，false=周期模式
+```
+
+### 测试用例选择
+```cpp
+#define LLM_TEST_CASE 1 // 1=4x4小矩阵, 2=128x128中等, 3=256x256大矩阵
+```
+
+### NoC规模配置
+```cpp
+#define MemNode4_16X16   // 16x16 NoC，4个内存控制器（推荐Test Case 2）
+// 其他选项：MemNode2_4x4, MemNode4_4X4, MemNode4_8X8, MemNode4_32X32
+```
 
 ## 使用指南
 

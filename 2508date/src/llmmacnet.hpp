@@ -47,7 +47,7 @@ public:
 	void llmRandomMapping(int total_tasks);
 	void llmDistanceMapping(int total_tasks);
 	void llmLoadBalanceMapping(int total_tasks);
-	int llmSAMOSSampleMapping(int task_count);  // SAMOS mapping function
+	int llmSAMOSSampleMapping(int task_count, int start_task_id = 0);  // SAMOS mapping function
 
 	// LLM attention layer management
 	void llmCreateAttentionData();

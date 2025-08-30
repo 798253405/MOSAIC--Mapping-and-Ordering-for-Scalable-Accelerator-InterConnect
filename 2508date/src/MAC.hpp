@@ -23,7 +23,7 @@
 
 
 
-#if defined MemNode2_4x4
+#if defined MemNode2_4X4
 	#define MEM_NODES 2
 	const int dest_list[] = {9, 11}; // 4*4
 

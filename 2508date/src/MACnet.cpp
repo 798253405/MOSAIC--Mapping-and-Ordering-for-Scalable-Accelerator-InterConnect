@@ -620,7 +620,7 @@ int MACnet::yzDistancemapping(int neuronnum) {
 	this->mapping_table.resize(macNum);
 	int j = 0;
 	int countPerPE = 0;
-#ifdef MMemNode2_4x4
+#ifdef MMemNode2_4X4
 	cout << " yzDistancemappingneuronnumis " << neuronnum << endl;
 // 9and 11 are memnodes  // or 9and10
 	for (int i = 0; i < macNum; i++) {
@@ -728,7 +728,7 @@ int MACnet::yzDistancemapping(int neuronnum) {
  int tempAllocatedCount = 0;
 
 
- #ifdef MemNode2_4x4
+ #ifdef MemNode2_4X4
  cout << " YZSAMOSSampleMappingneuronnumis " << neuronnum << " atcycles "
  << cycles << endl;
 

@@ -14,3 +14,13 @@
 2508date/src/output/
 
 2508date/src/pycharmCodes/__pycache__/
+
+2508date/output/
+
+*.backup
+
+2508date/backup_scripts/
+
+2508date/RECOVERY_CHECKLIST.md
+
+2508date/PROJECT_SUMMARY.md

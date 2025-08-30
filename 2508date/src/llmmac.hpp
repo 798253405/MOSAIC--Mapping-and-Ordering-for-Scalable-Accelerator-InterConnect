@@ -21,7 +21,7 @@
 #include "NoC/NI.hpp"
 // 注意: llmmacnet.hpp 会在 .cpp 文件中包含，避免循环依赖
 
-#if defined MemNode2_4x4
+#if defined MemNode2_4X4
 	#define MEM_NODES 2
 	const int dest_list[] = {9, 11}; // 4*4
 

@@ -35,7 +35,7 @@ MAC::MAC(int t_id, MACnet *t_net, int t_NI_id) {
 	int yid = NI_id % X_NUM;
 	// MC nodes
 
-#if defined MemNode2_4x4
+#if defined MemNode2_4X4
 	dest_mem_id = dest_list[(yid / 2)];
 #elif defined MemNode4_4X4
 	if (xid <= 1 && yid <= 1) {

@@ -11,12 +11,12 @@
 
 
 /******************************/
-#define fulleval
-//#define randomeval
+//#define fulleval
+#define randomeval
 
 
 
-#define YZLLMSwitchON
+//#define YZLLMSwitchON
 // --- Llama 2 (7B) 模型及硬件参数设定 ---
 constexpr int DIM_MODEL = 4096;
 constexpr int NUM_HEAD = 32;
@@ -64,16 +64,52 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 // ==================== NoC SIZE AND MEMORY CONFIGURATION ====================
 // 选择NoC规模（根据测试用例选择合适的NoC大小）
 // 推荐配置：Test Case 1 -> 4x4, Test Case 2 -> 16x16, Test Case 3 -> 32x32
-//#define MemNode2_4x4    // 4x4 NoC, 2 MC cores (适合Test Case 1)
+#define MemNode2_4X4    // 4x4 NoC, 2 MC cores (适合Test Case 1)
 //#define MemNode4_4X4    // 4x4 NoC, 4 MC cores (适合Test Case 1)
 //#define MemNode4_8X8    // 8x8 NoC, 4 MC cores
-#define MemNode4_16X16   // 16x16 NoC, 4 MC cores (适合Test Case 2)
+//#define MemNode4_16X16   // 16x16 NoC, 4 MC cores (适合Test Case 2)
 //#define MemNode4_32X32  // 32x32 NoC, 4 MC cores (适合Test Case 3)
 
 
+// ==================== TEST CASE CONFIGURATIONS ====================
+// Define test cases for batch testing
+#define case1_default
+//#define case2_samos
+//#define case3_affiliatedordering
+//#define case4_seperratedordering
+//#define case5_MOSAIC1
+//#define case6_MOSAIC2
+
+#if defined(case1_default)
+    #define rowmapping
+
+#elif defined(case2_samos)
+    #define YZSAMOSSampleMapping
+
+#elif defined(case3_affiliatedordering)
+    #define rowmapping
+    #define flitLevelFlippingSwitch
+
+#elif defined(case4_seperratedordering)
+    #define rowmapping
+    #define flitLevelFlippingSwitch
+    #define reArrangeInput
+
+#elif defined(case5_MOSAIC1)
+    #define YZSAMOSSampleMapping
+    #define flitLevelFlippingSwitch
+
+#elif defined(case6_MOSAIC2)
+    #define YZSAMOSSampleMapping
+    #define flitLevelFlippingSwitch
+    #define reArrangeInput
+#else
+    #define rowmapping
+#endif
+
 // ==================== ORDERING OPTIMIZATION ====================
 // Flit级别翻转优化（降低功耗）
-#define flitLevelFlippingSwitch
+// Note: Now controlled by case definitions above
 //belowbusinvertcoding
  //#define all128BitInvert
 //#define partionedInvert
@@ -93,12 +129,7 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 
 // ==================== TASK MAPPING STRATEGY ====================
 // 注意：rowmapping和YZSAMOSSampleMapping互斥，只能选择一个！
-//#define rowmapping
-//#define colmapping         // 列映射
-//#define randmapping        // 随机映射
-//#define YZrandmapping      // YZ随机映射
-//#define YZDistanacemappingw // 距离感知映射
-#define YZSAMOSSampleMapping
+
 #define SoCC_Countlatency		// open recording of packet level delay // note 	DNN_latency.resize(3000000); is not enough for large dnn
 
 #define samplingWindowLength 10  // Standard sampling window
@@ -170,7 +201,7 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 
 
 /******************************/
-#if defined MemNode2_4x4
+#if defined MemNode2_4X4
 	#define PE_X_NUM 4
 	#define PE_Y_NUM 4
 	//NI size

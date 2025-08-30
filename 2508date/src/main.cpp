@@ -190,12 +190,11 @@ int main(int arg_num, char *arg_vet[]) {
 			tempRouterNetWholeFlipCount =
 					tempRouterNetWholeFlipCount
 							+ vcNetwork->router_list[i]->in_port_list[j]->totalyzInportFlipping;
-			yzWeightCollsionInRouterCountSum =
 			tempRouterNetWholeFlipCount_fix35 =
 					tempRouterNetWholeFlipCount_fix35
 							+ vcNetwork->router_list[i]->in_port_list[j]->totalyzInportFixFlipping;
 
-			yzWeightCollsionInRouterCountSum
+			yzWeightCollsionInRouterCountSum = yzWeightCollsionInRouterCountSum
 					+ vcNetwork->router_list[i]->in_port_list[j]->yzweightCollsionCountInportCount;
 		}
 		yzWeightCollsionInNICountSum = yzWeightCollsionInNICountSum

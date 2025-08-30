@@ -157,6 +157,8 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "Packet id: " << packet_id << endl;
 
 #ifdef SoCC_Countlatency
+	// File writing disabled for speed - statistics still collected in memory
+	/*
 	ofstream outfile_delay(
 			"/home/yz/myprojects/2025/ESWEEKFlipping_250315/250315/src/output/lenetdelay.txt",
 			ios::out);
@@ -167,8 +169,11 @@ int main(int arg_num, char *arg_vet[]) {
 		outfile_delay << endl;
 	}
 	outfile_delay.close();
+	*/
 #endif
 #ifdef SoCC_Countlatency
+	// File writing disabled for speed - statistics still collected in memory
+	/*
 	ofstream file(
 			"/home/yz/myprojects/2025/ESWEEKFlipping_250315/250315/src/output/yzLeaveOutportPerRouter.txt");
 	if (!file.is_open()) {
@@ -182,6 +187,7 @@ int main(int arg_num, char *arg_vet[]) {
 		file << "\n"; // 换行，准备写入下一个内部vector
 	}
 	file.close();
+	*/
 #endif
 	long long tempRouterNetWholeFlipCount = 0;
 	long long tempRouterNetWholeFlipCount_fix35 = 0;
@@ -211,6 +217,23 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << " tempRouterNetWholeFlipCount " << tempRouterNetWholeFlipCount
 			<< " tempRouterNetWholeFlipCount_fix35 "
 			<< tempRouterNetWholeFlipCount_fix35 << endl;
+	
+	// Add formatted single-line output for batch processing
+	double avg_bit_trans_float = YZGlobalFlitPass > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalFlitPass : 0;
+	double avg_bit_trans_fixed = YZGlobalFlitPass > 0 ? (double)tempRouterNetWholeFlipCount_fix35/YZGlobalFlitPass : 0;
+	double avg_hops_per_flit = YZGlobalFlit_id > 0 ? (double)YZGlobalFlitPass/YZGlobalFlit_id : 0;
+	
+	cout << "BATCH_STATS: "
+		<< "total_cycles=" << cycles << " "
+		<< "packetid=" << packet_id << " "
+		<< "YZGlobalFlit_id=" << YZGlobalFlit_id << " "
+		<< "YZGlobalFlitPass=" << YZGlobalFlitPass << " "
+		<< "avg_hops_per_flit=" << avg_hops_per_flit << " "
+		<< "bit_transition_float_per_flit=" << avg_bit_trans_float << " "
+		<< "bit_transition_fixed_per_flit=" << avg_bit_trans_fixed << " "
+		<< "total_bit_transition_float=" << tempRouterNetWholeFlipCount << " "
+		<< "total_bit_transition_fixed=" << tempRouterNetWholeFlipCount_fix35 << endl;
+	
 	cout << "!!END!!" << endl;
 
 
@@ -450,6 +473,8 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "Waiting MACs: " << waiting_macs << endl;
 
 #ifdef SoCC_Countlatency
+	// File writing disabled for speed - statistics still collected in memory
+	/*
 	// Save latency statistics
 	cout << "Saving latency statistics..." << endl;
 	ofstream outfile_delay("output/llm_attention_latency.txt", ios::out);
@@ -465,6 +490,7 @@ int main(int arg_num, char *arg_vet[]) {
 	} else {
 		cout << "Warning: Could not open latency output file" << endl;
 	}
+	*/
 #endif
 
 	// Save attention output matrix

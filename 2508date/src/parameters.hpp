@@ -132,13 +132,12 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 
 #define SoCC_Countlatency		// open recording of packet level delay // note 	DNN_latency.resize(3000000); is not enough for large dnn
 
-#define samplingWindowLength 100  // Standard sampling window
+#define samplingWindowLength 100 // Standard sampling window
 //////////////////////////////////
 #define VN_NUM 1   //2
 #define VC_PER_VN  4  ///<1 A: control URS (control all in other 3 modes)
 #define VC_PRIORITY_PER_VN 0 ///< B: only control LCS
 #define STARVATION_LIMIT 20 // forbid starvation (no priority packet must go after 20)
-
 
 
 

@@ -153,6 +153,27 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	// Export tasks for verification
 	llmExportTasksToFile();
 
+	// Test bit representation functions with demo data
+	std::cout << "\n=== LLM Initialization: Demo Data Debug ===\n";
+	if (LLMMAC_list.size() > 0) {
+		std::deque<float> demo_data;
+		demo_data.push_back(1.5f);
+		demo_data.push_back(-0.25f);
+		demo_data.push_back(3.14159f);
+		demo_data.push_back(0.0f);
+		demo_data.push_back(-1.0f);
+		demo_data.push_back(2.718f);
+		
+		LLMMAC_list[0]->llmPrintDetailedData(demo_data, "Demo Values for Bit Analysis", 6);
+		
+		// Also show some real matrix data
+		std::deque<float> real_query_data;
+		for (int i = 0; i < 4; i++) {
+			real_query_data.push_back(attention_query_table[0][i]);
+		}
+		LLMMAC_list[0]->llmPrintDetailedData(real_query_data, "Real Query Matrix Data (Row 0, Cols 0-3)", 4);
+	}
+
 	layer_latency.clear();
 	LLM_DEBUG_INIT("LLMMACnet initialized successfully!");
 }
@@ -162,7 +183,16 @@ void LLMMACnet::llmInitializeMatrices() {
 
 	// 使用固定种子确保可重现性
 	srand(42);
-
+	
+	// Create a demo deque to test our bit representation functions
+	std::deque<float> demo_data;
+	demo_data.push_back(1.5f);
+	demo_data.push_back(-0.25f);
+	demo_data.push_back(3.14159f);
+	demo_data.push_back(0.0f);
+	demo_data.push_back(-1.0f);
+	demo_data.push_back(2.718f);
+	
 	attention_query_table.resize(matrix_size);
 	attention_key_table.resize(matrix_size);
 	attention_value_table.resize(matrix_size);

@@ -1,6 +1,7 @@
 // 小矩阵版本的 llmmac.cpp - 4x4可调试
 #include "llmmac.hpp"
 #include "llmmacnet.hpp"
+#include "yzIEEE754.hpp"  // For bit-count sorting functions
 #include <ctime>
 #include <iomanip>
 #include <cstdlib>
@@ -210,18 +211,9 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 
 	if (msg.msgtype == 0) { // Request
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
-		// Add some test data to observe ordering effects
-		for (int i = 0; i < payloadElementNum && i < 16; i++) {
-			msg.yzMSGPayload[i] = 10.0f - (float)(i % 3) + 0.1f * selfMACid + 0.01f * cycles;
-		}
 		if (selfMACid < 10) {
 			LLM_DEBUG("MAC " << selfMACid << " sending request (type 0) to " << d_id << " for task " << t_output);
 		}
-
-#ifdef flitLevelFlippingSwitch
-		// Apply LLM ordering to request payload
-		llmApplyOrdering(msg.yzMSGPayload);
-#endif
 	} else if (msg.msgtype == 2 || msg.msgtype == 3) { // Result (type 2 intermediate, type 3 final)
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
 		msg.yzMSGPayload[0] = t_output;
@@ -543,18 +535,48 @@ void LLMMAC::llmResetForNextTask() {
 }
 
 void LLMMAC::llmApplyOrdering(std::deque<float>& payload) {
-	// Simple LLM-specific payload ordering to reduce bit flips
-	// Strategy: Sort similar values to be adjacent, reducing IEEE754 bit transitions
-	if (payload.size() < 4) return; // Skip if too small
+	// LLM payload contains: [metadata(4), query_data, key_data]
+	// Extract data size from metadata
+	if (payload.size() < 8) return; // Need at least metadata + some data
 	
-	// Group values by similarity (simple approach: sort sections)
-	int section_size = 8;  // Process in chunks of 8 floats
-	for (int start = 0; start < payload.size(); start += section_size) {
-		int end = std::min((int)payload.size(), start + section_size);
-		
-		// Sort this section to group similar values
-		std::sort(payload.begin() + start, payload.begin() + end);
+	int data_size = (int)payload[1];  // payload[1] contains query_data.size()
+	int metadata_size = 4;
+	
+	// Verify we have enough data for query + key
+	if (payload.size() < metadata_size + data_size * 2) return;
+	
+	// Extract query and key data sections
+	std::deque<float> query_data(payload.begin() + metadata_size, 
+	                             payload.begin() + metadata_size + data_size);
+	std::deque<float> key_data(payload.begin() + metadata_size + data_size,
+	                           payload.begin() + metadata_size + data_size * 2);
+
+	// Debug: Print original data for first few MACs
+	if (selfMACid < 2) {
+		std::cout << "\n=== MAC " << selfMACid << " Payload Ordering Debug ===\n";
+		llmPrintDetailedData(query_data, "Query Data (BEFORE sorting)", 6);
+		llmPrintDetailedData(key_data, "Key Data (BEFORE sorting)", 6);
 	}
+
+#ifdef reArrangeInput
+	// Mode 1: Independent sorting - query and key sorted separately by bitcount
+	llmRearrangeDeque(query_data, data_size, 1);  // query acts like "input"
+	llmRearrangeDeque(key_data, data_size, 1);    // key acts like "weight"
+#else
+	// Mode 2: Correlated sorting - sort by key bitcount, query follows same order
+	llmRearrangeDequeAccordingly(query_data, key_data, data_size, 1);
+#endif
+
+	// Debug: Print sorted data for first few MACs
+	if (selfMACid < 2) {
+		llmPrintDetailedData(query_data, "Query Data (AFTER sorting)", 6);
+		llmPrintDetailedData(key_data, "Key Data (AFTER sorting)", 6);
+		std::cout << "=== End MAC " << selfMACid << " Debug ===\n" << std::endl;
+	}
+
+	// Put the sorted data back into payload
+	std::copy(query_data.begin(), query_data.end(), payload.begin() + metadata_size);
+	std::copy(key_data.begin(), key_data.end(), payload.begin() + metadata_size + data_size);
 }
 
 void LLMMAC::llmReceive(Message* re_msg) {
@@ -584,6 +606,81 @@ void LLMMAC::llmReceive(Message* re_msg) {
 			}
 		}
 	}
+}
+
+// LLM-specific sorting functions for IEEE754 bit-count optimization
+
+void LLMMAC::llmPrintDetailedData(const std::deque<float>& data, const std::string& name, int max_elements) {
+	std::cout << "\n=== " << name << " Debug Info ===\n";
+	std::cout << "Total elements: " << data.size() << "\n";
+	
+	int print_count = std::min((int)data.size(), max_elements);
+	for (int i = 0; i < print_count; i++) {
+		float value = data[i];
+		std::string bit_repr = float_to_ieee754(value);
+		int bit_count = countOnesInIEEE754(value);
+		
+		std::cout << "[" << i << "] Value: " << std::fixed << std::setprecision(6) << value
+		          << " | Bits: " << bit_repr 
+		          << " | 1-Count: " << bit_count << "\n";
+	}
+	if ((int)data.size() > max_elements) {
+		std::cout << "... (showing first " << max_elements << " of " << data.size() << " elements)\n";
+	}
+	std::cout << std::endl;
+}
+
+void LLMMAC::llmRearrangeDeque(std::deque<float>& data, int colnum_per_row, int rownum_per_col) {
+	// Sort data independently by IEEE754 bit count (like CNN's rearrangeDeque)
+	if (data.empty()) return;
+	
+	// Create indices and sort by bit count
+	std::vector<int> indices(data.size());
+	for (int i = 0; i < indices.size(); ++i) {
+		indices[i] = i;
+	}
+	
+	// Sort indices based on IEEE754 bit count comparison
+	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
+		return compareFloatsByOnes(data[i], data[j]);
+	});
+	
+	// Rearrange data based on sorted indices
+	std::deque<float> sorted_data;
+	for (int idx : indices) {
+		sorted_data.push_back(data[idx]);
+	}
+	
+	data = sorted_data;
+}
+
+void LLMMAC::llmRearrangeDequeAccordingly(std::deque<float>& query_data, std::deque<float>& key_data, 
+                                          int colnum_per_row, int rownum_per_col) {
+	// Sort by key_data bit count, query_data follows same order (like CNN's rearrangeDequeAccordingly)
+	if (key_data.empty() || query_data.empty()) return;
+	if (key_data.size() != query_data.size()) return;
+	
+	// Create indices and sort by key_data bit count
+	std::vector<int> indices(key_data.size());
+	for (int i = 0; i < indices.size(); ++i) {
+		indices[i] = i;
+	}
+	
+	// Sort indices based on key_data IEEE754 bit count (key acts like weight)
+	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
+		return compareFloatsByOnes(key_data[i], key_data[j]);
+	});
+	
+	// Rearrange both query and key data based on sorted indices
+	std::deque<float> sorted_query;
+	std::deque<float> sorted_key;
+	for (int idx : indices) {
+		sorted_query.push_back(query_data[idx]);
+		sorted_key.push_back(key_data[idx]);
+	}
+	
+	query_data = sorted_query;
+	key_data = sorted_key;
 }
 
 // Destructor

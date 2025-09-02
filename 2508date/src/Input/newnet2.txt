@@ -1,3 +1,2 @@
 Input 224 224 3
 Conv2D 3 5 5 16 relu 0 1
- 

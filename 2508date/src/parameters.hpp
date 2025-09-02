@@ -64,17 +64,17 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 // ==================== NoC SIZE AND MEMORY CONFIGURATION ====================
 // 选择NoC规模（根据测试用例选择合适的NoC大小）
 // 推荐配置：Test Case 1 -> 4x4, Test Case 2 -> 16x16, Test Case 3 -> 32x32
-#define MemNode2_4X4    // 4x4 NoC, 2 MC cores (适合Test Case 1)
+//#define MemNode2_4X4    // 4x4 NoC, 2 MC cores (适合Test Case 1)
 //#define MemNode4_4X4    // 4x4 NoC, 4 MC cores (适合Test Case 1)
-//#define MemNode4_8X8    // 8x8 NoC, 4 MC cores
+#define MemNode4_8X8    // 8x8 NoC, 4 MC cores
 //#define MemNode4_16X16   // 16x16 NoC, 4 MC cores (适合Test Case 2)
 //#define MemNode4_32X32  // 32x32 NoC, 4 MC cores (适合Test Case 3)
 
 
 // ==================== TEST CASE CONFIGURATIONS ====================
 // Define test cases for batch testing
-#define case1_default
-//#define case2_samos
+//#define case1_default
+#define case2_samos
 //#define case3_affiliatedordering
 //#define case4_seperratedordering
 //#define case5_MOSAIC1
@@ -132,7 +132,7 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD; // 4096 / 32 = 128
 
 #define SoCC_Countlatency		// open recording of packet level delay // note 	DNN_latency.resize(3000000); is not enough for large dnn
 
-#define samplingWindowLength 10  // Standard sampling window
+#define samplingWindowLength 100  // Standard sampling window
 //////////////////////////////////
 #define VN_NUM 1   //2
 #define VC_PER_VN  4  ///<1 A: control URS (control all in other 3 modes)

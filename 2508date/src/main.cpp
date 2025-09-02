@@ -144,11 +144,16 @@ int main(int arg_num, char *arg_vet[]) {
 	}
 
 
-	cout << " below is the final result "<<endl;
+	// Print only first 10 values of final result
+	cout << "Below is the final result (first 10 values):" << endl;
+	int count = 0;
 	for (float j: macnet->output_table[0])
 	{
+		if (count >= 10) break;
 		cout << j << ' ';
+		count++;
 	}
+	cout << endl;
 
 
 

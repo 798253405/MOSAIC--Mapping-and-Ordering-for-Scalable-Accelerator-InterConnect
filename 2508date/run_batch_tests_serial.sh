@@ -4,11 +4,11 @@
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 # Base output directory with timestamp
-BASE_OUTPUT_DIR="output/batchCNN_v2_${TIMESTAMP}"
+BASE_OUTPUT_DIR="output/batchCNN_serial_${TIMESTAMP}"
 mkdir -p $BASE_OUTPUT_DIR
 
 # Also create a symlink to latest results
-ln -sfn "batchCNN_v2_${TIMESTAMP}" "output/batchCNN_v2_latest"
+ln -sfn "batchCNN_serial_${TIMESTAMP}" "output/batchCNN_serial_latest"
 
 # Define NoC sizes and their names
 declare -a NOC_SIZES=("MemNode2_4X4" "MemNode4_4X4" "MemNode4_8X8" "MemNode4_16X16" "MemNode4_32X32")

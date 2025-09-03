@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <cstdlib>
 #include <chrono>
+#include <cassert>
 
 // Hierarchical debug macros based on LLM_DEBUG_LEVEL from parameters.hpp
 #include "parameters.hpp"
@@ -210,12 +211,31 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 	msg.yzMSGPayload.clear();
 
 	if (msg.msgtype == 0) { // Request
+		// Request message padding
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
+#ifdef PADDING_RANDOM
+		// Use random padding instead of zeros
+		static bool warning_printed = false;
+		if (!warning_printed) {
+			cout << "WARNING: PADDING_RANDOM enabled in LLM mode - using random values for padding instead of zeros" << endl;
+			warning_printed = true;
+		}
+		for (int i = 0; i < payloadElementNum; i++) {
+			msg.yzMSGPayload[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f; // Random [-0.5, 0.5]
+		}
+#endif
 		if (selfMACid < 10) {
 			LLM_DEBUG("MAC " << selfMACid << " sending request (type 0) to " << d_id << " for task " << t_output);
 		}
 	} else if (msg.msgtype == 2 || msg.msgtype == 3) { // Result (type 2 intermediate, type 3 final)
+		// Result message padding
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
+#ifdef PADDING_RANDOM
+		// Use random padding instead of zeros  
+		for (int i = 1; i < payloadElementNum; i++) { // i从1开始，保留[0]位置给t_output
+			msg.yzMSGPayload[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f; // Random [-0.5, 0.5]
+		}
+#endif
 		msg.yzMSGPayload[0] = t_output;
 		if (selfMACid < 10) {
 			LLM_DEBUG("MAC " << selfMACid << " sending " << (msg.msgtype == 3 ? "FINAL" : "intermediate")
@@ -552,26 +572,46 @@ void LLMMAC::llmApplyOrdering(std::deque<float>& payload) {
 	                           payload.begin() + metadata_size + data_size * 2);
 
 	// Debug: Print original data for first few MACs
-	if (selfMACid < 2) {
-		std::cout << "\n=== MAC " << selfMACid << " Payload Ordering Debug ===\n";
-		llmPrintDetailedData(query_data, "Query Data (BEFORE sorting)", 6);
-		llmPrintDetailedData(key_data, "Key Data (BEFORE sorting)", 6);
+	if (selfMACid < 15) {  // More MACs for debug
+		std::cout << "\n=== LLM Sorting Debug for MAC " << selfMACid << " ===\n";
+		llmPrintDetailedData(query_data, "Query Input Data (BEFORE sorting)", 6);
+		llmPrintDetailedData(key_data, "Key Weight Data (BEFORE sorting)", 6);
+		std::cout << "Current sorting mode: ";
+#ifdef reArrangeInput
+		std::cout << "SEPARATED (both query_input and key_weight sort independently)" << std::endl;
+#else
+		std::cout << "AFFILIATED (query_input follows key_weight order)" << std::endl;
+#endif
+		std::cout << "Fixed-point sorting: ";
+#ifdef FIXED_POINT_SORTING
+		std::cout << "ENABLED" << std::endl;
+#else
+		std::cout << "DISABLED" << std::endl;
+#endif
 	}
 
 #ifdef reArrangeInput
-	// Mode 1: Independent sorting - query and key sorted separately by bitcount
-	llmRearrangeDeque(query_data, data_size, 1);  // query acts like "input"
-	llmRearrangeDeque(key_data, data_size, 1);    // key acts like "weight"
+	// Mode 1: Separated - query and key sorted independently (like CNN separated mode)
+	// Calculate proper row/col parameters for LLM data layout
+	int elements_per_flit = payloadElementNum;  // 16 elements per flit
+	int num_flits = (data_size + elements_per_flit - 1) / elements_per_flit;
+	
+	llmRearrangeDeque(query_data, elements_per_flit, num_flits);  // query acts like "input"
+	llmRearrangeDeque(key_data, elements_per_flit, num_flits);    // key acts like "weight"
 #else
-	// Mode 2: Correlated sorting - sort by key bitcount, query follows same order
-	llmRearrangeDequeAccordingly(query_data, key_data, data_size, 1);
+	// Mode 2: Affiliated - sort by key bitcount, query follows (like CNN affiliated mode)
+	// Key acts as "weight", Query acts as "input" 
+	int elements_per_flit = payloadElementNum;  // 16 elements per flit
+	int num_flits = (data_size + elements_per_flit - 1) / elements_per_flit;
+	
+	llmRearrangeDequeAccordingly(query_data, key_data, elements_per_flit, num_flits);
 #endif
 
 	// Debug: Print sorted data for first few MACs
-	if (selfMACid < 2) {
-		llmPrintDetailedData(query_data, "Query Data (AFTER sorting)", 6);
-		llmPrintDetailedData(key_data, "Key Data (AFTER sorting)", 6);
-		std::cout << "=== End MAC " << selfMACid << " Debug ===\n" << std::endl;
+	if (selfMACid < 15) {  // More MACs for debug
+		llmPrintDetailedData(query_data, "Query Input Data (AFTER sorting)", 6);
+		llmPrintDetailedData(key_data, "Key Weight Data (AFTER sorting)", 6);
+		std::cout << "=== End LLM Sorting Debug for MAC " << selfMACid << " ===\n" << std::endl;
 	}
 
 	// Put the sorted data back into payload
@@ -631,32 +671,46 @@ void LLMMAC::llmPrintDetailedData(const std::deque<float>& data, const std::stri
 }
 
 void LLMMAC::llmRearrangeDeque(std::deque<float>& data, int colnum_per_row, int rownum_per_col) {
-	// Sort data independently by IEEE754 bit count (like CNN's rearrangeDeque)
+	// Sort data independently by bit count (exactly like CNN's rearrangeDeque)
+	std::cout << "[DEBUG] llmRearrangeDeque called for MAC " << selfMACid << ", data size: " << data.size() << std::endl;
 	if (data.empty()) return;
 	
-	// Create indices and sort by bit count
-	std::vector<int> indices(data.size());
-	for (int i = 0; i < indices.size(); ++i) {
-		indices[i] = i;
+	// Step 1: Sort the entire deque based on bit counts
+#ifdef FIXED_POINT_SORTING
+	std::sort(data.begin(), data.end(), compareFloatsByFixed17Ones);
+#else
+	std::sort(data.begin(), data.end(), compareFloatsByOnes);
+#endif
+
+	// Step 2: Reorganize into row-major format (like CNN does)
+	// This ensures sorted elements are distributed across flits properly
+	std::vector<std::deque<float>> rows(rownum_per_col);
+	int row_index = 0;
+	int col_index = 0;
+	
+	for (float num : data) {
+		assert(row_index < rownum_per_col && "llmRearrangeDeque: data overflow - size exceeds matrix capacity");
+		rows[row_index].push_back(num);
+		col_index++;
+		if (col_index == colnum_per_row) {
+			row_index++;
+			col_index = 0;
+		}
 	}
 	
-	// Sort indices based on IEEE754 bit count comparison
-	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
-		return compareFloatsByOnes(data[i], data[j]);
-	});
-	
-	// Rearrange data based on sorted indices
-	std::deque<float> sorted_data;
-	for (int idx : indices) {
-		sorted_data.push_back(data[idx]);
+	// Step 3: Write back to data in row order
+	data.clear();
+	for (const auto &row : rows) {
+		for (const auto &element : row) {
+			data.push_back(element);
+		}
 	}
-	
-	data = sorted_data;
 }
 
 void LLMMAC::llmRearrangeDequeAccordingly(std::deque<float>& query_data, std::deque<float>& key_data, 
                                           int colnum_per_row, int rownum_per_col) {
 	// Sort by key_data bit count, query_data follows same order (like CNN's rearrangeDequeAccordingly)
+	std::cout << "[DEBUG] llmRearrangeDequeAccordingly called for MAC " << selfMACid << ", query size: " << query_data.size() << ", key size: " << key_data.size() << std::endl;
 	if (key_data.empty() || query_data.empty()) return;
 	if (key_data.size() != query_data.size()) return;
 	
@@ -666,9 +720,13 @@ void LLMMAC::llmRearrangeDequeAccordingly(std::deque<float>& query_data, std::de
 		indices[i] = i;
 	}
 	
-	// Sort indices based on key_data IEEE754 bit count (key acts like weight)
+	// Sort indices based on key_data bit count (key acts like weight)
 	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
+#ifdef FIXED_POINT_SORTING
+		return compareFloatsByFixed17Ones(key_data[i], key_data[j]);
+#else
 		return compareFloatsByOnes(key_data[i], key_data[j]);
+#endif
 	});
 	
 	// Rearrange both query and key data based on sorted indices

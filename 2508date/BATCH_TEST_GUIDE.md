@@ -63,6 +63,104 @@ ls -la 2508date
 - Runtime: ~1 hour
 - Configurable: `MAX_PARALLEL_SLOTS=6` (line 4)
 
+## Parallel Testing Architecture
+
+### Core Design: Compile-Execute Pipeline
+
+**NOT compiling all configurations at once**, but using a **pipeline approach**:
+
+```
+Compilation Stage → Execution Stage (parallel)
+       ↓                    ↓
+Compile next one → Multiple slots run simultaneously
+```
+
+### Implementation Details
+
+#### 1. Environment Preparation
+- Creates 6 independent execution directories (`exec_1` to `exec_6`)
+- Each directory is a complete project copy to avoid file conflicts
+- One dedicated compilation directory (`compile_dir`)
+
+#### 2. Compilation Pipeline
+```bash
+for each configuration (30 total):
+    1. Modify parameters.hpp (NoC size + test case)
+    2. Compile to generate binary
+    3. Save binary as binary_${noc}_${case}
+    4. Immediately assign to idle execution slot
+```
+
+#### 3. Parallel Execution Management
+```bash
+# 6 execution slots running in parallel
+Slot 1: Running 4x4_case1 ─┐
+Slot 2: Running 4x4_case2 ─┤
+Slot 3: Running 4x4_case3 ─┼─→ Simultaneous execution
+Slot 4: Running 4x4_case4 ─┤
+Slot 5: Running 4x4_case5 ─┤
+Slot 6: Running 4x4_case6 ─┘
+
+# When a slot finishes, immediately assign next task
+```
+
+### Key Technical Features
+
+#### File Locking Mechanism:
+```bash
+# Use flock to ensure atomic slot allocation
+exec 200>$LOCKFILE
+flock -x 200
+# Allocate free slot
+flock -u 200
+```
+
+#### Independent Execution Environment:
+- Each slot has its own working directory
+- Avoids file conflicts during parallel execution
+- Output files use absolute paths
+
+#### Smart Scheduling:
+```bash
+# Find free slot
+for slot in {1..6}; do
+    if [ ! -f "slot_${slot}.lock" ]; then
+        # Assign this slot
+        break
+    fi
+done
+```
+
+### Timeline Example
+
+```
+Time →
+T0: Compile 4x4_case1
+T1: Compile 4x4_case2, [Execute 4x4_case1 in Slot1]
+T2: Compile 4x4_case3, [Execute 4x4_case2 in Slot2]
+T3: Compile 4x4_case4, [Execute 4x4_case3 in Slot3]
+...
+T6: Compile 4x4_case7, [All 6 slots running]
+T7: 4x4_case1 done → Slot1 free → Assign 4x4_case7
+```
+
+### Advantages
+
+1. **Full CPU utilization**: Compilation and execution in parallel
+2. **Memory efficiency**: No need to store 30 compiled binaries
+3. **Flexible scheduling**: Fast tests complete and run next immediately
+4. **Fault tolerance**: One test failure doesn't affect others
+
+### Performance Comparison
+
+| Method | Time | Description |
+|--------|------|-------------|
+| Serial | 3-4 hours | 30 tests run sequentially |
+| Parallel | ~1 hour | 6 slots running concurrently |
+| Speedup | 3-4x | Limited by slowest test |
+
+This design is particularly suitable for NoC simulations where runtime varies greatly (4x4 takes minutes, 32x32 takes hours)
+
 ## Running Batch Tests
 
 ### Step 1: Ensure scripts are in place

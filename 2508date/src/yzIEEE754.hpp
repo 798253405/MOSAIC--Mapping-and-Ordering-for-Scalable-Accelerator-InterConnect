@@ -18,6 +18,10 @@ std::string float_to_ieee754(float float_num);
 int countOnesInIEEE754(float float_num);
 bool compareFloatsByOnes(const float &a, const float &b);
 
+// Fixed-point bit count functions
+int countOnesInFixed17(float float_num);
+bool compareFloatsByFixed17Ones(const float &a, const float &b);
+
 void reArrangeHalfInputHalfWeight(std::deque<float> &dq, int t_inputCount, int t_weightCount,
 		int inputcolnum_per_row, int weightcolnum_per_row,
 		int totalcolnum_per_row, int rownum_per_col);

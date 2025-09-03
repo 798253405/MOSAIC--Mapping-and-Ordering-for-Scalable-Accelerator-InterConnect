@@ -76,8 +76,8 @@ class LLMMAC
 		int NI_id;
 
 		// LLM-specific data structures
-		deque<float> query_data;     // Query vectors
-		deque<float> key_data;       // Key vectors
+		deque<float> query_data;     // Query vectors (acts like CNN inputs)
+		deque<float> key_data;       // Key vectors (acts like CNN weights)
 		deque<float> value_data;     // Value vectors
 		deque<float> input_buffer;   // Input buffer for received data
 

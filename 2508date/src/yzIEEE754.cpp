@@ -63,6 +63,21 @@ bool compareFloatsByOnes(const float &a, const float &b) {
 	return countOnesInIEEE754(a) > countOnesInIEEE754(b);
 }
 
+// Function to count the number of 1 bits in Fixed-point representation
+int countOnesInFixed17(float float_num) {
+	std::string fixed17_str = singleFloat_to_fixed17(float_num);
+	int count = 0;
+	for (char c : fixed17_str) {
+		if (c == '1') count++;
+	}
+	return count;
+}
+
+// Comparator function for sorting based on number of 1 bits in Fixed-point representation
+bool compareFloatsByFixed17Ones(const float &a, const float &b) {
+	return countOnesInFixed17(a) > countOnesInFixed17(b);
+}
+
 void reArrangeHalfInputHalfWeight(std::deque<float> &dq, int t_inputCount,
 		int t_weightCount, int inputcolnum_per_row, int weightcolnum_per_row,
 		int totalcolnum_per_row, int rownum_per_col) { //weightcout is the kernel size, 25 for 5x5 kernel //for example , one row 8elements =  inputcolnum_per_row=4 input+  weightcolnum_per_row=4 input
@@ -319,8 +334,12 @@ void reArrangeHalfInputHalfWeight(std::deque<float> &dq, int t_inputCount,
 void rearrangeDeque(std::deque<float> &dq, int colnum_per_row,
 		int rownum_per_col) { // 25: 8 value in one flit colnumperrow= 8   4flits->rownumpercol= 4
 
-	// Sort each row independently based on IEEE 754 bit counts //sort inside weights
+	// Sort each row independently based on bit counts //sort inside weights
+#ifdef FIXED_POINT_SORTING
+	std::sort(dq.begin(), dq.end(), compareFloatsByFixed17Ones);
+#else
 	std::sort(dq.begin(), dq.end(), compareFloatsByOnes);
+#endif
 // put the sorted number back to one row. Make sure the order is col-major
 //
 	std::vector<std::deque<float>> rows(rownum_per_col); //rownum_per_col = the number of flits
@@ -365,7 +384,11 @@ void rearrangeDequeAccordingly(std::deque<float> &inputData,
 	}
 
 	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
+#ifdef FIXED_POINT_SORTING
+		return compareFloatsByFixed17Ones(weightData[i], weightData[j]);
+#else
 		return compareFloatsByOnes(weightData[i], weightData[j]);
+#endif
 	});
 
 	// Rearrange weightData and inputData based on sorted indices

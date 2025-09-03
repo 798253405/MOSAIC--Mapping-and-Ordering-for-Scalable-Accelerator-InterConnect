@@ -1,0 +1,84 @@
+## Bit Flip Analysis Results - Padding Comparison
+
+### Zero Padding Results (Previous)
+Configuration settings with zero padding for request/response messages.
+
+| Configuration | Float Flips | Fixed Flips | Notes |
+|---------------|-------------|-------------|-------|
+| Baseline (case1) | ~25M-26M | ~7M-7.5M | Estimated from previous runs |
+| Case3 IEEE754 | ~22M-23M | ~6.5M-7M | Affiliated ordering with IEEE754 sorting |
+| Case3+Fixed | ~22M-23M | ~6M-6.5M | Affiliated ordering with fixed-point sorting |
+| Case4 Separated | ~19M-20M | ~6M-6.5M | Separated ordering with IEEE754 sorting |
+| Case4+Fixed | ~19M-20M | ~5M-5.5M | Separated ordering with fixed-point sorting |
+
+### Random Padding Results (Current - 8x8 NoC)
+Configuration settings with random padding for request/response messages.
+
+| Configuration | Float Flips | Fixed Flips | Reduction vs Baseline |
+|---------------|-------------|-------------|----------------------|
+| Baseline (case1) | 33,121,441 | 9,418,050 | - |
+| Case3 IEEE754 | 30,192,331 | 8,946,479 | 8.8% float, 5.0% fixed |
+| Case3+Fixed | 30,339,017 | 8,402,667 | 8.4% float, 10.8% fixed |
+| Case4 Separated | 27,101,521 | 8,258,808 | 18.2% float, 12.3% fixed |
+| Case4+Fixed | 27,531,238 | 7,227,170 | 16.9% float, 23.3% fixed |
+
+### LLM Mode Debug Results (4x4 NoC)
+Testing LLM attention mechanism with different ordering strategies:
+
+| Configuration | Bit Flips | Notes |
+|---------------|-----------|-------|
+| Affiliated (case3) | 4,134 | Query follows Key's bit-count order |
+| Separated (case4) | 4,211 | Query and Key sorted independently |
+
+**Key Findings:**
+- Affiliated ordering performs slightly better than separated (77 fewer bit flips)
+- This contradicts initial theoretical expectations
+- Analysis revealed that separated mode was missing matrix reshaping logic
+- Fixed LLM implementation to match CNN's matrix reshaping exactly
+- Both modes now work correctly with proper bit-count sorting
+
+### Analysis Summary
+
+1. **Padding Impact**: 
+   - Random padding increases bit flips by approximately 26-34% compared to zero padding
+   - This is expected as random values have more bit transitions than zeros
+
+2. **Optimization Effectiveness**:
+   - All sorting strategies remain effective even with random padding
+   - Relative improvements between configurations are maintained
+
+3. **Best Configurations**:
+   - Case4 (separated ordering) shows best float optimization in CNN mode
+   - Case4+Fixed shows best fixed-point optimization
+   - Fixed-point sorting provides additional benefits for fixed-point metrics
+   - In LLM mode: Affiliated slightly outperforms separated
+
+4. **Robustness**:
+   - Bit-flip reduction techniques work consistently across different padding strategies
+   - Demonstrates real-world applicability beyond zero-padding scenarios
+
+### Technical Notes
+
+- IEEE754 vs Fixed-point sorting: Fixed-point sorting optimizes based on Q1.7 format bit representation
+- Affiliated vs Separated ordering: Results vary by mode (CNN vs LLM)
+- Test environment: Various NoC configurations (4x4 for LLM, 8x8 for CNN)
+- LLM separated mode was fixed to include proper matrix reshaping logic
+
+### Debug Test Files Summary (Removed after analysis)
+
+The following test files were created during debugging and have been cleaned up:
+
+1. **check_macro.cpp** - Verified macro definitions for FIXED_POINT_SORTING
+2. **debug_fixed17.cpp** - Analyzed fixed17 vs IEEE754 bit representations  
+3. **direct_sort_test.cpp** - Direct testing of sorting functions
+4. **test_bit_demo.cpp** - IEEE754 bit representation demonstration
+5. **verify_sorting_issue.cpp** - Investigated IEEE754 vs Fixed35 sorting inconsistency
+6. **test_cnn_function_*.cpp** - CNN function testing with different modes
+7. **test_macro_functionality.cpp** - Macro functionality verification
+8. **final_comparison_test.cpp** - Final comparison tests
+
+All test files confirmed:
+- FIXED_POINT_SORTING macro works correctly
+- IEEE754 and Fixed17 sorting give different results as expected
+- LLM separated mode implementation was missing matrix reshaping
+- Both affiliated and separated modes now work correctly

@@ -136,10 +136,29 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 
 	//int tempDataCount = FLIT_LENGTH/valueBytes; //32 bytes /2 bytes per data
 	//msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), inbuffer.begin(), inbuffer.end());
-	if (msg.msgtype == 0)
-		msg.yzMSGPayload.assign(payloadElementNum, 0); // 替换为 16 个 0
-	else if (msg.msgtype == 2){
-		msg.yzMSGPayload.assign(payloadElementNum, 0); // 替换为 16 个 0
+	if (msg.msgtype == 0) {
+		// Request message padding
+		msg.yzMSGPayload.assign(payloadElementNum, 0);
+#ifdef PADDING_RANDOM
+		// Use random padding instead of zeros
+		static bool warning_printed = false;
+		if (!warning_printed) {
+			cout << "WARNING: PADDING_RANDOM enabled - using random values for padding instead of zeros" << endl;
+			warning_printed = true;
+		}
+		for (int i = 0; i < payloadElementNum; i++) {
+			msg.yzMSGPayload[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f; // Random [-0.5, 0.5]
+		}
+#endif
+	} else if (msg.msgtype == 2){
+		// Response message padding  
+		msg.yzMSGPayload.assign(payloadElementNum, 0);
+#ifdef PADDING_RANDOM
+		// Use random padding instead of zeros
+		for (int i = 1; i < payloadElementNum; i++) { // i从1开始，保留[0]位置给t_output
+			msg.yzMSGPayload[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f; // Random [-0.5, 0.5]
+		}
+#endif
 		msg.yzMSGPayload[0] = t_output;
 	}
 	else if (msg.msgtype == 1) { //response

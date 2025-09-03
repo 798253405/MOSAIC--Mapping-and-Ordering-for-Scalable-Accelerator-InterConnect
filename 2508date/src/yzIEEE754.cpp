@@ -78,7 +78,7 @@ bool compareFloatsByFixed17Ones(const float &a, const float &b) {
 	return countOnesInFixed17(a) > countOnesInFixed17(b);
 }
 
-void reArrangeHalfInputHalfWeight(std::deque<float> &dq, int t_inputCount,
+void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 		int t_weightCount, int inputcolnum_per_row, int weightcolnum_per_row,
 		int totalcolnum_per_row, int rownum_per_col) { //weightcout is the kernel size, 25 for 5x5 kernel //for example , one row 8elements =  inputcolnum_per_row=4 input+  weightcolnum_per_row=4 input
 
@@ -146,16 +146,16 @@ void reArrangeHalfInputHalfWeight(std::deque<float> &dq, int t_inputCount,
 
 
 	//0 bits count based
-#ifdef reArrangeInput
+#ifdef YZSeperatedOrdering_reArrangeInput
 								//below two should be enabled at the same time
-	 rearrangeDeque(inputData, inputcolnum_per_row, rownum_per_col);
-	 rearrangeDeque(weightData, weightcolnum_per_row, rownum_per_col);
+	 sortMatrix_CNNSeparated(inputData, inputcolnum_per_row, rownum_per_col);
+	 sortMatrix_CNNSeparated(weightData, weightcolnum_per_row, rownum_per_col);
 #endif
-#ifndef reArrangeInput
+#ifndef YZSeperatedOrdering_reArrangeInput
 	//this is old and for debug
-	 //rearrangeDeque(weightData, weightcolnum_per_row, rownum_per_col); // rearrange weights, and rearrange input accrodingly
+	 //sortMatrix_CNNSeparated(weightData, weightcolnum_per_row, rownum_per_col); // rearrange weights, and rearrange input accrodingly
 	 // this is current version
-	 rearrangeDequeAccordingly(inputData, weightData,  weightcolnum_per_row, rownum_per_col);
+	 sortMatrix_CNNAffiliated(inputData, weightData,  weightcolnum_per_row, rownum_per_col);
 
 #endif
 	// algorithm based
@@ -331,7 +331,7 @@ void reArrangeHalfInputHalfWeight(std::deque<float> &dq, int t_inputCount,
 //                   should be:  0000 1000    1000 0011   0011 0011     1110  1111
 //then convert to two rows: row0  0000 1000 0011  1110
 //                        row 1:  1000    0011  0011  1111
-void rearrangeDeque(std::deque<float> &dq, int colnum_per_row,
+void sortMatrix_CNNSeparated(std::deque<float> &dq, int colnum_per_row,
 		int rownum_per_col) { // 25: 8 value in one flit colnumperrow= 8   4flits->rownumpercol= 4
 
 	// Sort each row independently based on bit counts //sort inside weights
@@ -367,7 +367,7 @@ void rearrangeDeque(std::deque<float> &dq, int colnum_per_row,
 }
 
 // Function to rearrange the deque and an associated weights deque
-void rearrangeDequeAccordingly(std::deque<float> &inputData,
+void sortMatrix_CNNAffiliated(std::deque<float> &inputData,
 		std::deque<float> &weightData, int weightcolnum_per_row,
 		int weightrownum_per_col) {
 	// Check sizes
@@ -470,100 +470,6 @@ void printMatrix(const std::vector<std::vector<float>> &matrix,
 	}
 }
 
-// 优化矩阵
-void optimizeMatrix(std::deque<float> &dq, int m, int n) {
-	// 将 deque 转换为矩阵
-	std::vector<std::vector<float>> matrix(m, std::vector<float>(n));
-	int index = 0;
-	for (int i = 0; i < m; ++i) {
-		for (int j = 0; j < n; ++j) {
-			matrix[i][j] = dq[index++];
-		}
-	}
-
-	// 扁平化矩阵
-	std::vector<float> flatMatrix(dq.begin(), dq.end());
-	int totalElements = m * n;
-	std::vector<int> indices(totalElements);
-	std::iota(indices.begin(), indices.end(), 0);
-
-	// 初始化模拟退火参数
-	double temperature = 1000.0;
-	double coolingRate = 0.995;
-	int iterationCount = 0;
-	int minSum = calculateTotalBitDiffSum(matrix);
-	std::vector<std::vector<float>> bestMatrix = matrix;
-	std::cout << "initial bitdiffSum: " << minSum << std::endl;
-	// 模拟退火过程
-	while (temperature > 1e-6) {
-		// 生成新解
-		std::vector<int> newIndices(indices);
-		std::random_shuffle(newIndices.begin(), newIndices.end());
-		std::vector<std::vector<float>> newMatrix(m, std::vector<float>(n));
-		for (int i = 0; i < m; ++i) {
-			for (int j = 0; j < n; ++j) {
-				newMatrix[i][j] = flatMatrix[newIndices[i * n + j]];
-			}
-		}
-
-		int newSum = calculateTotalBitDiffSum(newMatrix);
-		int delta = newSum - minSum;
-		if (delta < 0
-				|| (std::exp(-delta / temperature)
-						> static_cast<double>(rand()) / RAND_MAX)) {
-			minSum = newSum;
-			bestMatrix = newMatrix;
-			indices = newIndices;
-		}
-
-		// 降低温度
-		temperature *= coolingRate;
-		iterationCount++;
-		if (iterationCount % 100 == 0) {
-			//std::cout << "Iteration: " << iterationCount << ", Temperature: " << temperature << std::endl;
-		}
-	}
-
-	// 打印优化后的矩阵
-	std::cout << "Optimized matrix:" << std::endl;
-	printMatrix(bestMatrix, "finalmatrix");
-	std::cout << "Optimized bitdiffSum: " << minSum << std::endl;
-
-	//wrote  back to dq
-	dq.clear(); // 清空 deque 以避免旧数据
-
-	for (const auto &row : bestMatrix) {
-		for (float value : row) {
-			dq.push_back(value); // 将每个矩阵元素添加到 deque 中
-		}
-	}
-}
-
-void rearrangeByAlgorithm(std::deque<float> &dq, int colnum_per_row,
-		int rownum_per_col) { // example 25 elemets : 8 value in one flit colnumperrow= 8   4flits->rownumpercol= 4 other 7 element are padding zeros
-
-	// 计算两个整数之间的位差
-	float a = 0, b = 1;
-	// 将浮点数转换为二进制表示
-	uint32_t a_bits = *reinterpret_cast<uint32_t*>(&a);
-	uint32_t b_bits = *reinterpret_cast<uint32_t*>(&b);
-	// 计算异或结果
-	uint32_t diff_bits = a_bits ^ b_bits;
-
-	std::bitset<32> binaryReps_a(a_bits);
-	std::bitset<32> binaryReps_b(b_bits);
-	std::bitset<32> binaryReps_diff(diff_bits);
-
-	std::cout << binaryReps_a << " " << binaryReps_b << " diff_bits "
-			<< binaryReps_diff << " diff_bitsCount "
-			<< std::bitset<32>(diff_bits).count() << std::endl;
-
-	optimizeMatrix(dq, rownum_per_col, colnum_per_row);
-}
-;
-;
-;
-;
 
 // Function to convert float to fixed-point-8 binary (Q3.5 format)
 std::string singleFloat_to_fixed17(float float_num) {
@@ -622,7 +528,4 @@ void print_FlitPayload(const std::deque<float> &floatDeque) {
 	std::cout << " " << std::endl;
 }
 
-void codingOnBus2503(){
-
-}
 

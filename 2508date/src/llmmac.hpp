@@ -140,9 +140,9 @@ class LLMMAC
 		// State management
 		bool llmIsWaitingForData();
 		void llmResetForNextTask();
-		void llmApplyOrdering(std::deque<float>& payload);  // LLM payload ordering
-		void llmRearrangeDeque(std::deque<float>& data, int colnum_per_row, int rownum_per_col);
-		void llmRearrangeDequeAccordingly(std::deque<float>& query_data, std::deque<float>& key_data, int colnum_per_row, int rownum_per_col);
+		void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload);  // LLM payload ordering
+		void sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row, int rownum_per_col);
+		void sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<float>& key_data, int colnum_per_row, int rownum_per_col);
 		void llmPrintDetailedData(const std::deque<float>& data, const std::string& name, int max_elements = 8);  // Debug print function
 
 		~LLMMAC();

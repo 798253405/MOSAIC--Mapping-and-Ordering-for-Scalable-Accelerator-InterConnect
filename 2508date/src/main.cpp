@@ -413,7 +413,7 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "  Mapping: Unknown" << endl;
 	#endif
 	
-	#ifdef flitLevelFlippingSwitch
+	#ifdef YzAffiliatedOrdering
 	cout << "  Ordering: Flit-Level Flipping Enabled" << endl;
 	#else
 	cout << "  Ordering: No Ordering Optimization" << endl;
@@ -590,7 +590,7 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "      Expected Bit Flip Reduction from Routing: ~" << (int)(10 * hop_reduction_factor) << "%" << endl;
 #endif
 	
-#ifdef flitLevelFlippingSwitch
+#ifdef YzAffiliatedOrdering
 	cout << "\n    Ordering Optimization:" << endl;
 	cout << "      Fixed Pattern Flips: " << tempRouterNetWholeFlipCount_fix35 << endl;
 	float flip_reduction = (tempRouterNetWholeFlipCount > 0 ? 

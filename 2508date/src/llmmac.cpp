@@ -253,9 +253,9 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 					(flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size()),
 					0.0f);
 
-#ifdef flitLevelFlippingSwitch
+#ifdef YzAffiliatedOrdering
 		// Apply LLM ordering to response payload  
-		llmApplyOrdering(msg.yzMSGPayload);
+		llmReshapeFlatToQueryKeyMatrix(msg.yzMSGPayload);
 #endif
 
 		if (selfMACid < 10) {
@@ -554,7 +554,7 @@ void LLMMAC::llmResetForNextTask() {
 	attention_output = 0.0;
 }
 
-void LLMMAC::llmApplyOrdering(std::deque<float>& payload) {
+void LLMMAC::llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
 	// LLM payload contains: [metadata(4), query_data, key_data]
 	// Extract data size from metadata
 	if (payload.size() < 8) return; // Need at least metadata + some data
@@ -577,7 +577,7 @@ void LLMMAC::llmApplyOrdering(std::deque<float>& payload) {
 		llmPrintDetailedData(query_data, "Query Input Data (BEFORE sorting)", 6);
 		llmPrintDetailedData(key_data, "Key Weight Data (BEFORE sorting)", 6);
 		std::cout << "Current sorting mode: ";
-#ifdef reArrangeInput
+#ifdef YZSeperatedOrdering_reArrangeInput
 		std::cout << "SEPARATED (both query_input and key_weight sort independently)" << std::endl;
 #else
 		std::cout << "AFFILIATED (query_input follows key_weight order)" << std::endl;
@@ -590,21 +590,21 @@ void LLMMAC::llmApplyOrdering(std::deque<float>& payload) {
 #endif
 	}
 
-#ifdef reArrangeInput
+#ifdef YZSeperatedOrdering_reArrangeInput
 	// Mode 1: Separated - query and key sorted independently (like CNN separated mode)
 	// Calculate proper row/col parameters for LLM data layout
 	int elements_per_flit = payloadElementNum;  // 16 elements per flit
 	int num_flits = (data_size + elements_per_flit - 1) / elements_per_flit;
 	
-	llmRearrangeDeque(query_data, elements_per_flit, num_flits);  // query acts like "input"
-	llmRearrangeDeque(key_data, elements_per_flit, num_flits);    // key acts like "weight"
+	sortMatrix_LLMSeparated(query_data, elements_per_flit, num_flits);  // query acts like "input"
+	sortMatrix_LLMSeparated(key_data, elements_per_flit, num_flits);    // key acts like "weight"
 #else
 	// Mode 2: Affiliated - sort by key bitcount, query follows (like CNN affiliated mode)
 	// Key acts as "weight", Query acts as "input" 
 	int elements_per_flit = payloadElementNum;  // 16 elements per flit
 	int num_flits = (data_size + elements_per_flit - 1) / elements_per_flit;
 	
-	llmRearrangeDequeAccordingly(query_data, key_data, elements_per_flit, num_flits);
+	sortMatrix_LLMAffiliated(query_data, key_data, elements_per_flit, num_flits);
 #endif
 
 	// Debug: Print sorted data for first few MACs
@@ -670,9 +670,9 @@ void LLMMAC::llmPrintDetailedData(const std::deque<float>& data, const std::stri
 	std::cout << std::endl;
 }
 
-void LLMMAC::llmRearrangeDeque(std::deque<float>& data, int colnum_per_row, int rownum_per_col) {
+void LLMMAC::sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row, int rownum_per_col) {
 	// Sort data independently by bit count (exactly like CNN's rearrangeDeque)
-	std::cout << "[DEBUG] llmRearrangeDeque called for MAC " << selfMACid << ", data size: " << data.size() << std::endl;
+	std::cout << "[DEBUG] sortMatrix_LLMSeparated called for MAC " << selfMACid << ", data size: " << data.size() << std::endl;
 	if (data.empty()) return;
 	
 	// Step 1: Sort the entire deque based on bit counts
@@ -689,7 +689,7 @@ void LLMMAC::llmRearrangeDeque(std::deque<float>& data, int colnum_per_row, int 
 	int col_index = 0;
 	
 	for (float num : data) {
-		assert(row_index < rownum_per_col && "llmRearrangeDeque: data overflow - size exceeds matrix capacity");
+		assert(row_index < rownum_per_col && "sortMatrix_LLMSeparated: data overflow - size exceeds matrix capacity");
 		rows[row_index].push_back(num);
 		col_index++;
 		if (col_index == colnum_per_row) {
@@ -707,10 +707,10 @@ void LLMMAC::llmRearrangeDeque(std::deque<float>& data, int colnum_per_row, int 
 	}
 }
 
-void LLMMAC::llmRearrangeDequeAccordingly(std::deque<float>& query_data, std::deque<float>& key_data, 
+void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<float>& key_data, 
                                           int colnum_per_row, int rownum_per_col) {
 	// Sort by key_data bit count, query_data follows same order (like CNN's rearrangeDequeAccordingly)
-	std::cout << "[DEBUG] llmRearrangeDequeAccordingly called for MAC " << selfMACid << ", query size: " << query_data.size() << ", key size: " << key_data.size() << std::endl;
+	std::cout << "[DEBUG] sortMatrix_LLMAffiliated called for MAC " << selfMACid << ", query size: " << query_data.size() << ", key size: " << key_data.size() << std::endl;
 	if (key_data.empty() || query_data.empty()) return;
 	if (key_data.size() != query_data.size()) return;
 	

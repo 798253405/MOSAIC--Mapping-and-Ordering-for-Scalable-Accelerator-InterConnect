@@ -19,11 +19,11 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
 
 #if defined(case3_affiliatedordering)
     #define rowmapping
-    #define flitLevelFlippingSwitch
+    #define YzAffiliatedOrdering
 #elif defined(case4_seperratedordering)
     #define rowmapping
-    #define flitLevelFlippingSwitch
-    #define reArrangeInput
+    #define YzAffiliatedOrdering
+    #define YZSeperatedOrdering_reArrangeInput
 #else
     #define rowmapping
 #endif

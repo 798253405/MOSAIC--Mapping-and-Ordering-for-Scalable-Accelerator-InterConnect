@@ -186,10 +186,10 @@ tail -f output/batchCNN_parallel_*/4_8x8_case1_default.txt
 
 1. **case1_default**: Basic rowmapping
 2. **case2_samos**: SAMOS adaptive mapping
-3. **case3_affiliatedordering**: rowmapping + flitLevelFlipping
-4. **case4_seperratedordering**: rowmapping + flitLevelFlipping + reArrangeInput
-5. **case5_MOSAIC1**: SAMOS + flitLevelFlipping
-6. **case6_MOSAIC2**: SAMOS + flitLevelFlipping + reArrangeInput
+3. **case3_affiliatedordering**: rowmapping + YzAffiliatedOrdering
+4. **case4_seperratedordering**: rowmapping + YzAffiliatedOrdering + YZSeperatedOrdering_reArrangeInput
+5. **case5_MOSAIC1**: SAMOS + YzAffiliatedOrdering
+6. **case6_MOSAIC2**: SAMOS + YzAffiliatedOrdering + YZSeperatedOrdering_reArrangeInput
 
 ## NoC Configurations
 - **MemNode2_4X4**: 4×4 NoC, 2 memory nodes

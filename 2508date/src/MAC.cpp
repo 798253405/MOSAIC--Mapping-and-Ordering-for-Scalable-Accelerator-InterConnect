@@ -186,10 +186,10 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 		     //std::cout<< "  Mac.cpp_msg.yzMSGPayload.size()=  "<< msg.yzMSGPayload.size()  <<" ifflitze, flitnum= "<< flitNumSinglePacket << "  msg.yzMSGPayloadBeforePaddingForFlits  " << std::endl;
 #endif
 
-#ifdef flitLevelFlippingSwitch
+#ifdef YzAffiliatedOrdering
 		if (inbuffer[0] != 8)		 //if(not pooling  )
 				{
-			reArrangeHalfInputHalfWeight(msg.yzMSGPayload,
+			cnnReshapeFlatToInputWeightMatrix(msg.yzMSGPayload,
 					inbuffer[2] * inbuffer[1] /* t_inputCount */,
 					inbuffer[2]
 							* inbuffer[1]+1/*weights used,inbuffer[2]= 5x5=25, inbuffer[1]= inputchannel=3, for example*/,
@@ -199,7 +199,7 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 		}
 		if (inbuffer[0] == 8)		 // pooling, no weights  // pool is only 2x2 so just put in input part (8 floating point value) is ok.
 				{
-			reArrangeHalfInputHalfWeight(msg.yzMSGPayload,
+			cnnReshapeFlatToInputWeightMatrix(msg.yzMSGPayload,
 					inbuffer[2] * inbuffer[1] /* */, 0 /* 0weight for pooling */,
 					8/*input in one row*/, 8/*weight in one row*/,
 					16 /*total in one row*/,

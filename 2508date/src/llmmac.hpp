@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cassert>
 #include <algorithm>  // 添加 std::min
+#include <map>        // 添加 std::map
 #include "parameters.hpp"
 #include "NoC/Packet.hpp"
 #include "NoC/NI.hpp"
@@ -83,13 +84,19 @@ class LLMMAC
 
 		// LLM attention parameters
 		int tile_x_start, tile_y_start;  // Starting position of this tile
-		int tile_size;                   // Size of tile (4x4)
+		int tile_Pixels_size;            // Size of tile (4x4)
 		int time_slice;                  // Current time slice (0-1)
 		int dest_mem_id;                 // Memory node ID
 
 		float attention_output;          // Computed attention output
+		
+		// Partial sum aggregation for pixels
+		std::map<int, std::vector<float>> pixel_partial_sums;    // pixel_id -> [4 partial sums]
+		std::map<int, int> pixel_subchunks_received;             // pixel_id -> count of received subchunks
+		int current_pixel_id;                          // Current pixel being processed
+		int current_subchunk_id;                       // Current subchunk being processed
 
-		deque<int> routing_table;
+		deque<int> llmtasktable;
 
 		LLMMAC* nextLLMMAC;
 		

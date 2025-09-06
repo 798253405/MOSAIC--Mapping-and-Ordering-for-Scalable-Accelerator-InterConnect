@@ -139,6 +139,7 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 	if (msg.msgtype == 0) {
 		// Request message padding
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
+#define PADDING_RANDOM
 #ifdef PADDING_RANDOM
 		// Use random padding instead of zeros
 		static bool warning_printed = false;

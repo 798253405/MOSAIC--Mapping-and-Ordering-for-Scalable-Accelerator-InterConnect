@@ -71,9 +71,13 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	pecycle = 0;
 	selfstatus = 0;
 	send = 0;
+	current_pixel_id = -1;
+	current_subchunk_id = -1;
+	pixel_partial_sums.clear();
+	pixel_subchunks_received.clear();
 
 	// 修改：4x4 tile for 4x4 matrix
-	tile_size = 4;  // 整个矩阵作为一个tile
+	tile_Pixels_size = 4;  // 整个矩阵作为一个tile
 	time_slice = 0;
 
 	// 计算tile位置 - 对于4x4 tile，只有一个tile
@@ -141,7 +145,7 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	}
 #endif
 
-	routing_table.clear();
+	llmtasktable.clear();
 
 	if (selfMACid < 10 && LLM_DEBUG_LEVEL >= 2) {
 		LLM_DEBUG_INIT("LLMMAC " << selfMACid << " created: NI_id=" << NI_id
@@ -158,33 +162,24 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 
 	if (type == 2 || type == 3) {
 		// 对于结果消息（type 2中间结果 或 type 3最终结果），获取正确的像素坐标
-		int current_task_id = tmp_requestID;
-		if (current_task_id >= 0 && net && current_task_id < net->all_tasks.size()) {
-			int pixel_x = net->all_tasks[current_task_id].pixel_x;
-			int pixel_y = net->all_tasks[current_task_id].pixel_y;
-			int ts = net->all_tasks[current_task_id].time_slice;
+		// 从current_pixel_id计算坐标
+		int pixel_x = current_pixel_id % net->matrixOutputPixels_size;
+		int pixel_y = current_pixel_id / net->matrixOutputPixels_size;
 
-			msg.data.assign(1, t_output);
-			msg.data.push_back((float)pixel_x);
-			msg.data.push_back((float)pixel_y);
-			msg.data.push_back((float)ts);
+		msg.data.assign(1, t_output);
+		msg.data.push_back((float)pixel_x);
+		msg.data.push_back((float)pixel_y);
+		msg.data.push_back((float)current_subchunk_id);  // Use subchunk_id instead of ts
 
-			// 关键调试信息
-			if (LLM_DEBUG_LEVEL >= 2) {
-				std::cout << "[CRITICAL @" << cycles << "] MAC " << selfMACid << " sending " 
-				          << (type == 3 ? "FINAL" : "intermediate") << " result:" << std::endl;
-				std::cout << "  Task ID: " << current_task_id << std::endl;
-				std::cout << "  Pixel: (" << pixel_x << "," << pixel_y << ")" << std::endl;
-				std::cout << "  Time slice: " << ts << std::endl;
-				std::cout << "  Attention value: " << std::fixed << std::setprecision(10) << t_output << std::endl;
-				std::cout << "  Destination: " << d_id << std::endl;
-			}
-		} else {
-			LLM_DEBUG("ERROR: Invalid task ID " << current_task_id);
-			msg.data.assign(1, t_output);
-			msg.data.push_back(0);
-			msg.data.push_back(0);
-			msg.data.push_back(time_slice);
+		// 关键调试信息
+		if (LLM_DEBUG_LEVEL >= 2) {
+			std::cout << "[CRITICAL @" << cycles << "] MAC " << selfMACid << " sending " 
+			          << (type == 3 ? "FINAL" : "intermediate") << " result:" << std::endl;
+			std::cout << "  Task ID: " << tmp_requestID << std::endl;
+			std::cout << "  Pixel: (" << pixel_x << "," << pixel_y << ")" << std::endl;
+			std::cout << "  Time slice: " << current_subchunk_id << std::endl;
+			std::cout << "  Attention value: " << std::fixed << std::setprecision(10) << t_output << std::endl;
+			std::cout << "  Destination: " << d_id << std::endl;
 		}
 	} else if (type == 0) {
 		// Request message - 传递task ID
@@ -253,10 +248,8 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 					(flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size()),
 					0.0f);
 
-#ifdef YzAffiliatedOrdering
-		// Apply LLM ordering to response payload  
+		// Always apply the reshape for debugging (but only sort if ordering is enabled)
 		llmReshapeFlatToQueryKeyMatrix(msg.yzMSGPayload);
-#endif
 
 		if (selfMACid < 10) {
 			LLM_DEBUG("MAC " << selfMACid << " sending response (type 1) to " << d_id
@@ -288,20 +281,20 @@ void LLMMAC::llmRunOneStep() {
 	// 为小矩阵提供更详细的调试
 	if (selfMACid < 10 && total_run_count % 10000 == 0) {
 		LLM_DEBUG("MAC " << selfMACid << " status: " << selfstatus
-		          << " tasks: " << routing_table.size()
+		          << " tasks: " << llmtasktable.size()
 		          << " request: " << request << " cycle: " << pecycle << "/" << cycles);
 	}
 
 	if ((int)pecycle < (int)cycles) {
 		// State 0: IDLE
 		if (selfstatus == 0) {
-			if (routing_table.size() == 0) {
+			if (llmtasktable.size() == 0) {
 				selfstatus = 0;
 				pecycle = cycles;
 			} else {
 				if (selfMACid < 10) {
 					LLM_DEBUG("MAC " << selfMACid << " transitioning IDLE->REQUEST with "
-					          << routing_table.size() << " tasks, next task: " << routing_table.front());
+					          << llmtasktable.size() << " tasks, next task: " << llmtasktable.front());
 				}
 				pecycle = cycles;
 				selfstatus = 1;
@@ -309,9 +302,9 @@ void LLMMAC::llmRunOneStep() {
 		}
 		// State 1: REQUEST
 		else if (selfstatus == 1) {
-			request = routing_table.front();
+			request = llmtasktable.front();
 			tmp_requestID = request;
-			routing_table.pop_front();
+			llmtasktable.pop_front();
 			
 			// Start timing for new task
 			current_task_timing = TaskTiming();
@@ -357,12 +350,16 @@ void LLMMAC::llmRunOneStep() {
 
 			fn = input_buffer[0];
 			int data_size = input_buffer[1];
-			time_slice = input_buffer[2];
+			current_subchunk_id = input_buffer[2];  // subchunk ID
+			current_pixel_id = input_buffer[3];      // pixel ID
+			time_slice = current_subchunk_id;        // time_slice = subchunk_id
 
-			// 提取数据 - 小矩阵版本
+			// 提取数据 - 64x64 subchunk版本
 			if (input_buffer.size() >= 4 + data_size * 2) {
 				query_data.assign(input_buffer.begin() + 4, input_buffer.begin() + 4 + data_size);
 				key_data.assign(input_buffer.begin() + 4 + data_size, input_buffer.begin() + 4 + data_size * 2);
+				
+				// 注意: 数据已经在发送端排序，这里不需要再排序
 
 				if (selfMACid < 10) {
 					LLM_DEBUG("MAC " << selfMACid << " extracted data for task " << tmp_requestID
@@ -404,14 +401,25 @@ void LLMMAC::llmRunOneStep() {
 				LLM_DEBUG("MAC " << selfMACid << " computing attention for task " << tmp_requestID);
 			}
 
-			llmComputeAttention();
+			// Compute partial sum for this 64x64 subchunk
+			float partial_sum = 0.0f;
+			for (int i = 0; i < query_data.size(); i++) {
+				partial_sum += query_data[i] * key_data[i];
+			}
 
-			// 验证计算结果
+			// Store partial sum for aggregation
+			if (pixel_partial_sums[current_pixel_id].size() < 4) {
+				pixel_partial_sums[current_pixel_id].resize(4, 0.0f);
+			}
+			pixel_partial_sums[current_pixel_id][current_subchunk_id] = partial_sum;
+			pixel_subchunks_received[current_pixel_id]++;
+
 			if (LLM_DEBUG_LEVEL >= 2) {
-				std::cout << "[COMPUTE-VERIFY @" << cycles << "] MAC " << selfMACid
-				          << " task " << tmp_requestID
-				          << " computed attention: " << std::fixed << std::setprecision(10)
-				          << attention_output << std::endl;
+				std::cout << "[PARTIAL-SUM @" << cycles << "] MAC " << selfMACid
+				          << " computed subchunk " << current_subchunk_id
+				          << " for pixel " << current_pixel_id
+				          << " partial sum: " << std::fixed << std::setprecision(10) << partial_sum
+				          << " (" << pixel_subchunks_received[current_pixel_id] << "/4 received)" << std::endl;
 			}
 
 			int calc_time = (query_data.size() / PE_NUM_OP + 1) * 20;
@@ -422,10 +430,34 @@ void LLMMAC::llmRunOneStep() {
 			current_task_timing.compute_end_cycle = cycles + calc_time;
 			current_task_timing.result_send_cycle = cycles + calc_time;
 
-			// Changed: Send type 3 (final result) instead of type 2 (intermediate)
-			// Since we're computing the final attention value for each pixel
-			llmInject(3, dest_mem_id, 1, attention_output,
-					  net->vcNetwork->NI_list[NI_id], packet_id + tmp_requestID, selfMACid);
+			// Check if all 4 subchunks for this pixel are complete
+			if (pixel_subchunks_received[current_pixel_id] == 4) {
+				// Aggregate all partial sums
+				float total_sum = 0.0f;
+				for (int i = 0; i < 4; i++) {
+					total_sum += pixel_partial_sums[current_pixel_id][i];
+				}
+				
+				// Apply scaling and activation
+				float scaled = total_sum / sqrt(128.0f);  // sqrt of full vector size
+				attention_output = tanh(scaled);
+				
+				if (LLM_DEBUG_LEVEL >= 2) {
+					std::cout << "[AGGREGATE @" << cycles << "] MAC " << selfMACid
+					          << " pixel " << current_pixel_id << " complete:"
+					          << " sum=" << total_sum
+					          << " scaled=" << scaled  
+					          << " final=" << attention_output << std::endl;
+				}
+				
+				// Send final aggregated result (type 3)
+				llmInject(3, dest_mem_id, 1, attention_output,
+						  net->vcNetwork->NI_list[NI_id], packet_id + tmp_requestID, selfMACid);
+				
+				// Clean up aggregation data for this pixel
+				pixel_partial_sums.erase(current_pixel_id);
+				pixel_subchunks_received.erase(current_pixel_id);
+			}  // End of "if all 4 subchunks complete"
 			
 			// Calculate result packet hops (same as request)
 			current_task_timing.result_hops = current_task_timing.request_hops;
@@ -435,8 +467,8 @@ void LLMMAC::llmRunOneStep() {
 			if (net && tmp_requestID >= 0 && tmp_requestID < net->all_tasks.size()) {
 				int pixel_x = net->all_tasks[tmp_requestID].pixel_x;
 				int pixel_y = net->all_tasks[tmp_requestID].pixel_y;
-				if (pixel_x >= 0 && pixel_x < net->matrix_size && 
-				    pixel_y >= 0 && pixel_y < net->matrix_size) {
+				if (pixel_x >= 0 && pixel_x < net->matrixOutputPixels_size && 
+				    pixel_y >= 0 && pixel_y < net->matrixOutputPixels_size) {
 					net->attention_output_table[pixel_y][pixel_x] = attention_output;
 					if (LLM_DEBUG_LEVEL >= 2) {
 						std::cout << "[DIRECT-UPDATE @" << cycles << "] MAC " << selfMACid 
@@ -451,7 +483,7 @@ void LLMMAC::llmRunOneStep() {
 		else if (selfstatus == 4) {
 			if (selfMACid < 10) {
 				LLM_DEBUG("MAC " << selfMACid << " task " << tmp_requestID << " completed, remaining tasks: "
-				          << routing_table.size());
+				          << llmtasktable.size());
 			}
 			
 			// Save completed task timing
@@ -472,7 +504,7 @@ void LLMMAC::llmRunOneStep() {
 			#endif
 
 			this->send = 0;
-			if (this->routing_table.size() == 0) {
+			if (this->llmtasktable.size() == 0) {
 				this->selfstatus = 5;
 				if (selfMACid < 10) {
 					LLM_DEBUG("MAC " << selfMACid << " all tasks completed");
@@ -552,9 +584,17 @@ void LLMMAC::llmResetForNextTask() {
 	value_data.clear();
 	input_buffer.clear();
 	attention_output = 0.0;
+	// Note: Don't clear pixel_partial_sums here as we need them for aggregation across tasks
+	// Only clear them when a pixel is complete and sent
 }
 
 void LLMMAC::llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
+	static int call_count = 0;
+	call_count++;
+	if (call_count <= 5) {
+		std::cout << "=== llmReshapeFlatToQueryKeyMatrix CALLED (call #" << call_count << ") ===" << std::endl;
+	}
+	
 	// LLM payload contains: [metadata(4), query_data, key_data]
 	// Extract data size from metadata
 	if (payload.size() < 8) return; // Need at least metadata + some data
@@ -571,52 +611,138 @@ void LLMMAC::llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
 	std::deque<float> key_data(payload.begin() + metadata_size + data_size,
 	                           payload.begin() + metadata_size + data_size * 2);
 
-	// Debug: Print original data for first few MACs
-	if (selfMACid < 15) {  // More MACs for debug
-		std::cout << "\n=== LLM Sorting Debug for MAC " << selfMACid << " ===\n";
-		llmPrintDetailedData(query_data, "Query Input Data (BEFORE sorting)", 6);
-		llmPrintDetailedData(key_data, "Key Weight Data (BEFORE sorting)", 6);
-		std::cout << "Current sorting mode: ";
+	// Apply sorting based on configuration
 #ifdef YZSeperatedOrdering_reArrangeInput
-		std::cout << "SEPARATED (both query_input and key_weight sort independently)" << std::endl;
-#else
-		std::cout << "AFFILIATED (query_input follows key_weight order)" << std::endl;
+	// Separated ordering: sort query and key independently
+	sortMatrix_LLMSeparated(query_data, 8, 8);  // Assuming 8x8 matrix for 64 elements
+	sortMatrix_LLMSeparated(key_data, 8, 8);
+#elif defined(YzAffiliatedOrdering)
+	// Affiliated ordering: sort query and key together
+	sortMatrix_LLMAffiliated(query_data, key_data, 8, 8);
 #endif
-		std::cout << "Fixed-point sorting: ";
-#ifdef FIXED_POINT_SORTING
-		std::cout << "ENABLED" << std::endl;
-#else
-		std::cout << "DISABLED" << std::endl;
-#endif
-	}
 
-#ifdef YZSeperatedOrdering_reArrangeInput
-	// Mode 1: Separated - query and key sorted independently (like CNN separated mode)
-	// Calculate proper row/col parameters for LLM data layout
-	int elements_per_flit = payloadElementNum;  // 16 elements per flit
-	int num_flits = (data_size + elements_per_flit - 1) / elements_per_flit;
+	// CNN-style matrix reorganization - row by row combination
+	// After sorting, query_data and key_data are in row-major format (8x8 each)
+	// Combine them row by row: [Query row i (8 elements) + Key row i (8 elements)] = 16 elements per row
 	
-	sortMatrix_LLMSeparated(query_data, elements_per_flit, num_flits);  // query acts like "input"
-	sortMatrix_LLMSeparated(key_data, elements_per_flit, num_flits);    // key acts like "weight"
-#else
-	// Mode 2: Affiliated - sort by key bitcount, query follows (like CNN affiliated mode)
-	// Key acts as "weight", Query acts as "input" 
-	int elements_per_flit = payloadElementNum;  // 16 elements per flit
-	int num_flits = (data_size + elements_per_flit - 1) / elements_per_flit;
+	const int rows = 8;
+	const int cols = 8;
 	
-	sortMatrix_LLMAffiliated(query_data, key_data, elements_per_flit, num_flits);
-#endif
-
-	// Debug: Print sorted data for first few MACs
-	if (selfMACid < 15) {  // More MACs for debug
-		llmPrintDetailedData(query_data, "Query Input Data (AFTER sorting)", 6);
-		llmPrintDetailedData(key_data, "Key Weight Data (AFTER sorting)", 6);
-		std::cout << "=== End LLM Sorting Debug for MAC " << selfMACid << " ===\n" << std::endl;
+	// Extract rows from query and key data
+	std::vector<std::deque<float>> query_rows(rows);
+	std::vector<std::deque<float>> key_rows(rows);
+	
+	for (int row = 0; row < rows; row++) {
+		for (int col = 0; col < cols; col++) {
+			int idx = row * cols + col;
+			if (idx < query_data.size()) {
+				query_rows[row].push_back(query_data[idx]);
+			}
+			if (idx < key_data.size()) {
+				key_rows[row].push_back(key_data[idx]);
+			}
+		}
 	}
-
-	// Put the sorted data back into payload
-	std::copy(query_data.begin(), query_data.end(), payload.begin() + metadata_size);
-	std::copy(key_data.begin(), key_data.end(), payload.begin() + metadata_size + data_size);
+	
+	// Combine rows: each row = [query_row + key_row]
+	std::vector<std::deque<float>> combined_rows(rows);
+	for (int i = 0; i < rows; i++) {
+		// Add query row (8 elements)
+		combined_rows[i].insert(combined_rows[i].end(), 
+		                       query_rows[i].begin(), query_rows[i].end());
+		// Add key row (8 elements)
+		combined_rows[i].insert(combined_rows[i].end(), 
+		                       key_rows[i].begin(), key_rows[i].end());
+	}
+	
+	// Write back to payload
+	int write_idx = metadata_size;
+	for (const auto& row : combined_rows) {
+		for (const auto& element : row) {
+			if (write_idx < payload.size()) {
+				payload[write_idx++] = element;
+			}
+		}
+	}
+	
+	// Debug: Print packet structure and bit flips for first packet
+	static int packet_count = 0;
+	packet_count++;
+	if (packet_count == 1) {  // Only analyze first packet
+		std::cout << "\n=== Packet #" << packet_count << " Flit Structure ===" << std::endl;
+		std::cout << "Total payload size: " << payload.size() << " elements" << std::endl;
+		
+		// Calculate number of flits
+		int elements_per_flit = 16;
+		int num_flits = (payload.size() + elements_per_flit - 1) / elements_per_flit;
+		std::cout << "Number of flits: " << num_flits << std::endl;
+		
+		// Store all flits for bit flip analysis
+		std::vector<std::vector<uint32_t>> flit_bits;
+		
+		// Print each flit's content and convert to bits
+		for (int flit = 0; flit < num_flits; flit++) {
+			std::cout << "\nFlit " << flit << ": ";
+			int start_idx = flit * elements_per_flit;
+			int end_idx = std::min(start_idx + elements_per_flit, (int)payload.size());
+			
+			// Collect values in this flit
+			std::vector<float> flit_values;
+			std::vector<uint32_t> flit_bit_repr;
+			
+			for (int i = start_idx; i < end_idx; i++) {
+				flit_values.push_back(payload[i]);
+				// Convert float to bit representation
+				uint32_t bits = *reinterpret_cast<uint32_t*>(&payload[i]);
+				flit_bit_repr.push_back(bits);
+			}
+			
+			// Pad with zeros if needed
+			while (flit_bit_repr.size() < 16) {
+				flit_bit_repr.push_back(0);
+			}
+			
+			flit_bits.push_back(flit_bit_repr);
+			
+			// Sort to check ordering
+			std::vector<float> sorted_values = flit_values;
+			std::sort(sorted_values.begin(), sorted_values.end());
+			
+			// Print first few values
+			std::cout << "[";
+			for (int i = 0; i < std::min(4, (int)flit_values.size()); i++) {
+				std::cout << flit_values[i];
+				if (i < 3 && i < flit_values.size()-1) std::cout << ", ";
+			}
+			if (flit_values.size() > 4) std::cout << "...";
+			std::cout << "] (" << flit_values.size() << " elements)";
+			
+			// Check if sorted
+			bool is_sorted = (flit_values == sorted_values);
+			std::cout << " - " << (is_sorted ? "SORTED" : "NOT SORTED");
+		}
+		
+		// Calculate bit flips between consecutive flits
+		std::cout << "\n\n=== Bit Flips Between Consecutive Flits ===" << std::endl;
+		int total_bit_flips = 0;
+		for (int i = 1; i < flit_bits.size(); i++) {
+			int flips = 0;
+			for (int j = 0; j < 16; j++) {
+				uint32_t xor_result = flit_bits[i-1][j] ^ flit_bits[i][j];
+				// Count 1s in XOR result
+				while (xor_result) {
+					flips += xor_result & 1;
+					xor_result >>= 1;
+				}
+			}
+			std::cout << "Flit " << (i-1) << " -> Flit " << i << ": " << flips << " bit flips" << std::endl;
+			total_bit_flips += flips;
+		}
+		std::cout << "\nTotal bit flips in packet: " << total_bit_flips << std::endl;
+		std::cout << "Average bit flips per transition: " << (float)total_bit_flips / (flit_bits.size() - 1) << std::endl;
+		
+		std::cout << "\n" << std::endl;
+	}
 }
 
 void LLMMAC::llmReceive(Message* re_msg) {
@@ -672,7 +798,7 @@ void LLMMAC::llmPrintDetailedData(const std::deque<float>& data, const std::stri
 
 void LLMMAC::sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row, int rownum_per_col) {
 	// Sort data independently by bit count (exactly like CNN's rearrangeDeque)
-	std::cout << "[DEBUG] sortMatrix_LLMSeparated called for MAC " << selfMACid << ", data size: " << data.size() << std::endl;
+	//std::cout << "[DEBUG] sortMatrix_LLMSeparated called for MAC " << selfMACid << ", data size: " << data.size() << std::endl;
 	if (data.empty()) return;
 	
 	// Step 1: Sort the entire deque based on bit counts
@@ -682,19 +808,17 @@ void LLMMAC::sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row
 	std::sort(data.begin(), data.end(), compareFloatsByOnes);
 #endif
 
-	// Step 2: Reorganize into row-major format (like CNN does)
-	// This ensures sorted elements are distributed across flits properly
+	// Step 2: Reorganize into col-major format (like CNN does)
+	// Fill column by column: first column gets smallest values
 	std::vector<std::deque<float>> rows(rownum_per_col);
-	int row_index = 0;
-	int col_index = 0;
+	int idx = 0;
 	
-	for (float num : data) {
-		assert(row_index < rownum_per_col && "sortMatrix_LLMSeparated: data overflow - size exceeds matrix capacity");
-		rows[row_index].push_back(num);
-		col_index++;
-		if (col_index == colnum_per_row) {
-			row_index++;
-			col_index = 0;
+	// Fill by columns: for each column, fill all rows
+	for (int col = 0; col < colnum_per_row; col++) {
+		for (int row = 0; row < rownum_per_col; row++) {
+			if (idx < data.size()) {
+				rows[row].push_back(data[idx++]);
+			}
 		}
 	}
 	
@@ -710,7 +834,7 @@ void LLMMAC::sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row
 void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<float>& key_data, 
                                           int colnum_per_row, int rownum_per_col) {
 	// Sort by key_data bit count, query_data follows same order (like CNN's rearrangeDequeAccordingly)
-	std::cout << "[DEBUG] sortMatrix_LLMAffiliated called for MAC " << selfMACid << ", query size: " << query_data.size() << ", key size: " << key_data.size() << std::endl;
+	//std::cout << "[DEBUG] sortMatrix_LLMAffiliated called for MAC " << selfMACid << ", query size: " << query_data.size() << ", key size: " << key_data.size() << std::endl;
 	if (key_data.empty() || query_data.empty()) return;
 	if (key_data.size() != query_data.size()) return;
 	
@@ -737,8 +861,43 @@ void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<
 		sorted_key.push_back(key_data[idx]);
 	}
 	
-	query_data = sorted_query;
-	key_data = sorted_key;
+	// Now reorganize into col-major format (like CNN does)
+	// Step 2a: Reorganize query data - fill column by column
+	std::vector<std::deque<float>> query_rows(rownum_per_col);
+	int idx = 0;
+	for (int col = 0; col < colnum_per_row; col++) {
+		for (int row = 0; row < rownum_per_col; row++) {
+			if (idx < sorted_query.size()) {
+				query_rows[row].push_back(sorted_query[idx++]);
+			}
+		}
+	}
+	
+	// Step 2b: Reorganize key data - fill column by column  
+	std::vector<std::deque<float>> key_rows(rownum_per_col);
+	idx = 0;
+	for (int col = 0; col < colnum_per_row; col++) {
+		for (int row = 0; row < rownum_per_col; row++) {
+			if (idx < sorted_key.size()) {
+				key_rows[row].push_back(sorted_key[idx++]);
+			}
+		}
+	}
+	
+	// Step 3: Write back to data in row order
+	query_data.clear();
+	for (const auto &row : query_rows) {
+		for (const auto &element : row) {
+			query_data.push_back(element);
+		}
+	}
+	
+	key_data.clear();
+	for (const auto &row : key_rows) {
+		for (const auto &element : row) {
+			key_data.push_back(element);
+		}
+	}
 }
 
 // Destructor

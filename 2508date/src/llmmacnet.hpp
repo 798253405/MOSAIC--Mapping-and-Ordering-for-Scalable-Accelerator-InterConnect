@@ -41,17 +41,20 @@ public:
 	vector<vector<float>> attention_output_table;
 
 	// Task mapping and scheduling
-	deque<deque<int>> mapping_table;
-	void llmXMapping(int total_tasks);
-	void llmYMapping(int total_tasks);
-	void llmRandomMapping(int total_tasks);
-	void llmDistanceMapping(int total_tasks);
-	void llmLoadBalanceMapping(int total_tasks);
-	int llmSAMOSSampleMapping(int task_count, int start_task_id = 0);  // SAMOS mapping function
+	deque<deque<int>> mapping_table;  // Keep for base class compatibility
+	deque<deque<int>> llmOutputPixelMappingTable;  // LLM-specific: maps output pixels to MAC units
+	                                               // llmOutputPixelMappingTable[MAC_ID] = {pixel_ids...}
+	deque<deque<int>> llmTaskMappingTable;         // LLM-specific: maps tasks to MAC units
+	                                               // llmTaskMappingTable[MAC_ID] = {task_ids...}
+	void llmXMapping(int total_pixels);
+
+	void llmLoadBalanceMapping(int total_pixels);
+	int llmSAMOSTaskMapping(int pixel_count, int start_pixel_id = 0);  // SAMOS mapping function
 
 	// LLM attention layer management
 	void llmCreateAttentionData();
 	void llmInitializeMatrices();
+	bool llmLoadRealMatrices(const std::string& input_dir);
 	void llmTaskPartitioning();
 
 	// 新增：数据导出函数
@@ -72,12 +75,23 @@ public:
 	int total_layers;
 
 	// Matrix dimensions
-	int matrix_size;
-	int tile_size;
-	int tiles_per_dim;
-	int total_tiles;
+	int matrixOutputPixels_size;  // Size of output pixel matrix (e.g., 128x128)
+	int totalTileCount;           // Total number of tiles (NoC nodes - MC nodes)
+	int tile_Pixels_size;
+	int pixelNumPerTile;              // Size of each tile (calculated from NoC)
+
+	int tiles_Pixels_per_dim;     // Number of tiles per dimension
+	int total_tile_Pixels;        // Total number of tiles
 	int time_slices;
-	int total_tasks;
+	int total_task_slicedPixels;  // Total number of tasks (sliced pixels)
+
+	/*	matrixOutputPixels_size = 512, 512*512
+	totalTileCount = noc_total_nodes - memory_controller_nodes;  //64- 4= 60
+	pixelNumPerTile = matrixOutputPixels_size / sqrt(totalTileCount);  // Calculate based on NoC configuration
+	pixelNumPerTile = static_cast<int>(ceil(pixelNumPerTile));  // Round up to ensure complete coverage
+	// Note: 128/sqrt(60) ≈ 16.5 → 17, so each tile processes 17x17 ≈ 289 pixels
+	 */
+
 
 	// Execution state
 	int ready_flag;
@@ -91,13 +105,22 @@ public:
 
 	// Task generation and distribution
 	struct LLMTask {
-		int task_id;
-		int pixel_x, pixel_y;
-		int time_slice;
-		int tile_id;
-		vector<float> query_data;
-		vector<float> key_data;
-		vector<float> value_data;
+		int task_id;              // 全局任务ID
+		int pixel_id;             // 所属pixel ID
+		int pixel_x, pixel_y;     // pixel坐标 (在512x512矩阵中)
+		int time_slice;           // 时间片ID，与subchunk_id相同
+		int subchunk_id;          // 子块ID (0-3)
+		int tile_id;              // tile ID（保留用于兼容）
+		
+		// 数据内容
+		vector<float> query_data; // 64个query元素
+		vector<float> key_data;   // 64个key元素
+		vector<float> value_data; // 保留用于future扩展
+		
+		// 数据范围信息
+		int query_offset;         // query数据起始偏移 (0或64)
+		int key_offset;           // key数据起始偏移 (0或64)
+		float partial_sum;        // 该子块的计算结果
 	};
 
 	vector<LLMTask> all_tasks;

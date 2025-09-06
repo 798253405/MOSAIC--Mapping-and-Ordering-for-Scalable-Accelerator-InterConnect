@@ -152,14 +152,12 @@ void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 	 sortMatrix_CNNSeparated(weightData, weightcolnum_per_row, rownum_per_col);
 #endif
 #ifndef YZSeperatedOrdering_reArrangeInput
-	//this is old and for debug
-	 //sortMatrix_CNNSeparated(weightData, weightcolnum_per_row, rownum_per_col); // rearrange weights, and rearrange input accrodingly
+
 	 // this is current version
 	 sortMatrix_CNNAffiliated(inputData, weightData,  weightcolnum_per_row, rownum_per_col);
 
 #endif
-	// algorithm based
-	// rearrangeByAlgorithm(weightData,  weightcolnum_per_row,rownum_per_col);
+	// algorithm based (function removed)
 
 	std::vector<std::deque<float>> input_rows(rownum_per_col); // one row contains "colnum_per_row" elements //for example， overall 40 = 5row *8 elements。 Inside one row， the left 4 elements are inputs the right 4 elements are weights
 	std::vector<std::deque<float>> weight_rows(rownum_per_col); // one row contains "colnum_per_row" elements

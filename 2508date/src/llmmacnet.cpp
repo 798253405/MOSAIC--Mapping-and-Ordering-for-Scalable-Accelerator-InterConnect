@@ -1,11 +1,13 @@
 // 小矩阵版本的 llmmacnet.cpp - 4x4可调试
 #include "llmmacnet.hpp"
 #include "llmmac.hpp"
+#include "yzIEEE754.hpp"  // For float_to_ieee754 and countOnesInIEEE754
 #include <cassert>
 #include <ctime>
 #include <iomanip>
 #include <climits>
 #include <chrono>
+#include <cmath>  // For sqrt and ceil functions
 
 // Helper function to get current time string
 static inline std::string getCurrentTimeStr() {
@@ -75,51 +77,68 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	// Use configuration from parameters.hpp
 	#if LLM_TEST_CASE == 1
 	// Test Case 1: Small matrix test
-	matrix_size = 4;
-	tile_size = 4;
+	matrixOutputPixels_size = 4;
+	tile_Pixels_size = 4;
 	time_slices = 1;
 	LLM_INFO_INIT("\n[LLM Config] Test Case 1: Small 4x4 matrix");
 	
 	#elif LLM_TEST_CASE == 2
-	// Test Case 2: Scaled LLaMA attention matrix (128x128 for testing)
-	matrix_size = 128;  // Scaled down for comprehensive testing
-	tile_size = 16;     // 16x16 tiles
-	time_slices = 4;    // Standard 4 time slices for non-debug models
-	LLM_INFO_INIT("\n[LLM Config] Test Case 2: Scaled LLaMA 128x128 attention matrix with 4 time slices");
+	// Test Case 2: LLaMA-7B Single Head Configuration (Hardware-Adapted)
+	matrixOutputPixels_size = 512;  // 512x512 attention matrix
 	
-	#elif LLM_TEST_CASE == 3
-	// Test Case 3: Large configuration for SAMOS testing
-	matrix_size = 256;
-	tile_size = 16;
-	time_slices = 4;
-	LLM_INFO_INIT("\n[LLM Config] Test Case 3: Large 256x256 for SAMOS testing");
+	// Calculate tile parameters based on NoC configuration from parameters.hpp  
+	int noc_total_nodes = TOT_NUM;  // From parameters.hpp (currently 8x8 = 64)
+	int memory_controller_nodes = YZMEMCount;  // From parameters.hpp (currently 4)
+	totalTileCount = noc_total_nodes - memory_controller_nodes;  // Processing tiles
+	pixelNumPerTile = matrixOutputPixels_size / sqrt(totalTileCount);  // Calculate based on NoC configuration
+	pixelNumPerTile = static_cast<int>(ceil(pixelNumPerTile));  // Round up to ensure complete coverage
+	// Note: 512/sqrt(60) ≈ 66.1 → 67, so each tile processes 67x67 ≈ 4,489 pixels
 	
-	#else
-	// Default to test case 1 if not specified
-	matrix_size = 4;
-	tile_size = 4;
-	time_slices = 1;
-	LLM_INFO_INIT("\n[LLM Config] Default: Test Case 1 (4x4 matrix)");
+	time_slices = 4;  // Each pixel has 4 time slices (2x2 subchunks)
+	LLM_INFO_INIT("\n[LLM Config] Test Case 2: LLaMA Single Head (" << totalTileCount << " tiles, " << pixelNumPerTile << "x" << pixelNumPerTile << " per tile, 64x64 elements per task)");
+	
+
 	#endif
 
-	// Calculate derived parameters
-	tiles_per_dim = matrix_size / tile_size;
-	total_tiles = tiles_per_dim * tiles_per_dim;
+	// Calculate derived parameters based on new naming convention
+	#if LLM_TEST_CASE == 2
+	tiles_Pixels_per_dim = matrixOutputPixels_size / pixelNumPerTile;  // 512/67 ≈ 7.6
+	total_tile_Pixels = totalTileCount;  // 60 tiles (based on NoC-MC)
 	
-	// For small matrices where tile_size == matrix_size, we process each pixel as a task
-	if (tile_size == matrix_size) {
-		// Each pixel is a task
-		total_tasks = matrix_size * matrix_size * time_slices;
+	// Each pixel generates 4 tasks (2x2 subchunks of 64x64 each)
+	int tasks_per_pixel = 4;  // 4 subchunks per pixel
+	int elements_per_task = 128;  // 64 query + 64 key per task
+	int total_pixels = matrixOutputPixels_size * matrixOutputPixels_size;  // 512*512 = 262,144 pixels  
+	total_task_slicedPixels = total_pixels * tasks_per_pixel;  // 262,144 * 4 = 1,048,576 tasks
+	
+	// Quick test mode: uncomment the next line to test with only 250 pixels (1000 tasks)
+	total_task_slicedPixels = 250 * 4;  // Quick test: 250 pixels = 1000 tasks across all 60 nodes
+	
+	#else
+	// Legacy calculation for other test cases
+	tiles_Pixels_per_dim = matrixOutputPixels_size / tile_Pixels_size;
+	total_tile_Pixels = tiles_Pixels_per_dim * tiles_Pixels_per_dim;
+	
+	if (tile_Pixels_size == matrixOutputPixels_size) {
+		total_task_slicedPixels = matrixOutputPixels_size * matrixOutputPixels_size * time_slices;
 	} else {
-		// Each tile generates tile_size x tile_size tasks
-		total_tasks = total_tiles * tile_size * tile_size * time_slices;
+		total_task_slicedPixels = total_tile_Pixels * tile_Pixels_size * tile_Pixels_size * time_slices;
 	}
+	#endif
 	
-	LLM_INFO_INIT("  Matrix: " << matrix_size << "x" << matrix_size);
-	LLM_INFO_INIT("  Tile size: " << tile_size << "x" << tile_size);
-	LLM_INFO_INIT("  Tiles: " << tiles_per_dim << "x" << tiles_per_dim << " = " << total_tiles);
+	LLM_INFO_INIT("  MatrixOutputPixels: " << matrixOutputPixels_size << "x" << matrixOutputPixels_size);
+	#if LLM_TEST_CASE == 2
+	LLM_INFO_INIT("  pixelNumPerTile: " << pixelNumPerTile << "x" << pixelNumPerTile);
+	LLM_INFO_INIT("  totalTileCount: " << totalTileCount << " (NoC=" << noc_total_nodes << " - MC=" << memory_controller_nodes << ")");
+	LLM_INFO_INIT("  Tasks per pixel: " << tasks_per_pixel);
+	LLM_INFO_INIT("  Elements per task: " << elements_per_task << " (64 query + 64 key)");
+	LLM_INFO_INIT("  Total pixels: " << total_pixels);
+	#else
+	LLM_INFO_INIT("  tile_Pixels size: " << tile_Pixels_size << "x" << tile_Pixels_size);
+	LLM_INFO_INIT("  tile_Pixels: " << tiles_Pixels_per_dim << "x" << tiles_Pixels_per_dim << " = " << total_tile_Pixels);
+	#endif
 	LLM_INFO_INIT("  Time slices: " << time_slices);
-	LLM_INFO_INIT("  Total tasks: " << total_tasks);
+	LLM_INFO_INIT("  Total task_slicedPixels: " << total_task_slicedPixels);
 
 	ready_flag = 0;
 	mapping_again = 0;
@@ -127,11 +146,11 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	executed_tasks = 0;
 
 	LLM_DEBUG_INIT("Creating LLMMACnet with " << macNum << " MAC units");
-	LLM_TRACE_INIT("Matrix size: " << matrix_size << "x" << matrix_size);
-	LLM_TRACE_INIT("Tile size: " << tile_size << "x" << tile_size);
+	LLM_TRACE_INIT("Matrix size: " << matrixOutputPixels_size << "x" << matrixOutputPixels_size);
+	LLM_TRACE_INIT("Tile size: " << tile_Pixels_size << "x" << tile_Pixels_size);
 	LLM_TRACE_INIT("Time slices: " << time_slices);
-	LLM_TRACE_INIT("Total tiles: " << total_tiles);
-	LLM_TRACE_INIT("Total tasks: " << total_tasks);
+	LLM_TRACE_INIT("Total tiles: " << total_tile_Pixels);
+	LLM_TRACE_INIT("Total tasks: " << total_task_slicedPixels);
 
 	for (int i = 0; i < macNum; i++) {
 		int temp_ni_id = i % TOT_NUM;
@@ -178,9 +197,152 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	LLM_DEBUG_INIT("LLMMACnet initialized successfully!");
 }
 
+bool LLMMACnet::llmLoadRealMatrices(const std::string& input_dir) {
+	try {
+		const int matrix_size = matrixOutputPixels_size;  // 512
+		
+		// Initialize matrices
+		attention_query_table.resize(matrix_size);
+		attention_key_table.resize(matrix_size);
+		attention_value_table.resize(matrix_size);
+		attention_output_table.resize(matrix_size);
+		
+		// Load Query matrix - use 512x128 for testing
+		std::ifstream query_file(input_dir + "llama_query_512x128.txt");
+		if (!query_file.is_open()) {
+			// Try 2048x128 version
+			query_file.open(input_dir + "llama_query_2048x128.txt");
+			if (!query_file.is_open()) {
+				std::cerr << "Failed to open query file from " << input_dir << std::endl;
+				return false;
+			}
+		}
+		
+		// Read dimensions from first line
+		int file_rows, file_cols;
+		query_file >> file_rows >> file_cols;
+		std::cerr << "Loading Query matrix: " << file_rows << "x" << file_cols << std::endl;
+		
+		// Skip rest of first line
+		std::string dummy;
+		std::getline(query_file, dummy);
+		
+		for (int i = 0; i < matrix_size && i < file_rows; i++) {
+			attention_query_table[i].resize(matrix_size);
+			std::string line;
+			if (!std::getline(query_file, line)) break;
+			
+			std::istringstream iss(line);
+			for (int j = 0; j < matrix_size; j++) {
+				float value;
+				if (j < file_cols && (iss >> value)) {
+					attention_query_table[i][j] = value;
+				} else if (file_cols > 0) {
+					// Replicate data if needed
+					attention_query_table[i][j] = attention_query_table[i][j % file_cols];
+				} else {
+					attention_query_table[i][j] = 0.0f;
+				}
+			}
+		}
+		
+		// Fill remaining rows if needed
+		for (int i = file_rows; i < matrix_size; i++) {
+			attention_query_table[i].resize(matrix_size);
+			for (int j = 0; j < matrix_size; j++) {
+				if (file_rows > 0) {
+					attention_query_table[i][j] = attention_query_table[i % file_rows][j];
+				} else {
+					attention_query_table[i][j] = 0.0f;
+				}
+			}
+		}
+		query_file.close();
+		
+		// Load Key matrix - use 512x128 for testing
+		std::ifstream key_file(input_dir + "llama_key_512x128.txt");
+		if (!key_file.is_open()) {
+			// Try 2048x128 version
+			key_file.open(input_dir + "llama_key_2048x128.txt");
+			if (!key_file.is_open()) {
+				std::cerr << "Failed to open key file from " << input_dir << std::endl;
+				return false;
+			}
+		}
+		
+		// Read dimensions from first line
+		key_file >> file_rows >> file_cols;
+		std::cerr << "Loading Key matrix: " << file_rows << "x" << file_cols << std::endl;
+		
+		// Skip rest of first line
+		std::getline(key_file, dummy);
+		
+		for (int i = 0; i < matrix_size && i < file_rows; i++) {
+			attention_key_table[i].resize(matrix_size);
+			std::string line;
+			if (!std::getline(key_file, line)) break;
+			
+			std::istringstream iss(line);
+			for (int j = 0; j < matrix_size; j++) {
+				float value;
+				if (j < file_cols && (iss >> value)) {
+					attention_key_table[i][j] = value;
+				} else if (file_cols > 0) {
+					// Replicate data if needed
+					attention_key_table[i][j] = attention_key_table[i][j % file_cols];
+				} else {
+					attention_key_table[i][j] = 0.0f;
+				}
+			}
+		}
+		
+		// Fill remaining rows if needed
+		for (int i = file_rows; i < matrix_size; i++) {
+			attention_key_table[i].resize(matrix_size);
+			for (int j = 0; j < matrix_size; j++) {
+				if (file_rows > 0) {
+					attention_key_table[i][j] = attention_key_table[i % file_rows][j];
+				} else {
+					attention_key_table[i][j] = 0.0f;
+				}
+			}
+		}
+		key_file.close();
+		
+		// Initialize value and output tables to zero
+		for (int i = 0; i < matrix_size; i++) {
+			attention_value_table[i].resize(matrix_size, 0.0f);
+			attention_output_table[i].resize(matrix_size, 0.0f);
+		}
+		
+		std::cerr << "Successfully loaded real LLaMA matrices!" << std::endl;
+		return true;
+		
+	} catch (const std::exception& e) {
+		std::cerr << "Error loading LLaMA matrices: " << e.what() << std::endl;
+		return false;
+	}
+}
 void LLMMACnet::llmInitializeMatrices() {
-	LLM_DEBUG_INIT("Initializing " << matrix_size << "x" << matrix_size << " attention matrices...");
+	LLM_DEBUG_INIT("Initializing " << matrixOutputPixels_size << "x" << matrixOutputPixels_size << " attention matrices...");
 
+	// Try to load real LLaMA matrices first
+	std::string input_dir = "./llama_matrices/";
+	std::ifstream test_file(input_dir + "llama_query_512x128.txt");
+	bool use_real_data = false;
+	
+	if (test_file.is_open()) {
+		test_file.close();
+		LLM_DEBUG_INIT("Found LLaMA matrix files, attempting to load...");
+		use_real_data = llmLoadRealMatrices(input_dir);
+		if (use_real_data) {
+			LLM_DEBUG_INIT("Successfully loaded real LLaMA matrices!");
+			return;  // Skip random generation
+		}
+	}
+	
+	// Fall back to random generation
+	LLM_DEBUG_INIT("Using random matrix generation (LLaMA files not found or failed to load)");
 	// 使用固定种子确保可重现性
 	srand(42);
 	
@@ -193,18 +355,18 @@ void LLMMACnet::llmInitializeMatrices() {
 	demo_data.push_back(-1.0f);
 	demo_data.push_back(2.718f);
 	
-	attention_query_table.resize(matrix_size);
-	attention_key_table.resize(matrix_size);
-	attention_value_table.resize(matrix_size);
-	attention_output_table.resize(matrix_size);
+	attention_query_table.resize(matrixOutputPixels_size);
+	attention_key_table.resize(matrixOutputPixels_size);
+	attention_value_table.resize(matrixOutputPixels_size);
+	attention_output_table.resize(matrixOutputPixels_size);
 
-	for (int i = 0; i < matrix_size; i++) {
-		attention_query_table[i].resize(matrix_size);
-		attention_key_table[i].resize(matrix_size);
-		attention_value_table[i].resize(matrix_size);
-		attention_output_table[i].resize(matrix_size);
+	for (int i = 0; i < matrixOutputPixels_size; i++) {
+		attention_query_table[i].resize(matrixOutputPixels_size);
+		attention_key_table[i].resize(matrixOutputPixels_size);
+		attention_value_table[i].resize(matrixOutputPixels_size);
+		attention_output_table[i].resize(matrixOutputPixels_size);
 
-		for (int j = 0; j < matrix_size; j++) {
+		for (int j = 0; j < matrixOutputPixels_size; j++) {
 			attention_query_table[i][j] = (float)rand() / RAND_MAX * 2.0f - 1.0f;
 			attention_key_table[i][j] = (float)rand() / RAND_MAX * 2.0f - 1.0f;
 			attention_value_table[i][j] = (float)rand() / RAND_MAX * 2.0f - 1.0f;
@@ -214,27 +376,27 @@ void LLMMACnet::llmInitializeMatrices() {
 
 	// 仅在TRACE级别打印完整矩阵
 	if (LLM_DEBUG_LEVEL >= 3) {
-		LLM_TRACE("\n=== Query Matrix (" << matrix_size << "x" << matrix_size << ") ===");
-		for (int i = 0; i < matrix_size && i < 4; i++) {  // 限制最多打印4行
+		LLM_TRACE("\n=== Query Matrix (" << matrixOutputPixels_size << "x" << matrixOutputPixels_size << ") ===");
+		for (int i = 0; i < matrixOutputPixels_size && i < 4; i++) {  // 限制最多打印4行
 			std::cout << "Row " << i << ": ";
-			for (int j = 0; j < matrix_size && j < 4; j++) {
+			for (int j = 0; j < matrixOutputPixels_size && j < 4; j++) {
 				std::cout << std::fixed << std::setprecision(6) << attention_query_table[i][j] << "\t";
 			}
-			if (matrix_size > 4) std::cout << "...";
+			if (matrixOutputPixels_size > 4) std::cout << "...";
 			std::cout << std::endl;
 		}
-		if (matrix_size > 4) std::cout << "..." << std::endl;
+		if (matrixOutputPixels_size > 4) std::cout << "..." << std::endl;
 
-		LLM_TRACE("\n=== Key Matrix (" << matrix_size << "x" << matrix_size << ") ===");
-		for (int i = 0; i < matrix_size && i < 4; i++) {
+		LLM_TRACE("\n=== Key Matrix (" << matrixOutputPixels_size << "x" << matrixOutputPixels_size << ") ===");
+		for (int i = 0; i < matrixOutputPixels_size && i < 4; i++) {
 			std::cout << "Row " << i << ": ";
-			for (int j = 0; j < matrix_size && j < 4; j++) {
+			for (int j = 0; j < matrixOutputPixels_size && j < 4; j++) {
 				std::cout << std::fixed << std::setprecision(6) << attention_key_table[i][j] << "\t";
 			}
-			if (matrix_size > 4) std::cout << "...";
+			if (matrixOutputPixels_size > 4) std::cout << "...";
 			std::cout << std::endl;
 		}
-		if (matrix_size > 4) std::cout << "..." << std::endl;
+		if (matrixOutputPixels_size > 4) std::cout << "..." << std::endl;
 	}
 
 	LLM_DEBUG_INIT("Matrices initialized successfully");
@@ -246,10 +408,10 @@ void LLMMACnet::llmExportMatricesToFile() {
 	// Export Query matrix
 	std::ofstream query_file("src/output/cpp_query_matrix.txt");
 	if (query_file.is_open()) {
-		for (int i = 0; i < matrix_size; i++) {
-			for (int j = 0; j < matrix_size; j++) {
+		for (int i = 0; i < matrixOutputPixels_size; i++) {
+			for (int j = 0; j < matrixOutputPixels_size; j++) {
 				query_file << std::fixed << std::setprecision(10) << attention_query_table[i][j];
-				if (j < matrix_size - 1) query_file << ",";
+				if (j < matrixOutputPixels_size - 1) query_file << ",";
 			}
 			query_file << "\n";
 		}
@@ -260,10 +422,10 @@ void LLMMACnet::llmExportMatricesToFile() {
 	// Export Key matrix
 	std::ofstream key_file("src/output/cpp_key_matrix.txt");
 	if (key_file.is_open()) {
-		for (int i = 0; i < matrix_size; i++) {
-			for (int j = 0; j < matrix_size; j++) {
+		for (int i = 0; i < matrixOutputPixels_size; i++) {
+			for (int j = 0; j < matrixOutputPixels_size; j++) {
 				key_file << std::fixed << std::setprecision(10) << attention_key_table[i][j];
-				if (j < matrix_size - 1) key_file << ",";
+				if (j < matrixOutputPixels_size - 1) key_file << ",";
 			}
 			key_file << "\n";
 		}
@@ -274,10 +436,10 @@ void LLMMACnet::llmExportMatricesToFile() {
 	// Export Value matrix
 	std::ofstream value_file("src/output/cpp_value_matrix.txt");
 	if (value_file.is_open()) {
-		for (int i = 0; i < matrix_size; i++) {
-			for (int j = 0; j < matrix_size; j++) {
+		for (int i = 0; i < matrixOutputPixels_size; i++) {
+			for (int j = 0; j < matrixOutputPixels_size; j++) {
 				value_file << std::fixed << std::setprecision(10) << attention_value_table[i][j];
-				if (j < matrix_size - 1) value_file << ",";
+				if (j < matrixOutputPixels_size - 1) value_file << ",";
 			}
 			value_file << "\n";
 		}
@@ -287,55 +449,160 @@ void LLMMACnet::llmExportMatricesToFile() {
 }
 
 void LLMMACnet::llmGenerateAllTasks() {
-	LLM_DEBUG_INIT("Generating " << total_tasks << " LLM tasks...");
+	LLM_DEBUG_INIT("Generating LLM tasks for " << matrixOutputPixels_size << "x" << matrixOutputPixels_size << " matrix...");
 	all_tasks.clear();
-	all_tasks.reserve(total_tasks);
-
-	int task_id = 0;
 	
-	// Generate tasks based on tiles and time slices
+	int task_id = 0;
+	int total_pixels = matrixOutputPixels_size * matrixOutputPixels_size;
+	int tasks_per_pixel = 4;  // 2x2 subchunks
+	int total_tasks = total_pixels * tasks_per_pixel;
+	
+	all_tasks.reserve(total_tasks);
+	LLM_DEBUG_INIT("Total pixels: " << total_pixels << ", Tasks per pixel: " << tasks_per_pixel << ", Total tasks: " << total_tasks);
+	
+	// Generate tasks based on pixels with 4 subchunks each
+	#if LLM_TEST_CASE == 2
+	// For 512x512 matrix with 128-element vectors, split into 64x64 subchunks
+	// Increase test size: generate 2500 pixels (10000 tasks)
+	int pixels_to_generate = 2500;  // Increased test size
+	int pixel_count = 0;
+	for (int pixel_y = 0; pixel_y < matrixOutputPixels_size && pixel_count < pixels_to_generate; pixel_y++) {
+		for (int pixel_x = 0; pixel_x < matrixOutputPixels_size && pixel_count < pixels_to_generate; pixel_x++) {
+			int pixel_id = pixel_y * matrixOutputPixels_size + pixel_x;
+			pixel_count++;
+			
+			// Generate 4 tasks for this pixel (2x2 subchunks)
+			for (int subchunk_id = 0; subchunk_id < 4; subchunk_id++) {
+				LLMTask task;
+				task.task_id = pixel_id * 4 + subchunk_id;  // Fixed mapping
+				task.pixel_id = pixel_id;
+				task.pixel_x = pixel_x;
+				task.pixel_y = pixel_y;
+				task.time_slice = subchunk_id;  // time_slice = subchunk_id
+				task.subchunk_id = subchunk_id;
+				task.tile_id = (pixel_y / pixelNumPerTile) * (matrixOutputPixels_size / pixelNumPerTile) + (pixel_x / pixelNumPerTile);
+				
+				// Calculate data offsets for this subchunk
+				// subchunk 0: query[0:63] x key[0:63]
+				// subchunk 1: query[0:63] x key[64:127]
+				// subchunk 2: query[64:127] x key[0:63]
+				// subchunk 3: query[64:127] x key[64:127]
+				task.query_offset = (subchunk_id / 2) * 64;  // 0 for subchunk 0,1; 64 for subchunk 2,3
+				task.key_offset = (subchunk_id % 2) * 64;    // 0 for subchunk 0,2; 64 for subchunk 1,3
+				
+				// Extract 64 elements for query and key based on offsets
+				task.query_data.clear();
+				task.key_data.clear();
+				task.query_data.reserve(64);
+				task.key_data.reserve(64);
+				
+				// For 512x512 matrix, we need to handle data extraction differently
+				// Assuming each pixel row has access to full 128-element vectors
+				for (int i = 0; i < 64; i++) {
+#ifdef LLM_INPUT_BASED
+					// Input-based mode: pixel_x varies (different input), pixel_y fixed (same weight)
+					// Different pixels in same row get different input_query and input_key
+					int input_query_idx = (pixel_y + task.query_offset + i) % matrixOutputPixels_size;
+					task.query_data.push_back(attention_query_table[pixel_x][input_query_idx]);
+					
+					int input_key_idx = (pixel_y + task.key_offset + i) % matrixOutputPixels_size;
+					task.key_data.push_back(attention_key_table[pixel_x][input_key_idx]);
+#else
+					// Weight-based mode: pixel_y varies (different weight), pixel_x fixed (same input)
+					// Different pixels in same row get same weight_query and weight_key with offset
+					int weight_query_idx = (pixel_x + task.query_offset + i) % matrixOutputPixels_size;
+					task.query_data.push_back(attention_query_table[pixel_y][weight_query_idx]);
+					
+					int weight_key_idx = (pixel_x + task.key_offset + i) % matrixOutputPixels_size;
+					task.key_data.push_back(attention_key_table[pixel_y][weight_key_idx]);
+#endif
+				}
+				
+#ifdef LLM_RANDOM_DATA_REPLACE_TEST
+				// Replace with random data for testing bit flip optimization potential
+				for (int i = 0; i < 64; i++) {
+					task.query_data[i] = (float)rand() / RAND_MAX * 2.0f - 1.0f;
+					task.key_data[i] = (float)rand() / RAND_MAX * 2.0f - 1.0f;
+				}
+#endif
+				
+				task.partial_sum = 0.0f;  // Initialize
+				
+				// Debug: Verify data diversity for first few tasks in row 0
+				if (pixel_y == 0 && pixel_x < 4 && subchunk_id == 0) {
+					LLM_DEBUG_INIT("Task " << task_id << " (pixel " << pixel_x << "," << pixel_y << "):");
+					LLM_DEBUG_INIT("  First 3 query values: " 
+						<< task.query_data[0] << ", " 
+						<< task.query_data[1] << ", " 
+						<< task.query_data[2]);
+					LLM_DEBUG_INIT("  First 3 key values: " 
+						<< task.key_data[0] << ", " 
+						<< task.key_data[1] << ", " 
+						<< task.key_data[2]);
+				}
+				
+				all_tasks.push_back(task);
+				task_id++;
+			}
+		}
+	}
+	
+	// Update total_task_slicedPixels to reflect actual number of tasks
+	total_task_slicedPixels = all_tasks.size();
+	LLM_DEBUG_INIT("Generated " << all_tasks.size() << " tasks successfully");
+	LLM_DEBUG_INIT("First few tasks:");
+	for (int i = 0; i < std::min(4, (int)all_tasks.size()); i++) {
+		LLM_DEBUG_INIT("  Task " << all_tasks[i].task_id 
+		              << ": pixel(" << all_tasks[i].pixel_x << "," << all_tasks[i].pixel_y << ")"
+		              << " subchunk=" << all_tasks[i].subchunk_id
+		              << " query_offset=" << all_tasks[i].query_offset
+		              << " key_offset=" << all_tasks[i].key_offset);
+	#else
+	// Legacy approach for TEST_CASE 1: simple 4x4 matrix
 	for (int ts = 0; ts < time_slices; ts++) {
-		for (int tile_y = 0; tile_y < tiles_per_dim; tile_y++) {
-			for (int tile_x = 0; tile_x < tiles_per_dim; tile_x++) {
-				// Each tile generates tile_size x tile_size tasks (one per pixel in tile)
-				for (int in_tile_y = 0; in_tile_y < tile_size; in_tile_y++) {
-					for (int in_tile_x = 0; in_tile_x < tile_size; in_tile_x++) {
-						int pixel_x = tile_x * tile_size + in_tile_x;
-						int pixel_y = tile_y * tile_size + in_tile_y;
+		for (int tile_y = 0; tile_y < tiles_Pixels_per_dim; tile_y++) {
+			for (int tile_x = 0; tile_x < tiles_Pixels_per_dim; tile_x++) {
+				// Each tile generates tile_Pixels_size x tile_Pixels_size tasks (one per pixel in tile)
+				for (int in_tile_y = 0; in_tile_y < tile_Pixels_size; in_tile_y++) {
+					for (int in_tile_x = 0; in_tile_x < tile_Pixels_size; in_tile_x++) {
+						int pixel_x = tile_x * tile_Pixels_size + in_tile_x;
+						int pixel_y = tile_y * tile_Pixels_size + in_tile_y;
 						
 						// Skip if out of bounds (for non-divisible matrices)
-						if (pixel_x >= matrix_size || pixel_y >= matrix_size)
+						if (pixel_x >= matrixOutputPixels_size || pixel_y >= matrixOutputPixels_size)
 							continue;
 						
 						LLMTask task;
 						task.task_id = task_id;
+						task.pixel_id = pixel_y * matrixOutputPixels_size + pixel_x;
 						task.pixel_x = pixel_x;
 						task.pixel_y = pixel_y;
 						task.time_slice = ts;
-						task.tile_id = tile_y * tiles_per_dim + tile_x;
+						task.subchunk_id = ts;
+						task.tile_id = tile_y * tiles_Pixels_per_dim + tile_x;
+						
+						int d_head = tile_Pixels_size;  // Legacy: Process tile_Pixels_size elements per task
+						
+						task.query_data.resize(d_head);
+						task.key_data.resize(d_head);
+						task.value_data.resize(d_head);
 
-						// Generate query and key data
-						int data_elements = tile_size;  // Process tile_size elements per task
-						task.query_data.resize(data_elements);
-						task.key_data.resize(data_elements);
-						task.value_data.resize(data_elements);
-
-						for (int i = 0; i < data_elements; i++) {
-							int data_idx = (ts * data_elements + i) % matrix_size;
-							task.query_data[i] = attention_query_table[pixel_y][(pixel_x + data_idx) % matrix_size];
-							task.key_data[i] = attention_key_table[pixel_y][(pixel_x + data_idx) % matrix_size];
-							task.value_data[i] = attention_value_table[pixel_y][(pixel_x + data_idx) % matrix_size];
+						for (int i = 0; i < d_head; i++) {
+							int data_idx = (ts * d_head + i) % matrixOutputPixels_size;
+							task.query_data[i] = attention_query_table[pixel_y][(pixel_x + data_idx) % matrixOutputPixels_size];
+							task.key_data[i] = attention_key_table[pixel_y][(pixel_x + data_idx) % matrixOutputPixels_size];
+							task.value_data[i] = attention_value_table[pixel_y][(pixel_x + data_idx) % matrixOutputPixels_size];
 						}
 
 						// Print debug info for first few tasks only
 						if (task_id < 3 && LLM_DEBUG_LEVEL >= 3) {
 							LLM_TRACE("Task " << task_id << " [pixel(" << pixel_x << "," << pixel_y << "), ts=" << ts << ", tile=" << task.tile_id << "]:");
 							std::cout << "  Query data: ";
-							for (int i = 0; i < data_elements && i < 4; i++) {
+							for (int i = 0; i < d_head && i < 4; i++) {
 								std::cout << std::fixed << std::setprecision(6) << task.query_data[i];
-								if (i < data_elements - 1) std::cout << ",";
+								if (i < d_head - 1) std::cout << ",";
 							}
-							if (data_elements > 4) std::cout << "...";
+							if (d_head > 4) std::cout << "...";
 							std::cout << std::endl;
 						}
 
@@ -345,6 +612,8 @@ void LLMMACnet::llmGenerateAllTasks() {
 				}
 			}
 		}
+	}
+	#endif
 	}
 
 	LLM_DEBUG_INIT("Generated " << all_tasks.size() << " tasks successfully");
@@ -389,8 +658,8 @@ void LLMMACnet::llmExportVerificationResults() {
 	std::ofstream verify_file("src/output/cpp_verification.txt");
 	if (verify_file.is_open()) {
 		verify_file << "=== C++ Small Matrix Verification Results ===\n";
-		verify_file << "Matrix size: " << matrix_size << "x" << matrix_size << "\n";
-		verify_file << "Data elements per vector: " << matrix_size << "\n";
+		verify_file << "Matrix size: " << matrixOutputPixels_size << "x" << matrixOutputPixels_size << "\n";
+		verify_file << "Data elements per vector: " << matrixOutputPixels_size << "\n";
 		verify_file << "Time slices: " << time_slices << "\n\n";
 
 		// 导出所有任务的详细计算过程
@@ -429,10 +698,10 @@ void LLMMACnet::llmExportVerificationResults() {
 
 		// 导出最终输出矩阵
 		verify_file << "\n=== Final Output Matrix ===\n";
-		for (int i = 0; i < matrix_size; i++) {
-			for (int j = 0; j < matrix_size; j++) {
+		for (int i = 0; i < matrixOutputPixels_size; i++) {
+			for (int j = 0; j < matrixOutputPixels_size; j++) {
 				verify_file << std::fixed << std::setprecision(10) << attention_output_table[i][j];
-				if (j < matrix_size - 1) verify_file << ",";
+				if (j < matrixOutputPixels_size - 1) verify_file << ",";
 			}
 			verify_file << "\n";
 		}
@@ -444,10 +713,10 @@ void LLMMACnet::llmExportVerificationResults() {
 	// 导出最终输出矩阵到单独文件
 	std::ofstream output_file("src/output/llm_attention_output.txt");
 	if (output_file.is_open()) {
-		for (int i = 0; i < matrix_size; i++) {
-			for (int j = 0; j < matrix_size; j++) {
+		for (int i = 0; i < matrixOutputPixels_size; i++) {
+			for (int j = 0; j < matrixOutputPixels_size; j++) {
 				output_file << std::fixed << std::setprecision(10) << attention_output_table[i][j];
-				if (j < matrix_size - 1) output_file << ",";
+				if (j < matrixOutputPixels_size - 1) output_file << ",";
 			}
 			output_file << "\n";
 		}
@@ -458,9 +727,9 @@ void LLMMACnet::llmExportVerificationResults() {
 
 // 辅助函数
 int LLMMACnet::llmGetTileId(int pixel_x, int pixel_y) {
-	int tile_x = pixel_x / tile_size;
-	int tile_y = pixel_y / tile_size;
-	return tile_y * tiles_per_dim + tile_x;
+	int tile_x = pixel_x / tile_Pixels_size;
+	int tile_y = pixel_y / tile_Pixels_size;
+	return tile_y * tiles_Pixels_per_dim + tile_x;
 }
 
 int LLMMACnet::llmGetMACIdForTile(int tile_id) {
@@ -480,9 +749,17 @@ bool LLMMACnet::llmIsMemoryNode(int node_id) {
 	return false;
 }
 
-void LLMMACnet::llmXMapping(int total_tasks) {
-	LLM_DEBUG("Starting small matrix mapping for " << total_tasks << " tasks...");
+void LLMMACnet::llmXMapping(int total_pixels) {
+	// 计算总任务数（像素数 * 4）
+	int total_tasks = total_pixels * 4;
+	
+	LLM_DEBUG("Starting pixel-to-task mapping for " << total_pixels << " pixels (" << total_tasks << " tasks)...");
 
+	this->llmOutputPixelMappingTable.clear();
+	this->llmOutputPixelMappingTable.resize(macNum);
+	this->llmTaskMappingTable.clear();
+	this->llmTaskMappingTable.resize(macNum);
+	// Also sync with base class mapping_table for compatibility
 	this->mapping_table.clear();
 	this->mapping_table.resize(macNum);
 
@@ -496,40 +773,52 @@ void LLMMACnet::llmXMapping(int total_tasks) {
 
 	LLM_DEBUG("Available MAC units: " << available_macs.size() << " out of " << macNum);
 
-	int j = 0;
-	while (j < total_tasks) {
-		for (int mac_id : available_macs) {
-			this->mapping_table[mac_id].push_back(j);
-			LLM_DEBUG("Assigning task " << j << " to MAC " << mac_id);
-			j = j + 1;
-			if (j >= total_tasks)
-				break;
+	// 像素级轮询分配，每个像素的4个task分配到同一节点
+	for (int pixel_id = 0; pixel_id < total_pixels; pixel_id++) {
+		int mac_id = available_macs[pixel_id % available_macs.size()];
+		
+		// 记录像素分配
+		this->llmOutputPixelMappingTable[mac_id].push_back(pixel_id);
+		
+		// 该像素的4个task(subchunk)都分配给同一个节点（便于聚合）
+		for (int subchunk_id = 0; subchunk_id < 4; subchunk_id++) {
+			int task_id = pixel_id * 4 + subchunk_id;  // Fixed mapping formula
+			this->llmTaskMappingTable[mac_id].push_back(task_id);
+		}
+		
+		if (LLM_DEBUG_LEVEL >= 3) {
+			LLM_TRACE("Pixel " << pixel_id << " → MAC " << mac_id << " (tasks " 
+			          << (pixel_id * 4) << "-" << (pixel_id * 4 + 3) << ")");
 		}
 	}
 
-	LLM_DEBUG("Task mapping completed");
+	LLM_DEBUG("Pixel-to-task mapping completed: " << total_pixels << " pixels, " 
+	          << total_tasks << " tasks distributed to " << available_macs.size() << " nodes");
 
-	// 打印详细的任务分配 (Level 2+)
+	// 打印详细的分配统计 (Level 2+)
 	if (LLM_DEBUG_LEVEL >= 2) {
 		for (int i = 0; i < macNum; i++) {
-			if (mapping_table[i].size() > 0) {
-				std::cout << "[DEBUG @" << cycles << "] MAC " << i << " tasks: ";
-				for (int task_id : mapping_table[i]) {
-					std::cout << task_id << " ";
-				}
-				std::cout << std::endl;
+			if (llmTaskMappingTable[i].size() > 0) {
+				std::cout << "[DEBUG @" << cycles << "] MAC " << i 
+				          << " pixels: " << llmOutputPixelMappingTable[i].size()
+				          << ", tasks: " << llmTaskMappingTable[i].size() << std::endl;
 			}
 		}
 	}
 }
 
-void LLMMACnet::llmLoadBalanceMapping(int total_tasks) {
+void LLMMACnet::llmLoadBalanceMapping(int total_pixels) {
 	LLM_DEBUG("Starting load-balanced mapping...");
-	llmXMapping(total_tasks);  // 对于小矩阵，使用简单映射即可
+	llmXMapping(total_pixels);  // 对于小矩阵，使用简单映射即可
 }
 
-int LLMMACnet::llmSAMOSSampleMapping(int task_count, int start_task_id) {
-	// Clear and prepare mapping table
+int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
+	// Clear and prepare mapping tables
+	this->llmOutputPixelMappingTable.clear();
+	this->llmOutputPixelMappingTable.resize(macNum);
+	this->llmTaskMappingTable.clear();
+	this->llmTaskMappingTable.resize(macNum);
+	// Also sync with base class mapping_table for compatibility
 	this->mapping_table.clear();
 	this->mapping_table.resize(macNum);
 	
@@ -540,11 +829,10 @@ int LLMMACnet::llmSAMOSSampleMapping(int task_count, int start_task_id) {
 		if (!contains(dest_list, id))
 			pe_ids.push_back(id);
 	}
-	if (pe_ids.empty() || task_count <= 0)
+	if (pe_ids.empty() || pixel_count <= 0)
 		return 0;
 	
 	// 2) Calculate average latency for each node (from sampling window)
-	//    Fallback strategy: use average of all non-zero samples if any node has no samples
 	double sum_lat = 0.0;
 	int nz = 0;
 	for (int id : pe_ids) {
@@ -554,13 +842,13 @@ int LLMMACnet::llmSAMOSSampleMapping(int task_count, int start_task_id) {
 			++nz;
 		}
 	}
-	const double default_lat = (nz > 0) ? (sum_lat / nz) : 1.0; // Default to 1 if all zeros
+	const double default_lat = (nz > 0) ? (sum_lat / nz) : 1.0;
 	const double eps = 1e-12;
 	
 	struct NodeW {
 		int id;
 		double w;     // Weight = 1/latency
-		double want;  // Ideal allocation
+		double want;  // Ideal allocation  
 		int alloc;    // Actual integer allocation
 		double frac;  // Fractional remainder
 	};
@@ -579,52 +867,77 @@ int LLMMACnet::llmSAMOSSampleMapping(int task_count, int start_task_id) {
 	}
 	
 	if (sumW <= 0.0) { // Extreme fallback: uniform distribution
-		int base = task_count / int(nodes.size());
-		int rem = task_count - base * int(nodes.size());
-		int j = start_task_id;
+		int base = pixel_count / int(nodes.size());
+		int rem = pixel_count - base * int(nodes.size());
+		int current_pixel_id = start_pixel_id;
 		for (auto &n : nodes) {
-			for (int k = 0; k < base; ++k)
-				this->mapping_table[n.id].push_back(j++);
+			for (int k = 0; k < base; ++k) {
+				// 记录像素分配
+				this->llmOutputPixelMappingTable[n.id].push_back(current_pixel_id);
+				// 该像素的4个task都分配给同一个节点
+				for (int chunk_id = 0; chunk_id < 4; chunk_id++) {
+					int task_id = current_pixel_id * 4 + chunk_id;
+					this->llmTaskMappingTable[n.id].push_back(task_id);
+				}
+				current_pixel_id++;
+			}
 		}
-		for (int i = 0; i < rem; ++i)
-			this->mapping_table[nodes[i].id].push_back(j++);
+		for (int i = 0; i < rem; ++i) {
+			this->llmOutputPixelMappingTable[nodes[i].id].push_back(current_pixel_id);
+			for (int chunk_id = 0; chunk_id < 4; chunk_id++) {
+				int task_id = current_pixel_id * 4 + chunk_id;
+				this->llmTaskMappingTable[nodes[i].id].push_back(task_id);
+			}
+			current_pixel_id++;
+		}
 		return 0;
 	}
 	
 	// 3) Hamilton's method (largest remainder)
 	int allocated = 0;
 	for (auto &n : nodes) {
-		double exact = task_count * (n.w / sumW);
+		double exact = pixel_count * (n.w / sumW);
 		n.want = exact;
 		n.alloc = int(std::floor(exact));
 		n.frac = exact - n.alloc;
 		allocated += n.alloc;
 	}
-	int remainder = task_count - allocated;
+	int remainder = pixel_count - allocated;
 	
-	// Allocate remaining tasks to nodes with largest fractional parts
+	// Allocate remaining pixels to nodes with largest fractional parts
 	std::sort(nodes.begin(), nodes.end(), [](const NodeW &a, const NodeW &b) {
 		return a.frac > b.frac;
 	});
 	for (int i = 0; i < remainder; ++i)
 		nodes[i % nodes.size()].alloc++;
 	
-	// 4) Generate specific routing mapping (task ids increment continuously)
-	int j = start_task_id;
+	// 4) Generate pixel and task mapping
+	int current_pixel_id = start_pixel_id;
 	for (auto &n : nodes) {
-		for (int k = 0; k < n.alloc; ++k)
-			this->mapping_table[n.id].push_back(j++);
+		for (int pixel_idx = 0; pixel_idx < n.alloc; ++pixel_idx) {
+			// 记录像素分配
+			this->llmOutputPixelMappingTable[n.id].push_back(current_pixel_id);
+			
+			// 每个像素生成4个任务，都分配给同一个节点（便于聚合）
+			for (int chunk_id = 0; chunk_id < 4; chunk_id++) {
+				int task_id = current_pixel_id * 4 + chunk_id;
+				this->llmTaskMappingTable[n.id].push_back(task_id);
+			}
+			current_pixel_id++;
+		}
 	}
 	
 	// Debug output for LLM SAMOS mapping
 	if (LLM_DEBUG_LEVEL >= 2) {
-		std::cout << "[SAMOS] Total tasks=" << task_count << " Total PEs=" 
-		          << nodes.size() << " Total allocated=" << j << "\n";
+		int total_tasks = pixel_count * 4;
+		std::cout << "[SAMOS] Total pixels=" << pixel_count 
+		          << " Total tasks=" << total_tasks
+		          << " Total PEs=" << nodes.size() << "\n";
 		if (LLM_DEBUG_LEVEL >= 3) {
 			for (auto &n : nodes) {
 				double avgLat = double(samplingWindowDelay[n.id]) / std::max(1, samplingWindowLength);
-				std::cout << "  MAC " << n.id << " lat=" << avgLat << " w=" << n.w
-				          << " want=" << n.want << " alloc=" << n.alloc << "\n";
+				std::cout << "  MAC " << n.id << " lat=" << avgLat 
+				          << " pixels=" << n.alloc << " tasks=" << (n.alloc * 4) << "\n";
 			}
 		}
 	}
@@ -638,8 +951,8 @@ void LLMMACnet::llmCheckStatus() {
 
 	// Progress reporting at different levels
 	if (cycles % 50000 == 0 && LLM_DEBUG_LEVEL >= 1) {  // Level 1: Basic progress every 50k cycles
-		int progress = (executed_tasks * 100) / std::max(1, total_tasks);
-		LLM_INFO("[Cycle " << cycles << "] Progress: " << progress << "% (" << executed_tasks << "/" << total_tasks << " tasks)");
+		int progress = (executed_tasks * 100) / std::max(1, total_task_slicedPixels);
+		LLM_INFO("[Cycle " << cycles << "] Progress: " << progress << "% (" << executed_tasks << "/" << total_task_slicedPixels << " tasks)");
 	} else if (status_check_count % 10000 == 0 && LLM_DEBUG_LEVEL >= 2) {  // Level 2: More frequent status
 		LLM_DEBUG("Status check #" << status_check_count << " at cycle " << cycles);
 		LLM_DEBUG("Ready flag: " << ready_flag << ", Mapping again: " << mapping_again);
@@ -652,57 +965,64 @@ void LLMMACnet::llmCheckStatus() {
 			this->vcNetwork->resetVNRoundRobin();
 		}
 
-		// SAMOS mapping logic for LLM
+		// SAMOS mapping logic for LLM (pixel-based)
 		#ifdef YZSAMOSSampleMapping
-		// Calculate how many tasks per MAC for sampling window
+		// Calculate how many pixels per MAC for sampling window
 		int available_macs = macNum - MEM_NODES;  // Exclude memory nodes
+		int total_pixels = total_task_slicedPixels / 4;  // Convert tasks to pixels (4 tasks per pixel)
 		
-		if (total_tasks / available_macs < samplingWindowLength) {
-			// If tasks are fewer than sampling window, use normal row mapping
-			LLM_DEBUG("[SAMOS] Layer has fewer tasks than sampling window!");
-			LLM_DEBUG("  Total tasks: " << total_tasks << ", Available MACs: " << available_macs);
-			LLM_DEBUG("  Tasks per MAC: " << (total_tasks / available_macs) << " < " << samplingWindowLength);
+		if (total_pixels / available_macs < samplingWindowLength) {
+			// If pixels are fewer than sampling window, use normal row mapping
+			LLM_DEBUG("[SAMOS] Layer has fewer pixels than sampling window!");
+			LLM_DEBUG("  Total pixels: " << total_pixels << ", Available MACs: " << available_macs);
+			LLM_DEBUG("  Pixels per MAC: " << (total_pixels / available_macs) << " < " << samplingWindowLength);
 			LLM_DEBUG("  Using row mapping instead of SAMOS");
-			this->llmXMapping(total_tasks);
+			this->llmXMapping(total_pixels);
 		} else {
 			if (mapping_again == 0) {
-				// First phase: run sampling window
-				int sampling_tasks = available_macs * samplingWindowLength;
+				// First phase: run sampling window (pixel-based)
+				int sampling_pixels = available_macs * samplingWindowLength;
 				LLM_DEBUG("[SAMOS] Starting sampling phase");
-				LLM_DEBUG("  Sampling tasks: " << sampling_tasks << " (" << available_macs 
+				LLM_DEBUG("  Sampling pixels: " << sampling_pixels << " (" << available_macs 
 				          << " MACs * " << samplingWindowLength << " window)");
+				LLM_DEBUG("  This generates " << (sampling_pixels * 4) << " tasks");
 				
 				// Reset sampling statistics
 				std::fill_n(samplingWindowDelay, TOT_NUM, 0);
 				
-				// Map sampling window tasks using row mapping
-				this->llmXMapping(sampling_tasks);
+				// Map sampling window pixels using row mapping
+				this->llmXMapping(sampling_pixels);
 				mapping_again = 1;  // Mark that sampling is being done
 				
 			} else if (mapping_again == 2) {
-				// Second phase: map remaining tasks based on sampling results
-				int sampling_tasks = available_macs * samplingWindowLength;
-				int remaining_tasks = total_tasks - sampling_tasks;
+				// Second phase: map remaining pixels based on sampling results
+				int sampling_pixels = available_macs * samplingWindowLength;
+				int remaining_pixels = total_pixels - sampling_pixels;
+				int remaining_tasks = remaining_pixels * 4;
 				
 				std::cout << "[SAMOS DEBUG] Phase 2 mapping:" << std::endl;
-				std::cout << "  Total tasks: " << total_tasks << std::endl;
+				std::cout << "  Total pixels: " << total_pixels << std::endl;
 				std::cout << "  Available MACs: " << available_macs << std::endl;
 				std::cout << "  Sampling window: " << samplingWindowLength << std::endl;
-				std::cout << "  Sampling tasks: " << sampling_tasks << std::endl;
+				std::cout << "  Sampling pixels: " << sampling_pixels << std::endl;
+				std::cout << "  Remaining pixels: " << remaining_pixels << std::endl;
 				std::cout << "  Remaining tasks: " << remaining_tasks << std::endl;
 				std::cout << "  Current packet_id: " << packet_id << std::endl;
 				
-				packet_id = packet_id + sampling_tasks;
+				// Update packet_id based on sampling phase tasks
+				packet_id = packet_id + sampling_pixels * 4;
 				
-				LLM_DEBUG("[SAMOS] Applying SAMOS mapping for remaining tasks");
-				LLM_DEBUG("  Remaining tasks: " << remaining_tasks);
+				LLM_DEBUG("[SAMOS] Applying SAMOS mapping for remaining pixels");
+				LLM_DEBUG("  Remaining pixels: " << remaining_pixels);
 				
 				// Use SAMOS mapping based on latency measurements
-				// Generate task IDs directly from sampling_tasks to sampling_tasks + remaining_tasks - 1
-				int start_task_id = sampling_tasks;
-				std::cout << "[SAMOS DEBUG] Task IDs will range from " << start_task_id << " to " << (start_task_id + remaining_tasks - 1) << std::endl;
+				int start_pixel_id = sampling_pixels;
+				std::cout << "[SAMOS DEBUG] Pixel IDs will range from " << start_pixel_id 
+				          << " to " << (start_pixel_id + remaining_pixels - 1) << std::endl;
+				std::cout << "[SAMOS DEBUG] Task IDs will range from " << (start_pixel_id * 4) 
+				          << " to " << ((start_pixel_id + remaining_pixels) * 4 - 1) << std::endl;
 				
-				this->llmSAMOSSampleMapping(remaining_tasks, start_task_id);
+				this->llmSAMOSTaskMapping(remaining_pixels, start_pixel_id);
 				
 				LLM_DEBUG("[SAMOS] Second phase mapping complete");
 				mapping_again = 0;  // Reset for next layer
@@ -710,23 +1030,22 @@ void LLMMACnet::llmCheckStatus() {
 				LLM_INFO("[SAMOS] ERROR: Invalid mapping_again state: " << mapping_again);
 			}
 		}
-		#else
+		#endif
 		// Normal mapping without SAMOS
 		#ifdef rowmapping
-		this->llmXMapping(total_tasks);
-		#else
-		this->llmLoadBalanceMapping(total_tasks);
-		#endif
+		int total_pixels = total_task_slicedPixels / 4;  // Convert tasks to pixels
+		this->llmXMapping(total_pixels);  // Pass pixel count, not task count
 		#endif
 
 		int active_macs = 0;
 		for (int i = 0; i < macNum; i++) {
-			if (mapping_table[i].size() == 0) {
+			if (llmTaskMappingTable[i].size() == 0) {
 				this->LLMMAC_list[i]->selfstatus = 5;
 				this->LLMMAC_list[i]->send = 3;
 			} else {
-				this->LLMMAC_list[i]->routing_table.assign(
-					mapping_table[i].begin(), mapping_table[i].end());
+				// 分配task IDs而不是pixel IDs
+				this->LLMMAC_list[i]->llmtasktable.assign(
+					llmTaskMappingTable[i].begin(), llmTaskMappingTable[i].end());
 				active_macs++;
 			}
 		}
@@ -742,7 +1061,7 @@ void LLMMACnet::llmCheckStatus() {
 	
 	for (int i = 0; i < macNum; i++) {
 		// Only count MACs that actually have tasks assigned
-		if (mapping_table[i].size() > 0) {
+		if (llmTaskMappingTable[i].size() > 0) {
 			assigned_macs++;
 			if (LLMMAC_list[i]->selfstatus == 5 && LLMMAC_list[i]->send == 3) {
 				finished_count++;
@@ -785,30 +1104,30 @@ void LLMMACnet::llmCheckStatus() {
 		#endif
 		
 		LLM_INFO("\n=== All tasks completed at cycle " << cycles << " ===");
-		LLM_INFO("Total executed tasks: " << executed_tasks << "/" << total_tasks);
+		LLM_INFO("Total executed tasks: " << executed_tasks << "/" << total_task_slicedPixels);
 
 		// 打印最终结果矩阵 - 仅在Level 2+显示
 		if (LLM_DEBUG_LEVEL >= 2) {
-			std::cout << "\n=== Final Output Matrix (" << matrix_size << "x" << matrix_size << ") ===" << std::endl;
+			std::cout << "\n=== Final Output Matrix (" << matrixOutputPixels_size << "x" << matrixOutputPixels_size << ") ===" << std::endl;
 			int zero_count = 0;
 			int non_zero_count = 0;
 
-			int max_rows = (LLM_DEBUG_LEVEL >= 3) ? matrix_size : std::min(4, matrix_size);
+			int max_rows = (LLM_DEBUG_LEVEL >= 3) ? matrixOutputPixels_size : std::min(4, matrixOutputPixels_size);
 			for (int i = 0; i < max_rows; i++) {
 				std::cout << "Row " << i << ": ";
-				int max_cols = (LLM_DEBUG_LEVEL >= 3) ? matrix_size : std::min(4, matrix_size);
+				int max_cols = (LLM_DEBUG_LEVEL >= 3) ? matrixOutputPixels_size : std::min(4, matrixOutputPixels_size);
 				for (int j = 0; j < max_cols; j++) {
 					float value = attention_output_table[i][j];
 					std::cout << std::fixed << std::setprecision(6) << value << "\t";
 				}
-				if (matrix_size > 4 && LLM_DEBUG_LEVEL < 3) std::cout << "...";
+				if (matrixOutputPixels_size > 4 && LLM_DEBUG_LEVEL < 3) std::cout << "...";
 				std::cout << std::endl;
 			}
-			if (matrix_size > 4 && LLM_DEBUG_LEVEL < 3) std::cout << "..." << std::endl;
+			if (matrixOutputPixels_size > 4 && LLM_DEBUG_LEVEL < 3) std::cout << "..." << std::endl;
 
 			// Count all values
-			for (int i = 0; i < matrix_size; i++) {
-				for (int j = 0; j < matrix_size; j++) {
+			for (int i = 0; i < matrixOutputPixels_size; i++) {
+				for (int j = 0; j < matrixOutputPixels_size; j++) {
 					if (attention_output_table[i][j] == 0.0) {
 						zero_count++;
 					} else {
@@ -831,15 +1150,17 @@ void LLMMACnet::llmCheckStatus() {
 		// Adjust packet_id for next layer based on actual tasks processed
 		#ifdef YZSAMOSSampleMapping
 		int available_macs = macNum - MEM_NODES;
-		if (total_tasks / available_macs < samplingWindowLength) {
-			// Used normal mapping, add all tasks
-			packet_id = packet_id + total_tasks;
+		int total_pixels = total_task_slicedPixels;
+		if (total_pixels / available_macs < samplingWindowLength) {
+			// Used normal mapping, add all tasks (pixels * 4)
+			packet_id = packet_id + total_pixels * 4;
 		} else {
 			// Used SAMOS mapping, already adjusted during mapping
 			// No need to adjust here as it was done incrementally
 		}
 		#else
-		packet_id = packet_id + total_tasks;
+		// Normal mapping: total_task_slicedPixels now represents pixels, so multiply by 4 for actual tasks
+		packet_id = packet_id + total_task_slicedPixels * 4;
 		#endif
 		
 		last_layer_packet_id = packet_id;
@@ -922,21 +1243,353 @@ void LLMMACnet::llmRunOneStep() {
 					if (task_id >= 0 && task_id < all_tasks.size()) {
 						LLMTask& task = all_tasks[task_id];
 
+						// Build payload for 64x64 subchunk
 						tmpLLMMAC->input_buffer.clear();
-						tmpLLMMAC->input_buffer.push_back(1.0f);
-						tmpLLMMAC->input_buffer.push_back(task.query_data.size());
-						tmpLLMMAC->input_buffer.push_back(task.time_slice);
-						tmpLLMMAC->input_buffer.push_back(task.pixel_x * matrix_size + task.pixel_y);
+						// Metadata
+						tmpLLMMAC->input_buffer.push_back(1.0f);  // fn flag
+						tmpLLMMAC->input_buffer.push_back(64);    // data size (64 elements each for query and key)
+						tmpLLMMAC->input_buffer.push_back(task.subchunk_id);  // subchunk ID
+						tmpLLMMAC->input_buffer.push_back(task.pixel_id);     // pixel ID for tracking
 
+						// Copy data for potential ordering
+						std::deque<float> query_data_copy(task.query_data.begin(), task.query_data.end());
+						std::deque<float> key_data_copy(task.key_data.begin(), task.key_data.end());
+						
+						// Debug: Print data BEFORE sorting (only for first few tasks)
+						static int debug_print_count = 0;
+						bool should_print = (debug_print_count < 3);  // Print first 3 tasks
+						
+						if (should_print) {
+							std::cout << "\n=== Memory " << mem_id << " Sending Task " << task_id 
+							          << " (Pixel " << task.pixel_id << ", Subchunk " << task.subchunk_id << ") ===" << std::endl;
+							
+							// Print matrix dimensions
+							std::cout << "\n=== MATRIX DIMENSIONS ===" << std::endl;
+							std::cout << "Query Matrix: 8 rows x 8 columns (64 elements total)" << std::endl;
+							std::cout << "Key Matrix: 8 rows x 8 columns (64 elements total)" << std::endl;
+							std::cout << "Data layout: Row-major order" << std::endl;
+							
+							// Print COMPLETE Query matrix BEFORE sorting with all 3 values
+							std::cout << "\n=== QUERY MATRIX BEFORE SORTING ===" << std::endl;
+							std::cout << "Format: Each element shows [Float Value | Binary(32-bit) | 1-bit count]" << std::endl;
+							std::cout << std::string(150, '=') << std::endl;
+							
+							for (int row = 0; row < 8; row++) {
+								std::cout << "Row " << row << ":\n";
+								for (int col = 0; col < 8; col++) {
+									int idx = row * 8 + col;
+									if (idx < query_data_copy.size()) {
+										float val = query_data_copy[idx];
+										std::string bits = float_to_ieee754(val);
+										int ones = countOnesInIEEE754(val);
+										
+										// Print all 3 values for each element
+										std::cout << "  [" << row << "," << col << "]: "
+										          << std::fixed << std::setprecision(4) << std::setw(10) << val 
+										          << " | " << bits
+										          << " | " << std::setw(2) << ones << " bits\n";
+									}
+								}
+							}
+							
+							// Print COMPLETE Key matrix BEFORE sorting with all 3 values
+							std::cout << "\n=== KEY MATRIX BEFORE SORTING ===" << std::endl;
+							std::cout << "Format: Each element shows [Float Value | Binary(32-bit) | 1-bit count]" << std::endl;
+							std::cout << std::string(150, '=') << std::endl;
+							
+							for (int row = 0; row < 8; row++) {
+								std::cout << "Row " << row << ":\n";
+								for (int col = 0; col < 8; col++) {
+									int idx = row * 8 + col;
+									if (idx < key_data_copy.size()) {
+										float val = key_data_copy[idx];
+										std::string bits = float_to_ieee754(val);
+										int ones = countOnesInIEEE754(val);
+										
+										// Print all 3 values for each element
+										std::cout << "  [" << row << "," << col << "]: "
+										          << std::fixed << std::setprecision(4) << std::setw(10) << val 
+										          << " | " << bits
+										          << " | " << std::setw(2) << ones << " bits\n";
+									}
+								}
+							}
+							
+							// Calculate statistics BEFORE sorting
+							std::cout << "\n=== BIT COUNT STATISTICS BEFORE SORTING ===" << std::endl;
+							int total_bits_query = 0, min_bits_query = 32, max_bits_query = 0;
+							int total_bits_key = 0, min_bits_key = 32, max_bits_key = 0;
+							for (int i = 0; i < query_data_copy.size(); i++) {
+								int ones = countOnesInIEEE754(query_data_copy[i]);
+								total_bits_query += ones;
+								min_bits_query = std::min(min_bits_query, ones);
+								max_bits_query = std::max(max_bits_query, ones);
+							}
+							for (int i = 0; i < key_data_copy.size(); i++) {
+								int ones = countOnesInIEEE754(key_data_copy[i]);
+								total_bits_key += ones;
+								min_bits_key = std::min(min_bits_key, ones);
+								max_bits_key = std::max(max_bits_key, ones);
+							}
+							std::cout << "Query: Min=" << min_bits_query << ", Max=" << max_bits_query 
+							          << ", Avg=" << (float)total_bits_query/query_data_copy.size() << std::endl;
+							std::cout << "Key: Min=" << min_bits_key << ", Max=" << max_bits_key 
+							          << ", Avg=" << (float)total_bits_key/key_data_copy.size() << std::endl;
+						}
+						
+						// Apply ordering BEFORE transmission to reduce bit flips
+						#ifdef YzAffiliatedOrdering
+							if (should_print) {
+								std::cout << "\n=== APPLYING DATA ORDERING ===" << std::endl;
+							}
+							#ifdef YZSeperatedOrdering_reArrangeInput
+								// Separated ordering: sort both independently
+								if (should_print) {
+									std::cout << "Using SEPARATED ordering (Query and Key sorted independently)" << std::endl;
+								}
+								LLMMAC_list[mem_id]->sortMatrix_LLMSeparated(query_data_copy, 16, 4);
+								LLMMAC_list[mem_id]->sortMatrix_LLMSeparated(key_data_copy, 16, 4);
+							#else
+								// Affiliated ordering: sort together
+								if (should_print) {
+									std::cout << "Using AFFILIATED ordering (Query and Key sorted together by Key's bit count)" << std::endl;
+								}
+								LLMMAC_list[mem_id]->sortMatrix_LLMAffiliated(query_data_copy, key_data_copy, 16, 4);
+							#endif
+							
+							// Debug: Print data AFTER sorting
+							if (should_print) {
+								// Print COMPLETE Query matrix AFTER sorting with all 3 values
+								std::cout << "\n=== QUERY MATRIX AFTER SORTING ===" << std::endl;
+								std::cout << "Format: Each element shows [Float Value | Binary(32-bit) | 1-bit count]" << std::endl;
+								std::cout << std::string(150, '=') << std::endl;
+								
+								for (int row = 0; row < 8; row++) {
+									std::cout << "Row " << row << ":\n";
+									for (int col = 0; col < 8; col++) {
+										int idx = row * 8 + col;
+										if (idx < query_data_copy.size()) {
+											float val = query_data_copy[idx];
+											std::string bits = float_to_ieee754(val);
+											int ones = countOnesInIEEE754(val);
+											
+											// Print all 3 values for each element
+											std::cout << "  [" << row << "," << col << "]: "
+											          << std::fixed << std::setprecision(4) << std::setw(10) << val 
+											          << " | " << bits
+											          << " | " << std::setw(2) << ones << " bits\n";
+										}
+									}
+								}
+								
+								// Print COMPLETE Key matrix AFTER sorting with all 3 values
+								std::cout << "\n=== KEY MATRIX AFTER SORTING ===" << std::endl;
+								std::cout << "Format: Each element shows [Float Value | Binary(32-bit) | 1-bit count]" << std::endl;
+								std::cout << std::string(150, '=') << std::endl;
+								
+								for (int row = 0; row < 8; row++) {
+									std::cout << "Row " << row << ":\n";
+									for (int col = 0; col < 8; col++) {
+										int idx = row * 8 + col;
+										if (idx < key_data_copy.size()) {
+											float val = key_data_copy[idx];
+											std::string bits = float_to_ieee754(val);
+											int ones = countOnesInIEEE754(val);
+											
+											// Print all 3 values for each element
+											std::cout << "  [" << row << "," << col << "]: "
+											          << std::fixed << std::setprecision(4) << std::setw(10) << val 
+											          << " | " << bits
+											          << " | " << std::setw(2) << ones << " bits\n";
+										}
+									}
+								}
+								
+								// Show column-wise bit count distribution to verify col-major sorting
+								std::cout << "\n=== COLUMN-WISE BIT COUNT (AFTER SORTING) ===" << std::endl;
+								std::cout << "Query Matrix - Bit counts by column:" << std::endl;
+								for (int col = 0; col < 8; col++) {
+									std::cout << "Col " << col << ": ";
+									for (int row = 0; row < 8; row++) {
+										int idx = row * 8 + col;
+										if (idx < query_data_copy.size()) {
+											int ones = countOnesInIEEE754(query_data_copy[idx]);
+											std::cout << std::setw(2) << ones << " ";
+										}
+									}
+									std::cout << std::endl;
+								}
+								
+								// Calculate statistics AFTER sorting
+								std::cout << "\n=== BIT COUNT STATISTICS AFTER SORTING ===" << std::endl;
+								int total_bits_query_after = 0, min_bits_query_after = 32, max_bits_query_after = 0;
+								int total_bits_key_after = 0, min_bits_key_after = 32, max_bits_key_after = 0;
+								for (int i = 0; i < query_data_copy.size(); i++) {
+									int ones = countOnesInIEEE754(query_data_copy[i]);
+									total_bits_query_after += ones;
+									min_bits_query_after = std::min(min_bits_query_after, ones);
+									max_bits_query_after = std::max(max_bits_query_after, ones);
+								}
+								for (int i = 0; i < key_data_copy.size(); i++) {
+									int ones = countOnesInIEEE754(key_data_copy[i]);
+									total_bits_key_after += ones;
+									min_bits_key_after = std::min(min_bits_key_after, ones);
+									max_bits_key_after = std::max(max_bits_key_after, ones);
+								}
+								std::cout << "Query: Min=" << min_bits_query_after << ", Max=" << max_bits_query_after 
+								          << ", Avg=" << (float)total_bits_query_after/query_data_copy.size() << std::endl;
+								std::cout << "Key: Min=" << min_bits_key_after << ", Max=" << max_bits_key_after 
+								          << ", Avg=" << (float)total_bits_key_after/key_data_copy.size() << std::endl;
+								
+								// Print sample flits for comparison (first 2 flits = 32 elements)
+								if (task_id == 100 || task_id == 500) {  // Print specific tasks for comparison
+									std::cout << "\n=== SAMPLE FLIT DATA (Task " << task_id << ") ===" << std::endl;
+									std::cout << "First 16 elements (Flit 0):" << std::endl;
+									for (int i = 0; i < 16 && i < query_data_copy.size(); i++) {
+										std::cout << "  Q[" << i << "]: " << std::fixed << std::setprecision(4) 
+										          << query_data_copy[i] << " (bits=" << countOnesInIEEE754(query_data_copy[i]) << ")" << std::endl;
+									}
+									
+									// Calculate bit flips between consecutive elements
+									std::cout << "\nBit transitions in Flit 0:" << std::endl;
+									int flit0_transitions = 0;
+									for (int i = 1; i < 16 && i < query_data_copy.size(); i++) {
+										// Calculate bit difference manually
+										std::string bits1 = float_to_ieee754(query_data_copy[i-1]);
+										std::string bits2 = float_to_ieee754(query_data_copy[i]);
+										int flips = 0;
+										for (int b = 0; b < 32; b++) {
+											if (bits1[b] != bits2[b]) flips++;
+										}
+										flit0_transitions += flips;
+										std::cout << "  Q[" << (i-1) << "]->Q[" << i << "]: " << flips << " flips" << std::endl;
+									}
+									std::cout << "Total transitions in Flit 0: " << flit0_transitions << std::endl;
+									
+									std::cout << "\nSecond 16 elements (Flit 1):" << std::endl;
+									for (int i = 16; i < 32 && i < query_data_copy.size(); i++) {
+										std::cout << "  Q[" << i << "]: " << std::fixed << std::setprecision(4) 
+										          << query_data_copy[i] << " (bits=" << countOnesInIEEE754(query_data_copy[i]) << ")" << std::endl;
+									}
+									
+									int flit1_transitions = 0;
+									for (int i = 17; i < 32 && i < query_data_copy.size(); i++) {
+										// Calculate bit difference manually
+										std::string bits1 = float_to_ieee754(query_data_copy[i-1]);
+										std::string bits2 = float_to_ieee754(query_data_copy[i]);
+										int flips = 0;
+										for (int b = 0; b < 32; b++) {
+											if (bits1[b] != bits2[b]) flips++;
+										}
+										flit1_transitions += flips;
+									}
+									std::cout << "Total transitions in Flit 1: " << flit1_transitions << std::endl;
+								}
+								
+								// Calculate total bit flip reduction
+								std::cout << "\n=== BIT FLIP REDUCTION ANALYSIS ===" << std::endl;
+								int total_transitions_before = 0, total_transitions_after = 0;
+								
+								// Calculate transitions in transmission order (sequential)
+								for (int i = 1; i < query_data_copy.size(); i++) {
+									std::string prev_bits = float_to_ieee754(query_data_copy[i-1]);
+									std::string curr_bits = float_to_ieee754(query_data_copy[i]);
+									int flips = 0;
+									for (int b = 0; b < 32; b++) {
+										if (prev_bits[b] != curr_bits[b]) flips++;
+									}
+									total_transitions_after += flips;
+								}
+								for (int i = 1; i < key_data_copy.size(); i++) {
+									std::string prev_bits = float_to_ieee754(key_data_copy[i-1]);
+									std::string curr_bits = float_to_ieee754(key_data_copy[i]);
+									int flips = 0;
+									for (int b = 0; b < 32; b++) {
+										if (prev_bits[b] != curr_bits[b]) flips++;
+									}
+									total_transitions_after += flips;
+								}
+								
+								// Accumulate statistics
+				static int accumulated_flips = 0;
+				static int task_count = 0;
+				accumulated_flips += total_transitions_after;
+				task_count++;
+				
+				std::cout << "Total bit flips during transmission (after sorting): " << total_transitions_after << std::endl;
+				
+				// Print accumulated stats every 100 tasks
+				if (task_count % 100 == 0) {
+					std::cout << "\n=== ACCUMULATED STATISTICS (Tasks 1-" << task_count << ") ===" << std::endl;
+					std::cout << "Total accumulated bit flips: " << accumulated_flips << std::endl;
+					std::cout << "Average bit flips per task: " << (float)accumulated_flips / task_count << std::endl;
+					std::cout << "Average bit flips per element: " << (float)accumulated_flips / (task_count * 126) << std::endl;
+				}
+								std::cout << "Average flips per transition: " << (float)total_transitions_after / (query_data_copy.size() + key_data_copy.size() - 2) << std::endl;
+								
+								std::cout << "\n=== End of Task " << task_id << " Debug ===" << std::endl;
+								debug_print_count++;
+							}
+						#else
+							// Baseline - no ordering
+							if (should_print) {
+								std::cout << "\n=== NO ORDERING APPLIED (Baseline) ===" << std::endl;
+								
+								// Calculate bit flips for baseline (unsorted data)
+								std::cout << "\n=== BASELINE BIT FLIP ANALYSIS ===" << std::endl;
+								int baseline_transitions = 0;
+								
+								// Calculate transitions in transmission order (sequential) for query
+								for (int i = 1; i < query_data_copy.size(); i++) {
+									std::string prev_bits = float_to_ieee754(query_data_copy[i-1]);
+									std::string curr_bits = float_to_ieee754(query_data_copy[i]);
+									int flips = 0;
+									for (int b = 0; b < 32; b++) {
+										if (prev_bits[b] != curr_bits[b]) flips++;
+									}
+									baseline_transitions += flips;
+								}
+								
+								// Calculate transitions for key
+								for (int i = 1; i < key_data_copy.size(); i++) {
+									std::string prev_bits = float_to_ieee754(key_data_copy[i-1]);
+									std::string curr_bits = float_to_ieee754(key_data_copy[i]);
+									int flips = 0;
+									for (int b = 0; b < 32; b++) {
+										if (prev_bits[b] != curr_bits[b]) flips++;
+									}
+									baseline_transitions += flips;
+								}
+								
+								// Accumulate statistics for baseline
+				static int accumulated_baseline_flips = 0;
+				static int baseline_task_count = 0;
+				accumulated_baseline_flips += baseline_transitions;
+				baseline_task_count++;
+				
+				std::cout << "Total bit flips during transmission (baseline): " << baseline_transitions << std::endl;
+				
+				// Print accumulated stats every 100 tasks
+				if (baseline_task_count % 100 == 0) {
+					std::cout << "\n=== BASELINE ACCUMULATED STATISTICS (Tasks 1-" << baseline_task_count << ") ===" << std::endl;
+					std::cout << "Total accumulated bit flips: " << accumulated_baseline_flips << std::endl;
+					std::cout << "Average bit flips per task: " << (float)accumulated_baseline_flips / baseline_task_count << std::endl;
+					std::cout << "Average bit flips per element: " << (float)accumulated_baseline_flips / (baseline_task_count * 126) << std::endl;
+				}
+								std::cout << "Average flips per transition: " << (float)baseline_transitions / (query_data_copy.size() + key_data_copy.size() - 2) << std::endl;
+							}
+						#endif
+						
+						// Add ordered data to payload
 						tmpLLMMAC->input_buffer.insert(tmpLLMMAC->input_buffer.end(),
-							task.query_data.begin(), task.query_data.end());
+							query_data_copy.begin(), query_data_copy.end());
 						tmpLLMMAC->input_buffer.insert(tmpLLMMAC->input_buffer.end(),
-							task.key_data.begin(), task.key_data.end());
+							key_data_copy.begin(), key_data_copy.end());
 
 						LLM_DEBUG("Memory " << mem_id << " received request from MAC " << src_mac
 						          << " for task " << task_id << " at cycle " << cycles
 						          << " [pixel(" << task.pixel_x << "," << task.pixel_y
-						          << "), ts=" << task.time_slice << "]");
+						          << "), subchunk=" << task.subchunk_id << "]");
 
 						int mem_delay = static_cast<int>(ceil((task.query_data.size() * 2 + 1) * MEM_read_delay)) + CACHE_DELAY;
 						LLMMAC_list[mem_id]->pecycle = cycles + mem_delay;
@@ -983,8 +1636,8 @@ void LLMMACnet::llmRunOneStep() {
 						std::cout << "  Pixel: (" << pixel_x << "," << pixel_y << ")" << std::endl;
 						std::cout << "  Final value: " << std::fixed << std::setprecision(10) << result_value << std::endl;
 
-						if (pixel_x >= 0 && pixel_x < matrix_size &&
-						    pixel_y >= 0 && pixel_y < matrix_size) {
+						if (pixel_x >= 0 && pixel_x < matrixOutputPixels_size &&
+						    pixel_y >= 0 && pixel_y < matrixOutputPixels_size) {
 
 							// 保存旧值用于比较
 							float old_value = attention_output_table[pixel_y][pixel_x];
@@ -1000,19 +1653,19 @@ void LLMMACnet::llmRunOneStep() {
 							std::cout << "  Old value: " << std::fixed << std::setprecision(10) << old_value << std::endl;
 							std::cout << "  New value: " << std::fixed << std::setprecision(10) << result_value << std::endl;
 							std::cout << "  Verification: " << attention_output_table[pixel_y][pixel_x] << std::endl;
-							std::cout << "  Tasks completed: " << executed_tasks << "/" << total_tasks << std::endl;
+							std::cout << "  Tasks completed: " << executed_tasks << "/" << total_task_slicedPixels << std::endl;
 
 							// 统计非零元素
 							int non_zero_count = 0;
-							for (int i = 0; i < matrix_size; i++) {
-								for (int j = 0; j < matrix_size; j++) {
+							for (int i = 0; i < matrixOutputPixels_size; i++) {
+								for (int j = 0; j < matrixOutputPixels_size; j++) {
 									if (attention_output_table[i][j] != 0.0) {
 										non_zero_count++;
 									}
 								}
 							}
 							std::cout << "  Total non-zero elements in table: " << non_zero_count
-							          << "/" << (matrix_size * matrix_size) << std::endl;
+							          << "/" << (matrixOutputPixels_size * matrixOutputPixels_size) << std::endl;
 						} else {
 							std::cout << "[ERROR] Invalid pixel coordinates: ("
 							          << pixel_x << "," << pixel_y << ")" << std::endl;
@@ -1059,10 +1712,10 @@ void LLMMACnet::llmRunOneStep() {
 	if (run_step_count % 50000 == 0 && LLM_DEBUG_LEVEL >= 2) {
 		LLM_DEBUG("\n[MATRIX-STATUS] Current output matrix at step " << run_step_count << ":");
 		int non_zero_count = 0;
-		int max_rows = (LLM_DEBUG_LEVEL >= 3) ? matrix_size : std::min(4, matrix_size);
+		int max_rows = (LLM_DEBUG_LEVEL >= 3) ? matrixOutputPixels_size : std::min(4, matrixOutputPixels_size);
 		for (int i = 0; i < max_rows; i++) {
 			std::cout << "Row " << i << ": ";
-			int max_cols = (LLM_DEBUG_LEVEL >= 3) ? matrix_size : std::min(4, matrix_size);
+			int max_cols = (LLM_DEBUG_LEVEL >= 3) ? matrixOutputPixels_size : std::min(4, matrixOutputPixels_size);
 			for (int j = 0; j < max_cols; j++) {
 				float val = attention_output_table[i][j];
 				if (val != 0.0) {
@@ -1072,18 +1725,18 @@ void LLMMACnet::llmRunOneStep() {
 					std::cout << "0.000000 ";
 				}
 			}
-			if (matrix_size > 4 && LLM_DEBUG_LEVEL < 3) std::cout << "...";
+			if (matrixOutputPixels_size > 4 && LLM_DEBUG_LEVEL < 3) std::cout << "...";
 			std::cout << std::endl;
 		}
-		if (matrix_size > 4 && LLM_DEBUG_LEVEL < 3) std::cout << "..." << std::endl;
+		if (matrixOutputPixels_size > 4 && LLM_DEBUG_LEVEL < 3) std::cout << "..." << std::endl;
 		
 		// 总是显示非零元素统计
-		for (int i = 0; i < matrix_size; i++) {
-			for (int j = 0; j < matrix_size; j++) {
+		for (int i = 0; i < matrixOutputPixels_size; i++) {
+			for (int j = 0; j < matrixOutputPixels_size; j++) {
 				if (attention_output_table[i][j] != 0.0) non_zero_count++;
 			}
 		}
-		std::cout << "Non-zero elements: " << non_zero_count << "/" << (matrix_size * matrix_size) << std::endl;
+		std::cout << "Non-zero elements: " << non_zero_count << "/" << (matrixOutputPixels_size * matrixOutputPixels_size) << std::endl;
 	}
 }
 

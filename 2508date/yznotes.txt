@@ -64,6 +64,47 @@ Testing LLM attention mechanism with different ordering strategies:
 - Test environment: Various NoC configurations (4x4 for LLM, 8x8 for CNN)
 - LLM separated mode was fixed to include proper matrix reshaping logic
 
+### CNN Network Results with Zero Padding (2025-09-05)
+
+Network Configuration:
+- Model: newnet2 (NOT LeNet)
+- Network size: 8x8 NoC  
+- Data: Random weights and inputs from randomeval mode
+- Padding: Zero padding for message payloads (default, NOT PADDING_RANDOM)
+- Layers: Conv2D -> Pool -> Conv2D -> Pool -> FC(120) -> FC(84) -> FC(10)
+
+Bit Flip Reduction Results (with zero padding):
+
+| Configuration | Float Bit Flips | Fixed Bit Flips | Float Reduction | Fixed Reduction |
+|---------------|-----------------|-----------------|-----------------|-----------------|
+| Case1 (Baseline) | 26,270,808 | 7,269,656 | - | - |
+| Case3 (Affiliated) | 23,341,606 | 6,798,263 | 11.2% | 6.5% |
+| Case4 (Separated) | 20,250,888 | 6,110,414 | 22.9% | 15.9% |
+
+Key Findings:
+- Separated ordering (分离排序)效果最好，浮点减少22.9%，定点减少15.9%
+- Affiliated ordering (关联排序)效果中等，浮点减少11.2%，定点减少6.5%
+- CNN实际网络的优化效果比小规模随机数据测试(6-7%)显著更好
+
+### CNN Network Results with Random Padding (2025-09-05)
+
+Same network configuration but with PADDING_RANDOM enabled:
+
+| Configuration | Float Bit Flips | Fixed Bit Flips | Float Reduction | Fixed Reduction |
+|---------------|-----------------|-----------------|-----------------|-----------------|
+| Case1 (Baseline) | 33,121,441 | 9,418,050 | - | - |
+| Case3 (Affiliated) | 30,193,085 | 8,947,817 | 8.8% | 5.0% |
+| Case4 (Separated) | 27,101,521 | 8,258,808 | 18.2% | 12.3% |
+
+Padding Comparison:
+- Zero padding baseline: 26,270,808 float flips
+- Random padding baseline: 33,121,441 float flips (26% increase)
+- Zero padding Case4: 20,250,888 (22.9% reduction)
+- Random padding Case4: 27,101,521 (18.2% reduction)
+
+Conclusion: Random padding increases overall bit flips but sorting optimizations remain effective
+
+
 ### Debug Test Files Summary (Removed after analysis)
 
 The following test files were created during debugging and have been cleaned up:

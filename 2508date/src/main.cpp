@@ -227,6 +227,8 @@ int main(int arg_num, char *arg_vet[]) {
 	double avg_bit_trans_float = YZGlobalFlitPass > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalFlitPass : 0;
 	double avg_bit_trans_fixed = YZGlobalFlitPass > 0 ? (double)tempRouterNetWholeFlipCount_fix35/YZGlobalFlitPass : 0;
 	double avg_hops_per_flit = YZGlobalFlit_id > 0 ? (double)YZGlobalFlitPass/YZGlobalFlit_id : 0;
+	double avg_flips_per_flit_total = YZGlobalFlit_id > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalFlit_id : 0;
+	double avg_flips_per_flit_per_hop = YZGlobalFlitPass > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalFlitPass : 0;
 	
 	cout << "BATCH_STATS: "
 		<< "total_cycles=" << cycles << " "
@@ -234,8 +236,10 @@ int main(int arg_num, char *arg_vet[]) {
 		<< "YZGlobalFlit_id=" << YZGlobalFlit_id << " "
 		<< "YZGlobalFlitPass=" << YZGlobalFlitPass << " "
 		<< "avg_hops_per_flit=" << avg_hops_per_flit << " "
-		<< "bit_transition_float_per_flit=" << avg_bit_trans_float << " "
-		<< "bit_transition_fixed_per_flit=" << avg_bit_trans_fixed << " "
+		<< "avg_flips_per_flit_total=" << avg_flips_per_flit_total << " "
+		<< "avg_flips_per_flit_per_hop=" << avg_flips_per_flit_per_hop << " "
+		<< "bit_transition_float_per_hop=" << avg_bit_trans_float << " "
+		<< "bit_transition_fixed_per_hop=" << avg_bit_trans_fixed << " "
 		<< "total_bit_transition_float=" << tempRouterNetWholeFlipCount << " "
 		<< "total_bit_transition_fixed=" << tempRouterNetWholeFlipCount_fix35 << endl;
 	
@@ -308,11 +312,12 @@ int main(int arg_num, char *arg_vet[]) {
 	LLMMACnet *llmMacnet = new LLMMACnet(PE_NUM, PE_X_NUM, PE_Y_NUM, vcNetwork);
 
 	cout << "LLM Attention Parameters:" << endl;
-	cout << "  Matrix size: " << llmMacnet->matrix_size << "x" << llmMacnet->matrix_size << endl;
-	cout << "  Tile size: " << llmMacnet->tile_size << "x" << llmMacnet->tile_size << endl;
+	cout << "  Matrix size: " << llmMacnet->matrixOutputPixels_size << "x" << llmMacnet->matrixOutputPixels_size << endl;
+	cout << "  Tile size: " << llmMacnet->tile_Pixels_size << "x" << llmMacnet->tile_Pixels_size << endl;
 	cout << "  Time slices: " << llmMacnet->time_slices << endl;
-	cout << "  Total tasks: " << llmMacnet->total_tasks << endl;
-	cout << "  Total tiles: " << llmMacnet->total_tiles << endl;
+	cout << "  Total tasks (quicktest): " << llmMacnet->total_task_slicedPixels << endl;
+	cout << "  Full task count: " << llmMacnet->matrixOutputPixels_size * llmMacnet->matrixOutputPixels_size * 4 << endl;
+	cout << "  Total tiles: " << llmMacnet->total_tile_Pixels << endl;
 
 	// Simulation parameters
 	cycles = 0;
@@ -395,8 +400,8 @@ int main(int arg_num, char *arg_vet[]) {
 	// Print sample attention outputs (only if debug level >= 2)
 	if (LLM_DEBUG_LEVEL >= 2) {
 		cout << "Sample attention output matrix (first 10x10):" << endl;
-		for (int i = 0; i < min(10, llmMacnet->matrix_size); i++) {
-			for (int j = 0; j < min(10, llmMacnet->matrix_size); j++) {
+		for (int i = 0; i < min(10, llmMacnet->matrixOutputPixels_size); i++) {
+			for (int j = 0; j < min(10, llmMacnet->matrixOutputPixels_size); j++) {
 				cout << fixed << setprecision(4) << llmMacnet->attention_output_table[i][j] << " ";
 			}
 			cout << endl;
@@ -421,15 +426,15 @@ int main(int arg_num, char *arg_vet[]) {
 	
 	cout << "  NoC Size: " << X_NUM << "x" << Y_NUM << " (" << TOT_NUM << " nodes)" << endl;
 	cout << "  Test Case: " << LLM_TEST_CASE << endl;
-	cout << "  Matrix Size: " << llmMacnet->matrix_size << "x" << llmMacnet->matrix_size << endl;
+	cout << "  Matrix Size: " << llmMacnet->matrixOutputPixels_size << "x" << llmMacnet->matrixOutputPixels_size << endl;
 	cout << "  Time Slices: " << llmMacnet->time_slices << endl;
 	
 	cout << "\nExecution Metrics:" << endl;
 	cout << "  Total Cycles: " << cycles << endl;
 	cout << "  Total Flits Transmitted: " << YZGlobalFlit_id << endl;
 	cout << "  Total Packets Sent: " << packet_id << endl;
-	cout << "  Tasks Completed: " << llmMacnet->executed_tasks << "/" << llmMacnet->total_tasks << endl;
-	float completion_rate = (float)llmMacnet->executed_tasks * 100.0f / llmMacnet->total_tasks;
+	cout << "  Tasks Completed: " << llmMacnet->executed_tasks << "/" << llmMacnet->total_task_slicedPixels << endl;
+	float completion_rate = (float)llmMacnet->executed_tasks * 100.0f / llmMacnet->total_task_slicedPixels;
 	cout << "  Completion Rate: " << fixed << setprecision(2) << completion_rate << "%" << endl;
 	
 	// Hop statistics
@@ -439,9 +444,9 @@ int main(int arg_num, char *arg_vet[]) {
 	float avg_hops_per_packet = 0;
 	
 	// For LLM tasks, we have 3 packet types per task
-	if (llmMacnet->executed_tasks > 0 || llmMacnet->total_tasks > 0) {
+	if (llmMacnet->executed_tasks > 0 || llmMacnet->total_task_slicedPixels > 0) {
 		// Use completed tasks if available, otherwise use total tasks
-		int task_count = llmMacnet->executed_tasks > 0 ? llmMacnet->executed_tasks : llmMacnet->total_tasks;
+		int task_count = llmMacnet->executed_tasks > 0 ? llmMacnet->executed_tasks : llmMacnet->total_task_slicedPixels;
 		// Assuming average 6 hops per packet based on 16x16 NoC
 		avg_hops_per_packet = 6.0; // This is typical for 16x16 NoC
 		estimated_total_hops = task_count * 3 * avg_hops_per_packet; // 3 packets per task
@@ -502,10 +507,10 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "Saving attention output matrix..." << endl;
 	ofstream output_file("src/output/llm_attention_output.txt", ios::out);
 	if (output_file.is_open()) {
-		for (int i = 0; i < llmMacnet->matrix_size; i++) {
-			for (int j = 0; j < llmMacnet->matrix_size; j++) {
+		for (int i = 0; i < llmMacnet->matrixOutputPixels_size; i++) {
+			for (int j = 0; j < llmMacnet->matrixOutputPixels_size; j++) {
 				output_file << fixed << setprecision(6) << llmMacnet->attention_output_table[i][j];
-				if (j < llmMacnet->matrix_size - 1) output_file << ",";
+				if (j < llmMacnet->matrixOutputPixels_size - 1) output_file << ",";
 			}
 			output_file << endl;
 		}
@@ -542,6 +547,21 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "  Total Flits Created: " << YZGlobalFlit_id << endl;
 	cout << "  Total Hop Count (All Flit Traversals): " << YZGlobalFlitPass << endl;
 	cout << "  Total Bit Flips: " << tempRouterNetWholeFlipCount << endl;
+	
+	// Calculate per-flit averages
+	float avg_hops_per_flit = 0.0;
+	float avg_flips_per_flit = 0.0;
+	float avg_flips_per_flit_per_hop = 0.0;
+	if (YZGlobalFlit_id > 0) {
+		avg_hops_per_flit = (float)YZGlobalFlitPass / YZGlobalFlit_id;
+		avg_flips_per_flit = (float)tempRouterNetWholeFlipCount / YZGlobalFlit_id;
+	}
+	if (YZGlobalFlitPass > 0) {
+		avg_flips_per_flit_per_hop = (float)tempRouterNetWholeFlipCount / YZGlobalFlitPass;
+	}
+	cout << "  Average Hops per Flit: " << fixed << setprecision(2) << avg_hops_per_flit << endl;
+	cout << "  Average Bit Flips per Flit (total): " << fixed << setprecision(2) << avg_flips_per_flit << endl;
+	cout << "  Average Bit Flips per Flit per Hop: " << fixed << setprecision(2) << avg_flips_per_flit_per_hop << endl;
 	
 #if LLM_DEBUG_LEVEL >= 2
 	cout << "\n==================== DETAILED NETWORK ANALYSIS (Debug Level 2) ====================" << endl;
@@ -619,7 +639,7 @@ int main(int arg_num, char *arg_vet[]) {
 		cout << "MAC Efficiency: " << fixed << setprecision(2) << efficiency << "%" << endl;
 
 		if (llmMacnet->ready_flag == 2) {
-			double tasks_per_cycle = (double)llmMacnet->total_tasks / cycles;
+			double tasks_per_cycle = (double)llmMacnet->total_task_slicedPixels / cycles;
 			cout << "Task completion rate: " << fixed << setprecision(4) << tasks_per_cycle << " tasks/cycle" << endl;
 		}
 	}

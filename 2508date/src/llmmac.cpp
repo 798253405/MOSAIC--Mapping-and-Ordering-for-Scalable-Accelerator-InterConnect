@@ -589,78 +589,90 @@ void LLMMAC::llmResetForNextTask() {
 }
 
 void LLMMAC::llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
+	// === Step 4 & 5: 矩阵重组与排序 ===
+	// 功能：将线性payload数据重组为8x8矩阵并应用排序优化
 	static int call_count = 0;
 	call_count++;
 	if (call_count <= 5) {
 		std::cout << "=== llmReshapeFlatToQueryKeyMatrix CALLED (call #" << call_count << ") ===" << std::endl;
 	}
 	
-	// LLM payload contains: [metadata(4), query_data, key_data]
-	// Extract data size from metadata
-	if (payload.size() < 8) return; // Need at least metadata + some data
+	// Step 4.1: 检查payload格式
+	// LLM payload格式: [元数据(4个float), query数据(64个), key数据(64个)]
+	// 总共132个float元素
+	if (payload.size() < 8) return; // 至少需要元数据+部分数据
 	
-	int data_size = (int)payload[1];  // payload[1] contains query_data.size()
-	int metadata_size = 4;
+	// Step 4.2: 从元数据提取数据大小
+	int data_size = (int)payload[1];  // payload[1]存储query_data的大小(64)
+	int metadata_size = 4;             // 元数据占用前4个位置
 	
-	// Verify we have enough data for query + key
+	// Step 4.3: 验证payload完整性
+	// 需要: 4(元数据) + 64(query) + 64(key) = 132个元素
 	if (payload.size() < metadata_size + data_size * 2) return;
 	
-	// Extract query and key data sections
+	// Step 4.4: 提取Query和Key数据段
+	// Query数据: payload[4]到payload[67] (64个元素)
 	std::deque<float> query_data(payload.begin() + metadata_size, 
 	                             payload.begin() + metadata_size + data_size);
+	// Key数据: payload[68]到payload[131] (64个元素)
 	std::deque<float> key_data(payload.begin() + metadata_size + data_size,
 	                           payload.begin() + metadata_size + data_size * 2);
 
-	// Apply sorting based on configuration
+	// Step 5: 根据配置应用排序算法
 #ifdef YZSeperatedOrdering_reArrangeInput
-	// Separated ordering: sort query and key independently
-	sortMatrix_LLMSeparated(query_data, 8, 8);  // Assuming 8x8 matrix for 64 elements
+	// Step 5.1: 分离排序 - Query和Key各自独立按列排序
+	// 每列按1-bit数量升序排列，减少列内bit翻转
+	sortMatrix_LLMSeparated(query_data, 8, 8);  // 将64个元素视为8x8矩阵
 	sortMatrix_LLMSeparated(key_data, 8, 8);
 #elif defined(YzAffiliatedOrdering)
-	// Affiliated ordering: sort query and key together
+	// Step 5.2: 关联排序 - Query跟随Key的bit数排序
+	// Key按bit数排序，Query保持与Key的对应关系
 	sortMatrix_LLMAffiliated(query_data, key_data, 8, 8);
 #endif
 
-	// CNN-style matrix reorganization - row by row combination
-	// After sorting, query_data and key_data are in row-major format (8x8 each)
-	// Combine them row by row: [Query row i (8 elements) + Key row i (8 elements)] = 16 elements per row
+	// Step 6: CNN风格的半半矩阵重组
+	// 排序后的query_data和key_data仍是行主序存储(8x8矩阵)
+	// 按行组合: [Query第i行(8个元素) + Key第i行(8个元素)] = 每行16个元素
 	
 	const int rows = 8;
 	const int cols = 8;
 	
-	// Extract rows from query and key data
-	std::vector<std::deque<float>> query_rows(rows);
-	std::vector<std::deque<float>> key_rows(rows);
+	// Step 6.1: 将线性数据重组为矩阵行
+	std::vector<std::deque<float>> query_rows(rows);  // Query的8行
+	std::vector<std::deque<float>> key_rows(rows);    // Key的8行
 	
+	// Step 6.2: 按行填充矩阵
 	for (int row = 0; row < rows; row++) {
 		for (int col = 0; col < cols; col++) {
-			int idx = row * cols + col;
+			int idx = row * cols + col;  // 计算在线性数组中的索引
 			if (idx < query_data.size()) {
-				query_rows[row].push_back(query_data[idx]);
+				query_rows[row].push_back(query_data[idx]);  // 填充Query第row行
 			}
 			if (idx < key_data.size()) {
-				key_rows[row].push_back(key_data[idx]);
+				key_rows[row].push_back(key_data[idx]);      // 填充Key第row行
 			}
 		}
 	}
 	
-	// Combine rows: each row = [query_row + key_row]
+	// Step 6.3: 按行组合Query和Key
+	// 组合后每行格式: [Query行的8个元素 + Key行的8个元素] = 16个元素
 	std::vector<std::deque<float>> combined_rows(rows);
 	for (int i = 0; i < rows; i++) {
-		// Add query row (8 elements)
+		// 先添加Query第i行的8个元素
 		combined_rows[i].insert(combined_rows[i].end(), 
 		                       query_rows[i].begin(), query_rows[i].end());
-		// Add key row (8 elements)
+		// 再添加Key第i行的8个元素
 		combined_rows[i].insert(combined_rows[i].end(), 
 		                       key_rows[i].begin(), key_rows[i].end());
 	}
 	
-	// Write back to payload
-	int write_idx = metadata_size;
+	// Step 6.4: 将重组后的数据写回payload
+	// 保留前4个元数据，从第5个位置开始覆盖
+	int write_idx = metadata_size;  // 从索引4开始写入
 	for (const auto& row : combined_rows) {
 		for (const auto& element : row) {
 			if (write_idx < payload.size()) {
-				payload[write_idx++] = element;
+				payload[write_idx++] = element;  // 覆盖原始数据
 			}
 		}
 	}
@@ -797,72 +809,79 @@ void LLMMAC::llmPrintDetailedData(const std::deque<float>& data, const std::stri
 }
 
 void LLMMAC::sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row, int rownum_per_col) {
-	// Sort data independently by bit count (exactly like CNN's rearrangeDeque)
-	//std::cout << "[DEBUG] sortMatrix_LLMSeparated called for MAC " << selfMACid << ", data size: " << data.size() << std::endl;
+	// === Step 5.1: 分离排序实现 ===
+	// 功能：对单个矩阵按列独立排序，减少列内bit翻转
+	// 参数：data-要排序的数据(64个元素), colnum_per_row=8列, rownum_per_col=8行
 	if (data.empty()) return;
 	
-	// Step 1: Sort the entire deque based on bit counts
+	// Step 5.1.1: 对整个数据按1-bit数量排序
 #ifdef FIXED_POINT_SORTING
-	std::sort(data.begin(), data.end(), compareFloatsByFixed17Ones);
+	std::sort(data.begin(), data.end(), compareFloatsByFixed17Ones);  // 定点数排序
 #else
-	std::sort(data.begin(), data.end(), compareFloatsByOnes);
+	std::sort(data.begin(), data.end(), compareFloatsByOnes);         // 浮点数按1-bit数排序
 #endif
 
-	// Step 2: Reorganize into col-major format (like CNN does)
-	// Fill column by column: first column gets smallest values
-	std::vector<std::deque<float>> rows(rownum_per_col);
+	// Step 5.1.2: 重组为列主序格式
+	// 按列填充：第一列获得最小的bit数值（排序后的前8个）
+	std::vector<std::deque<float>> rows(rownum_per_col);  // 创建8行的容器
 	int idx = 0;
 	
-	// Fill by columns: for each column, fill all rows
+	// Step 5.1.3: 按列填充矩阵
+	// 外循环：遍历8列
 	for (int col = 0; col < colnum_per_row; col++) {
+		// 内循环：每列填充8个元素（从上到下）
 		for (int row = 0; row < rownum_per_col; row++) {
 			if (idx < data.size()) {
-				rows[row].push_back(data[idx++]);
+				rows[row].push_back(data[idx++]);  // 第col列第row行 = data[idx]
 			}
 		}
 	}
 	
-	// Step 3: Write back to data in row order
+	// Step 5.1.4: 按行序写回数据
+	// 虽然按列填充，但存储仍是行主序
 	data.clear();
 	for (const auto &row : rows) {
 		for (const auto &element : row) {
-			data.push_back(element);
+			data.push_back(element);  // 按行展开存储
 		}
 	}
 }
 
 void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<float>& key_data, 
                                           int colnum_per_row, int rownum_per_col) {
-	// Sort by key_data bit count, query_data follows same order (like CNN's rearrangeDequeAccordingly)
-	//std::cout << "[DEBUG] sortMatrix_LLMAffiliated called for MAC " << selfMACid << ", query size: " << query_data.size() << ", key size: " << key_data.size() << std::endl;
+	// === Step 5.2: 关联排序实现 ===
+	// 功能：Key按bit数排序，Query保持与Key的对应关系
+	// 目的：保持Query-Key对的相关性，同时优化bit翻转
 	if (key_data.empty() || query_data.empty()) return;
 	if (key_data.size() != query_data.size()) return;
 	
-	// Create indices and sort by key_data bit count
+	// Step 5.2.1: 创建索引数组，用于跟踪元素原始位置
 	std::vector<int> indices(key_data.size());
 	for (int i = 0; i < indices.size(); ++i) {
-		indices[i] = i;
+		indices[i] = i;  // 初始化索引：indices[0]=0, indices[1]=1, ...
 	}
 	
-	// Sort indices based on key_data bit count (key acts like weight)
+	// Step 5.2.2: 根据Key的bit数对索引排序
+	// 不直接移动数据，而是排序索引，这样Query可以跟随相同顺序
 	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
 #ifdef FIXED_POINT_SORTING
-		return compareFloatsByFixed17Ones(key_data[i], key_data[j]);
+		return compareFloatsByFixed17Ones(key_data[i], key_data[j]);  // 定点数比较
 #else
-		return compareFloatsByOnes(key_data[i], key_data[j]);
+		return compareFloatsByOnes(key_data[i], key_data[j]);         // 浮点数1-bit数比较
 #endif
 	});
 	
-	// Rearrange both query and key data based on sorted indices
+	// Step 5.2.3: 根据排序后的索引重新排列Query和Key
+	// Query和Key保持配对关系，都按Key的bit数顺序排列
 	std::deque<float> sorted_query;
 	std::deque<float> sorted_key;
 	for (int idx : indices) {
-		sorted_query.push_back(query_data[idx]);
-		sorted_key.push_back(key_data[idx]);
+		sorted_query.push_back(query_data[idx]);  // Query跟随Key的顺序
+		sorted_key.push_back(key_data[idx]);      // Key按bit数排序
 	}
 	
-	// Now reorganize into col-major format (like CNN does)
-	// Step 2a: Reorganize query data - fill column by column
+	// Step 5.2.4: 将Query重组为列主序格式
+	// 按列填充：第一列得到最小bit数的8个Query值
 	std::vector<std::deque<float>> query_rows(rownum_per_col);
 	int idx = 0;
 	for (int col = 0; col < colnum_per_row; col++) {
@@ -873,7 +892,8 @@ void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<
 		}
 	}
 	
-	// Step 2b: Reorganize key data - fill column by column  
+	// Step 5.2.5: 将Key重组为列主序格式
+	// 按列填充：第一列得到最小bit数的8个Key值
 	std::vector<std::deque<float>> key_rows(rownum_per_col);
 	idx = 0;
 	for (int col = 0; col < colnum_per_row; col++) {
@@ -884,11 +904,12 @@ void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<
 		}
 	}
 	
-	// Step 3: Write back to data in row order
+	// Step 5.2.6: 将重组后的数据按行序写回
+	// 虽然按列排序，但存储格式仍是行主序
 	query_data.clear();
 	for (const auto &row : query_rows) {
 		for (const auto &element : row) {
-			query_data.push_back(element);
+			query_data.push_back(element);  // Query按行展开
 		}
 	}
 	

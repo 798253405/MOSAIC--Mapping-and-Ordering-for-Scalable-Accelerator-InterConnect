@@ -473,6 +473,23 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 		assert(false && "Payload size does not match expected element number.");
 	}
 
+	// Debug output: Show flit payload details with bit counts
+	cout << "Flit " << currentFlitInLink->seqid 
+	     << " (elements " << currentFlitInLink->seqid * 16 
+	     << "-" << (currentFlitInLink->seqid * 16 + 15) << "):" << endl;
+	cout << "  Values: ";
+	for (size_t i = 0; i < payloadElementNum; ++i) {
+		cout << currentFlitInLink->yzFlitPayload[i];
+		if (i < payloadElementNum - 1) cout << " ";
+	}
+	cout << endl;
+	cout << "  Bit counts: ";
+	for (size_t i = 0; i < payloadElementNum; ++i) {
+		cout << countOnesInIEEE754(currentFlitInLink->yzFlitPayload[i]);
+		if (i < payloadElementNum - 1) cout << " ";
+	}
+	cout << endl;
+
 	for (size_t i = 0; i < payloadElementNum; ++i) {
 		// flit vs flit //flit level comparison
 		std::string ieee1 = float_to_ieee754(yzPreviousFlitPayload[i]);

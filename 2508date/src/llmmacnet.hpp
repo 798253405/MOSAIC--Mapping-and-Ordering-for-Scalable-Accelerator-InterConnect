@@ -83,6 +83,7 @@ public:
 	int tiles_Pixels_per_dim;     // Number of tiles per dimension
 	int total_tile_Pixels;        // Total number of tiles
 	int time_slices;
+	int tasks_per_pixel;          // Number of sub-tasks each pixel is divided into (e.g., 4)
 	int total_task_slicedPixels;  // Total number of tasks (sliced pixels)
 
 	/*	matrixOutputPixels_size = 512, 512*512

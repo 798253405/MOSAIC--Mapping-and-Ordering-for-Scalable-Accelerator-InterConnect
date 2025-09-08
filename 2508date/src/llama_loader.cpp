@@ -130,6 +130,8 @@ public:
 };
 
 // Example usage
+// Example main function - commented out to avoid conflict with main.cpp
+/*
 int main() {
     LLaMAMatrixLoader loader;
     
@@ -156,3 +158,4 @@ int main() {
     
     return 0;
 }
+*/

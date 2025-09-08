@@ -20,7 +20,9 @@ class VCNetwork;
 extern unsigned int cycles;
 extern  std::vector<std::vector<int>> yzLeaveOutportPerRouter;
 extern  std::vector<std::vector<int>> yzEnterInportPerRouter;
-extern int  YZGlobalFlitPass;
+extern int  YZGlobalFlitPass;  // Total hop count (router + NI)
+extern int  YZGlobalRouterHopCount;  // Router-only hop count
+extern int  YZGlobalNIHopCount;  // NI-only hop count
 extern int   YZGlobalRespFlitPass;
 
 class VCRouter: public NRBase

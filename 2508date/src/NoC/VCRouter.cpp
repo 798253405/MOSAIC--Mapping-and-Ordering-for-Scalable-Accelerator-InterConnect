@@ -98,6 +98,27 @@ void VCRouter::outPortDequeue(){
 	  out_port_list[i]->out_link->rInPort->buffer_list[flit->vc]->enqueue(flit);
 
 	  YZGlobalFlitPass ++;
+	  
+	  // Count router-only hops (ports 0-3 are router-to-router)
+	  if (i <= 3) {
+		  YZGlobalRouterHopCount++;
+	  } else {
+		  // Port 4 is NI connection
+		  YZGlobalNIHopCount++;
+	  }
+	  
+	  // Debug: Print first 31 flit passes
+	  /*
+	  if (YZGlobalFlitPass <= 31) {
+		  cout << "[Flit Pass #" << YZGlobalFlitPass << "] "
+		       << "SeqID: " << flit->seqid 
+		       << ", Router(" << this->id[0] << "," << this->id[1] << ")"
+		       << ", Type: " << flit->type
+		       << ", MsgType: " << flit->packet->message.msgtype
+		       << endl;
+	  }
+	  */
+	  
 	  if(flit->packet->message.msgtype == 1) // only type 1 is recorded
 		  {
 		  YZGlobalRespFlitPass ++;

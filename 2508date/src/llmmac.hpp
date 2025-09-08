@@ -8,6 +8,20 @@
 #ifndef LLMMAC_HPP_
 #define LLMMAC_HPP_
 
+/*
+ * Message Type (`msgtype`) Usage Summary:
+ *
+ * This table explains how different message types are used across the CNN and LLM simulation modes.
+ *
+ * Type | In CNN Mode                   | In LLM Mode
+ * -----|-------------------------------|-------------------------------------------------
+ *  0   | Request for data from MAC     | Request for data from MAC
+ *  1   | Response with data from Memory| Response with data from Memory
+ *  2   | FINAL RESULT from MAC         | Intermediate result (Defined but UNUSED)
+ *  3   | Unused                        | FINAL AGGREGATED RESULT from MAC
+ *
+ */
+
 #include <vector>
 #include <stdio.h>
 #include <iostream>
@@ -69,6 +83,28 @@ class LLMMAC
 		int selfMACid;
 		int fn;
 		int pecycle;
+
+		/*
+		 * LLMMAC State Machine Explanation:
+		 * The `selfstatus` variable controls the state of a single MAC unit.
+		 *
+		 * State | Name (名称)    | Duration (周期)                  | Description (描述)
+		 * ------|----------------|----------------------------------|------------------------------------------------------------------------------------------------
+		 *   0   | IDLE (空闲)    | 1 cycle                          | Transitional state. If tasks are available, moves to REQUEST.
+		 *       |                |                                  | (过渡状态。若任务可用，则切换到REQUEST状态。)
+		 *   1   | REQUEST (请求) | 1 cycle                          | Transitional state. Sends a Type 0 data request to memory.
+		 *       |                |                                  | (过渡状态。向内存发送Type 0数据请求。)
+		 *   2   | WAITING (等待) | Variable (Network-dependent)     | Waits for the Type 1 response packet from memory. Duration depends on NoC latency.
+		 *       |                |                                  | (可变长状态,网络依赖。等待内存返回Type 1响应包。时长取决于NoC延迟。)
+		 *   3   | COMPUTE (计算) | 1 cycle + computation delay      | Transitional state. Calculates partial sum, then moves to state 4 while setting
+		 *       |                | (1周期 + 计算延迟)               | a `pecycle` timer that stalls the MAC (~40 cycles).
+		 *       |                |                                  | (过渡状态。计算部分和，然后切换到状态4，同时设置一个pecycle定时器来暂停MAC。)
+		 *   4   | COMPLETE (完成)| 1 cycle                          | Transitional state after computation delay. Decides whether to move to IDLE (0) or FINISHED (5).
+		 *       |                |                                  | (计算延迟后的过渡状态。决策是切换到IDLE(0)还是FINISHED(5)。)
+		 *   5   | FINISHED (结束)| Permanent (永久)                 | Terminal state. The MAC has completed all tasks and remains inactive.
+		 *       |                |                                  | (终点状态。MAC已完成所有任务并保持非活动状态。)
+		 *
+		 */
 		int selfstatus;
 		int request;
 		int tmp_requestID;

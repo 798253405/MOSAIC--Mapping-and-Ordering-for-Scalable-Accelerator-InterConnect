@@ -28,7 +28,9 @@ class VCNetwork;
 
 int packet_id;
 int YZGlobalFlit_id;
-int YZGlobalFlitPass = 0;
+int YZGlobalFlitPass = 0;  // Total hop count (router + NI)
+int YZGlobalRouterHopCount = 0;  // Router-only hop count
+int YZGlobalNIHopCount = 0;  // NI-only hop count
 int YZGlobalRespFlitPass = 0;
 int yzWeightCollsionInRouterCountSum = 0;
 int yzWeightCollsionInNICountSum = 0;
@@ -211,9 +213,12 @@ int main(int arg_num, char *arg_vet[]) {
 		yzWeightCollsionInNICountSum = yzWeightCollsionInNICountSum
 				+ vcNetwork->NI_list[i]->in_port-> yzweightCollsionCountInportCount;
 	}
-	cout << " YZGlobalFlit_id " << YZGlobalFlit_id << " YZGlobalFlitPass "
-			<< YZGlobalFlitPass << " YZGlobalRespFlitPass "
-			<< YZGlobalRespFlitPass << " yzWeightCollsionInRouterCountSum "
+	cout << " YZGlobalFlit_id " << YZGlobalFlit_id 
+			<< " YZGlobalFlitPass(total) " << YZGlobalFlitPass 
+			<< " YZGlobalRouterHopCount " << YZGlobalRouterHopCount
+			<< " YZGlobalNIHopCount " << YZGlobalNIHopCount
+			<< " YZGlobalRespFlitPass " << YZGlobalRespFlitPass 
+			<< " yzWeightCollsionInRouterCountSum "
 			<< yzWeightCollsionInRouterCountSum
 			<< " yzWeightCollsionInNICountSum "
 			<< yzWeightCollsionInNICountSum
@@ -224,11 +229,12 @@ int main(int arg_num, char *arg_vet[]) {
 			<< tempRouterNetWholeFlipCount_fix35 << endl;
 	
 	// Add formatted single-line output for batch processing
-	double avg_bit_trans_float = YZGlobalFlitPass > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalFlitPass : 0;
-	double avg_bit_trans_fixed = YZGlobalFlitPass > 0 ? (double)tempRouterNetWholeFlipCount_fix35/YZGlobalFlitPass : 0;
+	// Use YZGlobalRouterHopCount for router-only statistics
+	double avg_bit_trans_float = YZGlobalRouterHopCount > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalRouterHopCount : 0;
+	double avg_bit_trans_fixed = YZGlobalRouterHopCount > 0 ? (double)tempRouterNetWholeFlipCount_fix35/YZGlobalRouterHopCount : 0;
 	double avg_hops_per_flit = YZGlobalFlit_id > 0 ? (double)YZGlobalFlitPass/YZGlobalFlit_id : 0;
 	double avg_flips_per_flit_total = YZGlobalFlit_id > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalFlit_id : 0;
-	double avg_flips_per_flit_per_hop = YZGlobalFlitPass > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalFlitPass : 0;
+	double avg_flips_per_flit_per_router_hop = YZGlobalRouterHopCount > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalRouterHopCount : 0;
 	
 	cout << "BATCH_STATS: "
 		<< "total_cycles=" << cycles << " "
@@ -545,23 +551,31 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "Core Metrics:" << endl;
 	cout << "  Total Cycles: " << cycles << endl;
 	cout << "  Total Flits Created: " << YZGlobalFlit_id << endl;
-	cout << "  Total Hop Count (All Flit Traversals): " << YZGlobalFlitPass << endl;
-	cout << "  Total Bit Flips: " << tempRouterNetWholeFlipCount << endl;
+	cout << "  Total Hop Count (Router+NI): " << YZGlobalFlitPass << endl;
+	cout << "  Router Hop Count: " << YZGlobalRouterHopCount << endl;
+	cout << "  NI Hop Count: " << YZGlobalNIHopCount << endl;
+	cout << "  Total Bit Flips (Router-only): " << tempRouterNetWholeFlipCount << endl;
 	
 	// Calculate per-flit averages
 	float avg_hops_per_flit = 0.0;
+	float avg_router_hops_per_flit = 0.0;
+	float avg_ni_hops_per_flit = 0.0;
 	float avg_flips_per_flit = 0.0;
-	float avg_flips_per_flit_per_hop = 0.0;
+	float avg_flips_per_router_hop = 0.0;
 	if (YZGlobalFlit_id > 0) {
 		avg_hops_per_flit = (float)YZGlobalFlitPass / YZGlobalFlit_id;
+		avg_router_hops_per_flit = (float)YZGlobalRouterHopCount / YZGlobalFlit_id;
+		avg_ni_hops_per_flit = (float)YZGlobalNIHopCount / YZGlobalFlit_id;
 		avg_flips_per_flit = (float)tempRouterNetWholeFlipCount / YZGlobalFlit_id;
 	}
-	if (YZGlobalFlitPass > 0) {
-		avg_flips_per_flit_per_hop = (float)tempRouterNetWholeFlipCount / YZGlobalFlitPass;
+	if (YZGlobalRouterHopCount > 0) {
+		avg_flips_per_router_hop = (float)tempRouterNetWholeFlipCount / YZGlobalRouterHopCount;
 	}
-	cout << "  Average Hops per Flit: " << fixed << setprecision(2) << avg_hops_per_flit << endl;
-	cout << "  Average Bit Flips per Flit (total): " << fixed << setprecision(2) << avg_flips_per_flit << endl;
-	cout << "  Average Bit Flips per Flit per Hop: " << fixed << setprecision(2) << avg_flips_per_flit_per_hop << endl;
+	cout << "  Average Hops per Flit (total): " << fixed << setprecision(2) << avg_hops_per_flit << endl;
+	cout << "  Average Router Hops per Flit: " << fixed << setprecision(2) << avg_router_hops_per_flit << endl;
+	cout << "  Average NI Hops per Flit: " << fixed << setprecision(2) << avg_ni_hops_per_flit << endl;
+	cout << "  Average Bit Flips per Flit: " << fixed << setprecision(2) << avg_flips_per_flit << endl;
+	cout << "  Average Bit Flips per Router Hop: " << fixed << setprecision(2) << avg_flips_per_router_hop << endl;
 	
 #if LLM_DEBUG_LEVEL >= 2
 	cout << "\n==================== DETAILED NETWORK ANALYSIS (Debug Level 2) ====================" << endl;

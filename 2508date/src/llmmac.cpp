@@ -239,11 +239,43 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 			          << " value: " << t_output);
 		}
 	} else if (msg.msgtype == 1) { // Response with data
-		// Include ALL data from input_buffer (metadata + query + key)
-		msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), input_buffer.begin(),
-								input_buffer.end());
+		// TEST: Use completely random data instead of real data
+		// #define TEST_RANDOM_RESPONSE  // 注释掉：不要每次都生成新的随机数据
+		#ifdef TEST_RANDOM_RESPONSE
+			// Fill with 128 random floats for testing
+			static bool random_test_printed = false;
+			if (!random_test_printed) {
+				std::cout << "\n=== WARNING: TEST_RANDOM_RESPONSE enabled ===" << std::endl;
+				std::cout << "Using completely random data for response payload!" << std::endl;
+				std::cout << "This is for testing sorting effectiveness on random data.\n" << std::endl;
+				random_test_printed = true;
+			}
+			
+			msg.yzMSGPayload.clear();
+			for (int i = 0; i < 128; i++) {
+				// Generate random float between -1.0 and 1.0
+				float random_val = (static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f;
+				msg.yzMSGPayload.push_back(random_val);
+			}
+		#else
+			// Normal mode: Skip metadata like CNN - only send pure data
+			// input_buffer: [metadata(4) + query(64) + key(64)] = 132 elements
+			// We skip first 4, send only [query(64) + key(64)] = 128 elements
+			msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), input_buffer.begin() + 4,
+									input_buffer.end());
+		#endif
 
-		int flitNumSinglePacket = (msg.yzMSGPayload.size()) / (payloadElementNum) + 1;
+		// Calculate flits: 128/16 = 8 flits exactly (no padding needed!)
+		int flitNumSinglePacket = (msg.yzMSGPayload.size() + payloadElementNum - 1) / payloadElementNum;
+		
+		// Print flit information
+		if (selfMACid < 10) {
+			std::cout << "[LLM Flit Info] MAC " << selfMACid 
+			          << " Payload size: " << msg.yzMSGPayload.size() 
+			          << " floats, Flits needed: " << flitNumSinglePacket
+			          << " (each flit = " << payloadElementNum << " floats)" << std::endl;
+		}
+		
 		std::fill_n(std::back_inserter(msg.yzMSGPayload),
 					(flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size()),
 					0.0f);
@@ -301,6 +333,8 @@ void LLMMAC::llmRunOneStep() {
 			}
 		}
 		// State 1: REQUEST
+		// - Purpose: Send a request (Type 0) to the memory controller for the current task's data.
+		// - Duration: 1 cycle. This state is transitional.
 		else if (selfstatus == 1) {
 			request = llmtasktable.front();
 			tmp_requestID = request;
@@ -328,6 +362,9 @@ void LLMMAC::llmRunOneStep() {
 			pecycle = cycles;
 		}
 		// State 2: WAITING
+		// - Purpose: Wait for the memory controller to send back the requested data (Type 1).
+		// - Duration: Variable. Depends on the network travel time for the request packet to reach memory
+		//             and the response packet to return.
 		else if (selfstatus == 2) {
 			if (request >= 0) {
 				pecycle = cycles;
@@ -480,6 +517,8 @@ void LLMMAC::llmRunOneStep() {
 			return;
 		}
 		// State 4: COMPLETE
+		// - Purpose: Finalize a single sub-task's computation and decide the next state.
+		// - Duration: 1 cycle. This state is transitional.
 		else if (selfstatus == 4) {
 			if (selfMACid < 10) {
 				LLM_DEBUG("MAC " << selfMACid << " task " << tmp_requestID << " completed, remaining tasks: "
@@ -505,6 +544,9 @@ void LLMMAC::llmRunOneStep() {
 
 			this->send = 0;
 			if (this->llmtasktable.size() == 0) {
+				// State 5: FINISHED
+				// - Purpose: A final, static state indicating this MAC has completed all its tasks.
+				// - Duration: Stays in this state until the simulation ends.
 				this->selfstatus = 5;
 				if (selfMACid < 10) {
 					LLM_DEBUG("MAC " << selfMACid << " all tasks completed");
@@ -591,32 +633,76 @@ void LLMMAC::llmResetForNextTask() {
 void LLMMAC::llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
 	// === Step 4 & 5: 矩阵重组与排序 ===
 	// 功能：将线性payload数据重组为8x8矩阵并应用排序优化
+	// Commented out reshape function call tracking for cleaner output
 	static int call_count = 0;
 	call_count++;
-	if (call_count <= 5) {
-		std::cout << "=== llmReshapeFlatToQueryKeyMatrix CALLED (call #" << call_count << ") ===" << std::endl;
-	}
+	// if (call_count <= 10) {
+	//	std::cout << "\n=== llmReshapeFlatToQueryKeyMatrix CALLED (call #" << call_count << ") ===" << std::endl;
+	//	std::cout << "    Payload size: " << payload.size() << " floats" << std::endl;
+	// }
 	
 	// Step 4.1: 检查payload格式
-	// LLM payload格式: [元数据(4个float), query数据(64个), key数据(64个)]
-	// 总共132个float元素
-	if (payload.size() < 8) return; // 至少需要元数据+部分数据
+	// 新的LLM payload格式（跳过元数据）: [query数据(64个), key数据(64个)]
+	// 总共128个float元素（纯数据，无元数据）
+	if (payload.size() < 128) {
+		std::cout << "WARNING: Payload too small: " << payload.size() << " < 128" << std::endl;
+		return;
+	}
 	
-	// Step 4.2: 从元数据提取数据大小
-	int data_size = (int)payload[1];  // payload[1]存储query_data的大小(64)
-	int metadata_size = 4;             // 元数据占用前4个位置
+	// Step 4.2: 设置数据大小（固定值，因为没有元数据了）
+	int data_size = 64;  // 每个矩阵64个元素
 	
 	// Step 4.3: 验证payload完整性
-	// 需要: 4(元数据) + 64(query) + 64(key) = 132个元素
-	if (payload.size() < metadata_size + data_size * 2) return;
+	// 需要: 64(query) + 64(key) = 128个元素
+	if (payload.size() < data_size * 2) return;
 	
 	// Step 4.4: 提取Query和Key数据段
-	// Query数据: payload[4]到payload[67] (64个元素)
-	std::deque<float> query_data(payload.begin() + metadata_size, 
-	                             payload.begin() + metadata_size + data_size);
-	// Key数据: payload[68]到payload[131] (64个元素)
-	std::deque<float> key_data(payload.begin() + metadata_size + data_size,
-	                           payload.begin() + metadata_size + data_size * 2);
+	// Query数据: payload[0]到payload[63] (64个元素)
+	std::deque<float> query_data(payload.begin(), 
+	                             payload.begin() + data_size);
+	// Key数据: payload[64]到payload[127] (64个元素)
+	std::deque<float> key_data(payload.begin() + data_size,
+	                           payload.begin() + data_size * 2);
+	
+	// Debug: Print raw data and bit statistics - only for ordered cases
+	#ifdef YzAffiliatedOrdering
+	if (call_count <= 3) {
+		std::cout << "\n--- RAW DATA ANALYSIS (call #" << call_count << ") ---" << std::endl;
+		
+		// Print first 16 values
+		std::cout << "Query raw values (first 16): ";
+		for (int i = 0; i < 16; i++) {
+			std::cout << std::fixed << std::setprecision(3) << query_data[i] << " ";
+		}
+		std::cout << std::endl;
+		
+		std::cout << "Key raw values (first 16): ";
+		for (int i = 0; i < 16; i++) {
+			std::cout << std::fixed << std::setprecision(3) << key_data[i] << " ";
+		}
+		std::cout << std::endl;
+		
+		// Analyze bit counts
+		int q_bit_counts[64], k_bit_counts[64];
+		for (int i = 0; i < 64; i++) {
+			q_bit_counts[i] = countOnesInIEEE754(query_data[i]);
+			k_bit_counts[i] = countOnesInIEEE754(key_data[i]);
+		}
+		
+
+		// Show bit count distribution
+		std::cout << "\nQuery bit counts (first 16): ";
+		for (int i = 0; i < 16; i++) {
+			std::cout << q_bit_counts[i] << " ";
+		}
+		std::cout << std::endl;
+		
+		std::cout << "Key bit counts (first 16): ";
+		for (int i = 0; i < 16; i++) {
+			std::cout << k_bit_counts[i] << " ";
+		}
+		std::cout << std::endl;
+	}
 
 	// Step 5: 根据配置应用排序算法
 #ifdef YZSeperatedOrdering_reArrangeInput
@@ -630,132 +716,168 @@ void LLMMAC::llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
 	sortMatrix_LLMAffiliated(query_data, key_data, 8, 8);
 #endif
 
-	// Step 6: CNN风格的半半矩阵重组
-	// 排序后的query_data和key_data仍是行主序存储(8x8矩阵)
-	// 按行组合: [Query第i行(8个元素) + Key第i行(8个元素)] = 每行16个元素
-	
-	const int rows = 8;
-	const int cols = 8;
-	
-	// Step 6.1: 将线性数据重组为矩阵行
-	std::vector<std::deque<float>> query_rows(rows);  // Query的8行
-	std::vector<std::deque<float>> key_rows(rows);    // Key的8行
-	
-	// Step 6.2: 按行填充矩阵
-	for (int row = 0; row < rows; row++) {
-		for (int col = 0; col < cols; col++) {
-			int idx = row * cols + col;  // 计算在线性数组中的索引
-			if (idx < query_data.size()) {
-				query_rows[row].push_back(query_data[idx]);  // 填充Query第row行
+	#endif
+
+	// Define row and column dimensions for LLM matrices
+	int rownum_per_col = 8;  // 8 rows in the matrix
+	int querycolnum_per_row = 8;  // 8 columns for query matrix
+	int keycolnum_per_row = 8;    // 8 columns for key matrix
+	int totalcolnum_per_row = querycolnum_per_row + keycolnum_per_row;  // Total 16 columns per row when combined
+
+	std::vector<std::deque<float>> query_rows(rownum_per_col); // one row contains "colnum_per_row" elements //for example， overall 40 = 5row *8 elements。 Inside one row， the left 4 elements are query the right 4 elements are key
+	std::vector<std::deque<float>> key_rows(rownum_per_col); // one row contains "colnum_per_row" elements
+	// convert 1 row to matrix. and  padding zero elements from flatten payload to matrix payload
+	// Calculate the number of columns required  // to understand, assumming 4 rows, 16 cols
+	for (int col_index = 0; col_index < querycolnum_per_row; col_index++) {	// first col, 4 element, then next col 4elemetn, next col 4 elements...
+		for (int row_index = 0; row_index < rownum_per_col; row_index++) {
+			if (col_index * rownum_per_col + row_index < query_data.size())// fill elements
+					{
+				query_rows[row_index].push_back(
+						query_data[col_index * rownum_per_col + row_index]);
 			}
-			if (idx < key_data.size()) {
-				key_rows[row].push_back(key_data[idx]);      // 填充Key第row行
+
+			else {  //else padding zeros
+				query_rows[row_index].push_back(0.0f);
 			}
+			//std::cout << querycolnum_per_row << " " << col_index	<< " ieee754line99 combined rows ok " << col_index << std::endl;
 		}
 	}
-	
-	// Step 6.3: 按行组合Query和Key
-	// 组合后每行格式: [Query行的8个元素 + Key行的8个元素] = 16个元素
-	std::vector<std::deque<float>> combined_rows(rows);
-	for (int i = 0; i < rows; i++) {
-		// 先添加Query第i行的8个元素
-		combined_rows[i].insert(combined_rows[i].end(), 
-		                       query_rows[i].begin(), query_rows[i].end());
-		// 再添加Key第i行的8个元素
-		combined_rows[i].insert(combined_rows[i].end(), 
-		                       key_rows[i].begin(), key_rows[i].end());
-	}
-	
-	// Step 6.4: 将重组后的数据写回payload
-	// 保留前4个元数据，从第5个位置开始覆盖
-	int write_idx = metadata_size;  // 从索引4开始写入
-	for (const auto& row : combined_rows) {
-		for (const auto& element : row) {
-			if (write_idx < payload.size()) {
-				payload[write_idx++] = element;  // 覆盖原始数据
+	// Calculate the number of columns required  // to understand, assumming 4 rows, 16 cols
+	for (int col_index = 0; col_index < keycolnum_per_row; col_index++) { // first col, 4 element, then next col 4elemetn, next col 4 elements...
+		for (int row_index = 0; row_index < rownum_per_col; row_index++) {
+			if (col_index * rownum_per_col + row_index < key_data.size()) // fill elements
+					{
+				key_rows[row_index].push_back(
+						key_data[col_index * rownum_per_col + row_index]);
 			}
+
+			else {  //else padding zeros
+				key_rows[row_index].push_back(0.0f);
+			}
+			//	std::cout << " querycolnum_per_row " << querycolnum_per_row << " col_index " << col_index	<< " ieee754line99 combined rows ok " << col_index << std::endl;
 		}
 	}
-	
-	// Debug: Print packet structure and bit flips for first packet
-	static int packet_count = 0;
-	packet_count++;
-	if (packet_count == 1) {  // Only analyze first packet
-		std::cout << "\n=== Packet #" << packet_count << " Flit Structure ===" << std::endl;
-		std::cout << "Total payload size: " << payload.size() << " elements" << std::endl;
-		
-		// Calculate number of flits
-		int elements_per_flit = 16;
-		int num_flits = (payload.size() + elements_per_flit - 1) / elements_per_flit;
-		std::cout << "Number of flits: " << num_flits << std::endl;
-		
-		// Store all flits for bit flip analysis
-		std::vector<std::vector<uint32_t>> flit_bits;
-		
-		// Print each flit's content and convert to bits
-		for (int flit = 0; flit < num_flits; flit++) {
-			std::cout << "\nFlit " << flit << ": ";
-			int start_idx = flit * elements_per_flit;
-			int end_idx = std::min(start_idx + elements_per_flit, (int)payload.size());
-			
-			// Collect values in this flit
-			std::vector<float> flit_values;
-			std::vector<uint32_t> flit_bit_repr;
-			
-			for (int i = start_idx; i < end_idx; i++) {
-				flit_values.push_back(payload[i]);
-				// Convert float to bit representation
-				uint32_t bits = *reinterpret_cast<uint32_t*>(&payload[i]);
-				flit_bit_repr.push_back(bits);
-			}
-			
-			// Pad with zeros if needed
-			while (flit_bit_repr.size() < 16) {
-				flit_bit_repr.push_back(0);
-			}
-			
-			flit_bits.push_back(flit_bit_repr);
-			
-			// Sort to check ordering
-			std::vector<float> sorted_values = flit_values;
-			std::sort(sorted_values.begin(), sorted_values.end());
-			
-			// Print first few values
-			std::cout << "[";
-			for (int i = 0; i < std::min(4, (int)flit_values.size()); i++) {
-				std::cout << flit_values[i];
-				if (i < 3 && i < flit_values.size()-1) std::cout << ", ";
-			}
-			if (flit_values.size() > 4) std::cout << "...";
-			std::cout << "] (" << flit_values.size() << " elements)";
-			
-			// Check if sorted
-			bool is_sorted = (flit_values == sorted_values);
-			std::cout << " - " << (is_sorted ? "SORTED" : "NOT SORTED");
+	// Step 6.1: 按行组合query和key数据
+	// 每个flit格式：[query第i行的8个元素] + [key第i行的8个元素]
+	// 注意：由于数据已按列主序填充，第0行包含各列的第0个元素（bit数最多的元素）
+	std::vector<std::deque<float>> combined_flits(rownum_per_col);  // 8个flits
+
+	for (int row = 0; row < rownum_per_col; ++row) { // 遍历每一行
+		// 先添加query第row行的所有列元素
+		combined_flits[row].insert(combined_flits[row].end(), 
+			query_rows[row].begin(), query_rows[row].end());
+		// 再添加key第row行的所有列元素
+		combined_flits[row].insert(combined_flits[row].end(), 
+			key_rows[row].begin(), key_rows[row].end());
+		//std::cout << combined_flits.size() << " " << combined_flits[row].size() 	<< "  combined_flits.size()lineafterinsert" << std::endl;
+		if (combined_flits[row].size() != totalcolnum_per_row) { // Each flit should have 16 elements (8 query + 8 key)
+			std::cerr
+					<< "Error: flit size not equal to expected 16 elements "
+					<< "Flit " << row << " size: " << combined_flits[row].size()
+					<< " Expected: " << totalcolnum_per_row
+					<< std::endl;
+			assert(
+					false
+							&& "Error: flit size not equal to expected 16 elements");
+			return;
 		}
-		
-		// Calculate bit flips between consecutive flits
-		std::cout << "\n\n=== Bit Flips Between Consecutive Flits ===" << std::endl;
-		int total_bit_flips = 0;
-		for (int i = 1; i < flit_bits.size(); i++) {
-			int flips = 0;
-			for (int j = 0; j < 16; j++) {
-				uint32_t xor_result = flit_bits[i-1][j] ^ flit_bits[i][j];
-				// Count 1s in XOR result
-				while (xor_result) {
-					flips += xor_result & 1;
-					xor_result >>= 1;
+	}
+
+	// original dq is: k*k inputs, k*k weights, 1 bias. For example, 25 inputs and 25 weights.
+
+#ifdef printCombinedMatrix
+	int printnextRowIndex1 = 0;
+	std::cout << "dq:before halfinput half weight " << std::endl;
+	for (const auto &element : dq) {
+				std::cout << std::setw(10) << element << " ";
+				printnextRowIndex1++;
+				if (printnextRowIndex1 == totalcolnum_per_row) {
+					std::cout << std::endl;
+					printnextRowIndex1 = 0;
 				}
 			}
-			std::cout << "Flit " << (i-1) << " -> Flit " << i << ": " << flips << " bit flips" << std::endl;
-			total_bit_flips += flips;
+			std::cout << std::endl;
+#endif
+	// Step 6.2: 将重组后的数据写回原始容器
+	// 这些数据将通过NoC传输（Step 7）
+	payload.clear(); // 清空原始数据
+	for (const auto &flit : combined_flits) {
+		for (const auto &element : flit) {
+			payload.push_back(element);  // 按flit顺序展开存储
 		}
-		std::cout << "\nTotal bit flips in packet: " << total_bit_flips << std::endl;
-		std::cout << "Average bit flips per transition: " << (float)total_bit_flips / (flit_bits.size() - 1) << std::endl;
-		
-		std::cout << "\n" << std::endl;
 	}
+
 }
+
+
+
+
+void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<float>& key_data,
+                                          int colnum_per_row, int rownum_per_col) {
+	// === LLM版本：全局关联排序后按列填充（根据Key排序） ===
+	if (key_data.empty() || query_data.empty()) {
+		std::cerr << "ERROR: sortMatrix_LLMAffiliated - key_data or query_data is empty!" << std::endl;
+		assert(false && "sortMatrix_LLMAffiliated: empty data provided");
+	}
+	if (key_data.size() != query_data.size()) {
+		std::cerr << "ERROR: sortMatrix_LLMAffiliated - key_data size (" << key_data.size() 
+		          << ") != query_data size (" << query_data.size() << ")" << std::endl;
+		assert(false && "sortMatrix_LLMAffiliated: size mismatch between key and query");
+	}
+
+	// Step 1: 创建索引数组，根据Key进行全局排序
+	std::vector<int> indices(key_data.size());
+	for (size_t i = 0; i < key_data.size(); i++) {
+		indices[i] = i;
+	}
+
+	// 不直接移动数据，而是排序索引，这样query可以跟随相同顺序
+	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
+#ifdef FIXED_POINT_SORTING
+		return compareFloatsByFixed17Ones(key_data[i], key_data[j]);  // 定点数比较
+#else
+		return compareFloatsByOnes(key_data[i], key_data[j]);         // 浮点数bit数比较
+#endif
+	});
+
+	// Step 2: 根据排序后的索引重新排列query和key
+	// query和key保持配对关系，都按key的bit数顺序排列
+	std::deque<float> sortedKeys;
+	std::deque<float> sortedQueries;
+	for (int idx : indices) {
+		sortedKeys.push_back(key_data[idx]);      // key按bit数排序
+		sortedQueries.push_back(query_data[idx]); // query跟随key的顺序
+	}
+
+	// Step 3: 将排序后的数据写回原容器（与CNN保持一致）
+	// 不进行矩阵重组，保持一维数组形式
+	key_data  = sortedKeys;
+	query_data = sortedQueries;
+}
+
+
+
+void LLMMAC::sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row, int rownum_per_col) {
+	// === LLM版本：全局排序（与CNN保持一致） ===
+	if (data.empty()) return;
+
+	// Step 1: 对整个数据进行全局排序（降序）
+	std::vector<float> sorted_data(data.begin(), data.end());
+#ifdef FIXED_POINT_SORTING
+	std::sort(sorted_data.begin(), sorted_data.end(), compareFloatsByFixed17Ones);
+#else
+	std::sort(sorted_data.begin(), sorted_data.end(), compareFloatsByOnes);
+#endif
+
+	// Step 2: 将排序后的数据写回原容器（与CNN保持一致）
+	// 不进行矩阵重组，保持一维数组形式，后续在矩阵组合时按列主序填充
+	data.clear();
+	data.insert(data.end(), sorted_data.begin(), sorted_data.end());
+}
+
+
+
+
 
 void LLMMAC::llmReceive(Message* re_msg) {
 	if (re_msg->msgtype == 1) {
@@ -808,118 +930,6 @@ void LLMMAC::llmPrintDetailedData(const std::deque<float>& data, const std::stri
 	std::cout << std::endl;
 }
 
-void LLMMAC::sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row, int rownum_per_col) {
-	// === Step 5.1: 分离排序实现 ===
-	// 功能：对单个矩阵按列独立排序，减少列内bit翻转
-	// 参数：data-要排序的数据(64个元素), colnum_per_row=8列, rownum_per_col=8行
-	if (data.empty()) return;
-	
-	// Step 5.1.1: 对整个数据按1-bit数量排序
-#ifdef FIXED_POINT_SORTING
-	std::sort(data.begin(), data.end(), compareFloatsByFixed17Ones);  // 定点数排序
-#else
-	std::sort(data.begin(), data.end(), compareFloatsByOnes);         // 浮点数按1-bit数排序
-#endif
-
-	// Step 5.1.2: 重组为列主序格式
-	// 按列填充：第一列获得最小的bit数值（排序后的前8个）
-	std::vector<std::deque<float>> rows(rownum_per_col);  // 创建8行的容器
-	int idx = 0;
-	
-	// Step 5.1.3: 按列填充矩阵
-	// 外循环：遍历8列
-	for (int col = 0; col < colnum_per_row; col++) {
-		// 内循环：每列填充8个元素（从上到下）
-		for (int row = 0; row < rownum_per_col; row++) {
-			if (idx < data.size()) {
-				rows[row].push_back(data[idx++]);  // 第col列第row行 = data[idx]
-			}
-		}
-	}
-	
-	// Step 5.1.4: 按行序写回数据
-	// 虽然按列填充，但存储仍是行主序
-	data.clear();
-	for (const auto &row : rows) {
-		for (const auto &element : row) {
-			data.push_back(element);  // 按行展开存储
-		}
-	}
-}
-
-void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<float>& key_data, 
-                                          int colnum_per_row, int rownum_per_col) {
-	// === Step 5.2: 关联排序实现 ===
-	// 功能：Key按bit数排序，Query保持与Key的对应关系
-	// 目的：保持Query-Key对的相关性，同时优化bit翻转
-	if (key_data.empty() || query_data.empty()) return;
-	if (key_data.size() != query_data.size()) return;
-	
-	// Step 5.2.1: 创建索引数组，用于跟踪元素原始位置
-	std::vector<int> indices(key_data.size());
-	for (int i = 0; i < indices.size(); ++i) {
-		indices[i] = i;  // 初始化索引：indices[0]=0, indices[1]=1, ...
-	}
-	
-	// Step 5.2.2: 根据Key的bit数对索引排序
-	// 不直接移动数据，而是排序索引，这样Query可以跟随相同顺序
-	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
-#ifdef FIXED_POINT_SORTING
-		return compareFloatsByFixed17Ones(key_data[i], key_data[j]);  // 定点数比较
-#else
-		return compareFloatsByOnes(key_data[i], key_data[j]);         // 浮点数1-bit数比较
-#endif
-	});
-	
-	// Step 5.2.3: 根据排序后的索引重新排列Query和Key
-	// Query和Key保持配对关系，都按Key的bit数顺序排列
-	std::deque<float> sorted_query;
-	std::deque<float> sorted_key;
-	for (int idx : indices) {
-		sorted_query.push_back(query_data[idx]);  // Query跟随Key的顺序
-		sorted_key.push_back(key_data[idx]);      // Key按bit数排序
-	}
-	
-	// Step 5.2.4: 将Query重组为列主序格式
-	// 按列填充：第一列得到最小bit数的8个Query值
-	std::vector<std::deque<float>> query_rows(rownum_per_col);
-	int idx = 0;
-	for (int col = 0; col < colnum_per_row; col++) {
-		for (int row = 0; row < rownum_per_col; row++) {
-			if (idx < sorted_query.size()) {
-				query_rows[row].push_back(sorted_query[idx++]);
-			}
-		}
-	}
-	
-	// Step 5.2.5: 将Key重组为列主序格式
-	// 按列填充：第一列得到最小bit数的8个Key值
-	std::vector<std::deque<float>> key_rows(rownum_per_col);
-	idx = 0;
-	for (int col = 0; col < colnum_per_row; col++) {
-		for (int row = 0; row < rownum_per_col; row++) {
-			if (idx < sorted_key.size()) {
-				key_rows[row].push_back(sorted_key[idx++]);
-			}
-		}
-	}
-	
-	// Step 5.2.6: 将重组后的数据按行序写回
-	// 虽然按列排序，但存储格式仍是行主序
-	query_data.clear();
-	for (const auto &row : query_rows) {
-		for (const auto &element : row) {
-			query_data.push_back(element);  // Query按行展开
-		}
-	}
-	
-	key_data.clear();
-	for (const auto &row : key_rows) {
-		for (const auto &element : row) {
-			key_data.push_back(element);
-		}
-	}
-}
 
 // Destructor
 LLMMAC::~LLMMAC() {

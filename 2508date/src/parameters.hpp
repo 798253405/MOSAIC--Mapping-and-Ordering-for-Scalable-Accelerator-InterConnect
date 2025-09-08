@@ -20,6 +20,10 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
 // Random Data Replacement Test - Replace packet data with random values for testing
 // #define LLM_RANDOM_DATA_REPLACE_TEST
 
+// LLM Matrix Data Source - Choose one
+#define LLM_USE_RANDOM_MATRICES    // Use randomly generated matrices
+// #define LLM_USE_REAL_MATRICES   // Use real LLaMA matrices from files
+
 // NoC Configuration - Choose one
 //#define MemNode2_4X4
 #define MemNode4_8X8
@@ -28,7 +32,7 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
 //#define MemNode4_32X32
 
 // Test Case Configuration - Choose one
-#define case1_default
+//#define case1_default
 //#define case2_samos
 //#define case3_affiliatedordering
 //#define case4_seperratedordering

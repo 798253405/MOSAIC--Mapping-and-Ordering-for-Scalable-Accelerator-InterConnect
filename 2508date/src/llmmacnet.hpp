@@ -16,7 +16,7 @@
 
 using namespace std;
 
-extern int packet_id;
+extern long long packet_id;
 extern unsigned int cycles;
 extern vector<vector<int>> DNN_latency;
 extern double samplingWindowDelay[TOT_NUM];

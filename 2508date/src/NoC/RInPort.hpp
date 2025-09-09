@@ -18,6 +18,7 @@
 #include "../yzIEEE754.hpp"
 #include <cassert>
 #include <vector>
+#include <iomanip>
 
 
 class FlitBuffer;
@@ -27,7 +28,7 @@ class Link;
 extern unsigned int cycles;
 extern  std::vector<std::vector<int>> yzEnterOutportPerRouter;
 extern  std::vector<std::vector<int>> yzLeaveInportPerRouter;
-extern int yzFlitCollsionCountSum;
+extern long long yzFlitCollsionCountSum;
 class RInPort : public Port{
 public:
 
@@ -68,6 +69,14 @@ int yzInportFlippingCounts(Flit* t_yztempFlit, int t_routerIDIntoInport,int t_in
 long long int totalyzInportFlipping;
 long long int  totalyzInportFixFlipping;
 
+
+long long int reqRouterFlipInport;
+long long int respRouterFlipInport;
+long long int resRouterFlipInport;
+long long int reqRouterHopInport;
+long long int respRouterHopInport;
+long long int resRouterHopInport;
+
 int yzInportall128BitInvertFlippingCounts(Flit* t_yztempFlit, int t_routerIDIntoInport,int t_inportSeqID);
 int preExtraInvertBitline;
 int currentExtraInvertBitline;
@@ -76,6 +85,8 @@ int currentExtraInvertBitline;
 int yzPreFlitGlobalID;
 int yzPreFlitSeqID;
 int yzweightCollsionCountInportCount;
+
+int zeroBTHopCount;
 
   // for individual priority
   int rr_priority_record;

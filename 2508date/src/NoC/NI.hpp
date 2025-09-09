@@ -35,8 +35,8 @@ class ROutPort;
 class Flit;
 
 //added packet id
-extern int packet_id;
-extern int  YZGlobalFlit_id;
+extern long long packet_id;
+extern long long  YZGlobalFlit_id;
 extern std::vector<std::vector<int>> LCS_packet_delay;
 extern std::vector<std::vector<int>> URS_packet_delay;
 extern std::ofstream flit_trace;

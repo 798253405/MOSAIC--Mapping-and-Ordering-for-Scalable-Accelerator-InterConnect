@@ -167,8 +167,8 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 		msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), inbuffer.begin() + 3,
 				inbuffer.end());		 //inbuffer.end() //inbuffer.begin()+18
 		//cout<<" maccpp check msg.yzMSGPayload.size before grid "<< msg.yzMSGPayload.size()<<endl;
-		int flitNumSinglePacket = (msg.yzMSGPayload.size())
-				/ (payloadElementNum) + 1;
+		//int flitNumSinglePacket = (msg.yzMSGPayload.size()) 		/ (payloadElementNum) + 1;
+		  int flitNumSinglePacket = (msg.yzMSGPayload.size() -1 + payloadElementNum) / (payloadElementNum) ;
 		float tempRandom =static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - 0.5f ;
 		// Fill the remaining space with zeros
 		//cout<<"flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size() "<< flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size() <<endl;
@@ -176,7 +176,7 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 		std::fill_n(std::back_inserter(msg.yzMSGPayload),
 				(flitNumSinglePacket * payloadElementNum
 			//			  - msg.yzMSGPayload.size()), tempRandom);  // this is for debugging, to check whether padding zeros matters. //test, fill random values
-						 - msg.yzMSGPayload.size()), 0.0f);
+						 - msg.yzMSGPayload.size()), tempRandom);
 		//cout<<" maccpp check msg.yzMSGPayload.size after grid "<< msg.yzMSGPayload.size()<<endl;
 
 #ifdef CoutDebugAll0

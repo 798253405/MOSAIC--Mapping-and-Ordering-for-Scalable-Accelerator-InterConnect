@@ -51,7 +51,7 @@
 
 using namespace std;
 
-extern int packet_id;
+extern long long packet_id;
 
 extern unsigned int cycles;
 

@@ -86,180 +86,6 @@ MACnet::MACnet(int mac_num, int t_pe_x, int t_pe_y, Model *m,
 	executedTask = 0;
 }
 
-int MACnet::yzClusterLevelOrderingWeight(
-		vector<vector<float>> t_yzweightyz_table, int t_inch) {
-	//int numBlocks = t_yzweightyz_table.size() / t_inch; // och for weights, ordered as there are 6 channels.
-	int numBlocks = o_x * o_y * o_ch; // for inputs, ordered as there are 4704 (28*28*6, for example) tasks
-	// Vector to store blocks and their original indices
-	std::vector<std::pair<std::vector<std::vector<float>>, int>> blocks;
-
-	// Break weights into blocks
-	for (int i = 0; i < numBlocks; i++) {
-		std::vector<std::vector<float>> block(
-				t_yzweightyz_table.begin() + i * t_inch,
-				t_yzweightyz_table.begin() + (i + 1) * t_inch);
-		blocks.push_back( { block, i });
-	}
-	//// Function to print zero bit counts of each block
-	for (int i = 0; i < numBlocks; i++) {
-		int blockOneCount = 0;
-		int valueCount = 0;
-		for (int j = 0; j < t_inch; ++j) {
-			for (float num : t_yzweightyz_table[i * t_inch + j]) {
-				blockOneCount += countOnesInIEEE754(num);
-				valueCount += 1;
-			}
-		}
-		std::cout << "Block " << i << "  valueCount  " << valueCount << " has "
-				<< blockOneCount << " zero bits." << std::endl;
-	}
-
-	// Sort blocks based on the sum of all elements in each block using for loops
-	std::sort(blocks.begin(), blocks.end(), [](const auto &a, const auto &b) {
-		float sumA = 0.0f;
-		float sumB = 0.0f;
-
-		// Manually sum elements in block a
-		for (const auto &row : a.first) {
-			for (float val : row) {
-				sumA += countOnesInIEEE754(val);
-			}
-		}
-
-		// Manually sum elements in block b
-		for (const auto &row : b.first) {
-			for (float val : row) {
-				sumB += countOnesInIEEE754(val);
-			}
-		}
-		cout << sumB << " LINE 140 " << sumA << endl;
-		return sumA < sumB;  // Sort in ascending order based on the sum
-	});
-
-	//// Function to print zero bit counts of each block
-	for (int i = 0; i < numBlocks; i++) {
-		int blockOneCount = 0;
-		int valueCount = 0;
-		for (int j = 0; j < t_inch; ++j) {
-			for (float num : t_yzweightyz_table[i * t_inch + j]) {
-				blockOneCount += countOnesInIEEE754(num);
-				valueCount += 1;
-			}
-		}
-		std::cout << "Block " << i << "  valueCount  " << valueCount << " has "
-				<< blockOneCount << " zero bits." << std::endl;
-	}
-
-	// Flatten sorted blocks back into weights
-	cout << "t_yzweight_table.begin() before blockordering ";
-	for (float elem : t_yzweightyz_table[0]) {
-		cout << elem << " ";
-	}
-	cout << endl;
-
-	for (int i = 0; i < numBlocks; i++) {
-		std::copy(blocks[i].first.begin(), blocks[i].first.end(),
-				t_yzweightyz_table.begin() + i * t_inch);
-	}
-
-	cout << "t_yzweight_table.begin() after blockordering ";
-	for (float elem : t_yzweightyz_table[0]) {
-		cout << elem << " ";
-	}
-	cout << endl;
-	//// Function to print zero bit counts of each block
-	for (int i = 0; i < numBlocks; i++) {
-		int blockOneCount = 0;
-		int valueCount = 0;
-		for (int j = 0; j < t_inch; ++j) {
-			for (float num : t_yzweightyz_table[i * t_inch + j]) {
-				blockOneCount += countOnesInIEEE754(num);
-				valueCount += 1;
-			}
-		}
-		std::cout << "Block " << i << "  valueCount  " << valueCount << " has "
-				<< blockOneCount << " zero bits." << std::endl;
-	}
-
-	return 0;
-}
-
-int MACnet::newyzClusterLevelOrderingWeight(vector<float> t_totalNetTaskInput,
-		int t_inch) {
-	int numTasks = o_x * o_y; //* o_ch; // for inputs, ordered as there are 4704 (28*28*6, for example) tasks
-	// Vector to store blocks and their original indices
-	std::vector<std::pair<std::vector<float>, int>> blocks;
-
-	// Break  total inputs into tasks
-	int taskSize = w_x * w_y;	//5x5 25
-	cout << " line 204 blocks before  ok " << numTasks << " " << taskSize
-			<< endl;
-	//for weights in weights 1- in_channel //later
-
-	// for one channel, o_x*o_y tasks. (for example 28*28=784 tasks. 784*25=19600 value)
-
-	for (int i = 0; i < numTasks; i++) {
-		//cout<<" line 209 numblocks "<< i << endl;
-		std::vector<float> task(t_totalNetTaskInput.begin() + i * taskSize,
-				t_totalNetTaskInput.begin() + (i + 1) * taskSize);
-		/*
-		 std::cout << "line215Valuebeforesort at position " << i * blockSize
-		 << ": " << t_totalNetTaskInput[i * blockSize] << std::endl;
-		 for (const auto &val : block) {
-		 cout << val << " line217blockvaluebeforesort ";
-		 }
-		 cout << endl;*/
-
-		blocks.push_back( { task, i });
-	}
-
-	cout << "line 224 blocks. " << blocks.size() << endl;
-	// 对 blocks 中的每个块进行排序，排序依据是每个块中数值的 IEEE 754 浮点表示中含有的 1 的个数
-	// 定义排序的比较函数
-	auto sortBlocksByOnesCount = [](
-			const std::pair<std::vector<float>, int> &block1,
-			const std::pair<std::vector<float>, int> &block2) {
-		// 计算 block1 中所有数值的 IEEE 754 表示中 1 的个数之和
-		int onesCountBlock1 = 0;
-		for (const auto &num : block1.first) {
-			// 转换成 IEEE 754 表示
-			std::string ieee754_rep = float_to_ieee754(num);
-			// 统计其中的 1 的个数
-			onesCountBlock1 += std::count(ieee754_rep.begin(),
-					ieee754_rep.end(), '1');
-		}
-
-		// 计算 block2 中所有数值的 IEEE 754 表示中 1 的个数之和
-		int onesCountBlock2 = 0;
-		for (const auto &num : block2.first) {
-			// 转换成 IEEE 754 表示
-			std::string ieee754_rep = float_to_ieee754(num);
-			// 统计其中的 1 的个数
-			onesCountBlock2 += std::count(ieee754_rep.begin(),
-					ieee754_rep.end(), '1');
-		}
-
-		// 比较两个块中 1 的个数，按升序排序
-		return onesCountBlock1 < onesCountBlock2;
-	};
-
-	// 使用排序函数对 blocks 进行排序
-	std::sort(blocks.begin(), blocks.end(), sortBlocksByOnesCount);
-
-	// 输出排序后的 blocks 的大小，以及其它可能的信息
-	cout << "Sorted blocks size of tasks: " << blocks.size() << " " << endl;
-	// 打印 blocks 中的内容
-	/*for (const auto &block : blocks) {
-	 cout << "Block index after: " << block.second << endl;
-	 cout << "Block contents after:" << endl;
-	 for (const auto &val : block.first) {
-	 cout << val << " ";
-	 }
-	 }*/
-	// 可以在这里添加更多代码来处理排序后的 blocks，例如进一步的处理或输出
-	return 0;
-}
-
 // Function to extract and divide vectors based on the criteria
 void MACnet::extract_and_divide_vectors(const std::vector<float> &sortedData,
 		int blockSize, int numBlocks) {
@@ -306,42 +132,6 @@ void MACnet::extract_and_divide_vectors(const std::vector<float> &sortedData,
 	}
 }
 
-int MACnet::yzClusterLevelOrderingInput(vector<vector<float>> t_yzinput_table,
-		int t_inch) {
-	totalNetTaskInput.clear();
-	for (int taskID_x = 0; taskID_x < o_x; taskID_x++) {
-		for (int taskID_y = 0; taskID_y < o_y; taskID_y++) {
-			for (int k = 0; k < in_ch; k++) {
-				for (int p = 0; p < w_y; p++) {
-					totalNetTaskInput.insert(totalNetTaskInput.end(),
-							this->input_table[k].begin()
-									+ (taskID_y * stride + p) * (in_x + 2 * pad)
-									+ taskID_x * stride,
-							this->input_table[k].begin()
-									+ (taskID_y * stride + p) * (in_x + 2 * pad)
-									+ taskID_x * stride + w_x);
-				}
-			}
-		}
-	}
-	cout << " \n line310 totalNetTaskInput.size() " << totalNetTaskInput.size()
-			<< " w_x " << w_x << " o_y " << o_y << endl;
-// assuming total n=100 tasks, there is a total task table : input-task-vector-all,1 D.  There are 64 nodes, and there are 64 vectors: taskvectorForNode0,  taskvectorForNode1, ... taskvectorForNode63,
-
-	newyzClusterLevelOrderingWeight(totalNetTaskInput, in_ch);
-
-	int tempnumBlocks = 16; // Number of blocks
-	int tempblockSize = totalNetTaskInput.size() / (tempnumBlocks - 2); // Number of elements in each block  4704/14=336tasks* as one example.
-	// for one channel, 784 task for noc, 784/14=56 task for one PE. 56*25=1400 values.
-	cout << " \n tempblockSizeline333 " << tempblockSize
-			<< "  totalNetTaskInput.size() " << totalNetTaskInput.size()
-			<< endl;
-
-	// Call the function
-	extract_and_divide_vectors(totalNetTaskInput, tempblockSize, tempnumBlocks);
-	cout << " allocate data doneline337 " << endl;
-	return 0;
-}
 
 void MACnet::create_input() {
 	input_table.resize(in_ch);
@@ -1549,6 +1339,23 @@ void MACnet::runOneStep() {
 					// normal allocate inputs from input table
 					// assuming  in_ch=6 input channels, kernel=3x3: 3 input "figures", pick up 3 rows, one row contains 3 data. o
 					// overall = 6x3x3 floating point inputs
+#ifdef CNN_RANDOM_DATA_TEST
+					// Generate random input data instead of using real input_table data
+					static bool cnn_random_warning_printed = false;
+					if (!cnn_random_warning_printed) {
+						cout << "WARNING: CNN_RANDOM_DATA_TEST enabled - CNN using random input data [-0.5, 0.5]" << endl;
+						cnn_random_warning_printed = true;
+					}
+					for (int k = 0; k < in_ch; k++) {
+						for (int p = 0; p < w_y; p++) {
+							for (int q = 0; q < w_x; q++) {
+								float random_input = static_cast<float>(rand()) / RAND_MAX - 0.5f;
+								tmpMAC->inbuffer.push_back(random_input);
+							}
+						}
+					}
+#else
+					// Original: Use real input_table data
 					for (int k = 0; k < in_ch; k++) {
 						for (int p = 0; p < w_y; p++) {
 							tmpMAC->inbuffer.insert(tmpMAC->inbuffer.end(),
@@ -1562,8 +1369,22 @@ void MACnet::runOneStep() {
 											+ tmpx * stride + w_x);
 						}
 					}
+#endif
 
 					// for conv weight
+#ifdef CNN_RANDOM_DATA_TEST
+					// Generate random weight data instead of using real weight_table data
+					for (int k = 0; k < in_ch; k++) {
+						for (int i = 0; i < w_x * w_y; i++) {
+							float random_weight = static_cast<float>(rand()) / RAND_MAX - 0.5f;
+							tmpMAC->inbuffer.push_back(random_weight);
+						}
+					}
+					// Generate random bias
+					float random_bias = static_cast<float>(rand()) / RAND_MAX - 0.5f;
+					tmpMAC->inbuffer.push_back(random_bias);
+#else
+					// Original: Use real weight_table data
 					for (int k = 0; k < in_ch; k++) {
 						//weight// according to current kernelID(output channel), for example, jume every 6 outchannels
 						// pick up 3(in_ch) vectors. These 3 vectors is one single 3D-kernel.
@@ -1574,6 +1395,7 @@ void MACnet::runOneStep() {
 					}
 					tmpMAC->inbuffer.push_back(
 							this->weight_table[tmpMAC->tmpch * in_ch].back()); //bias
+#endif
 
 					// 遍历并输出inbuffer中的所有元素 //  先是功能code，1代表relu。然后in—ch，然后
 					//for (float value : tmpMAC->inbuffer) {

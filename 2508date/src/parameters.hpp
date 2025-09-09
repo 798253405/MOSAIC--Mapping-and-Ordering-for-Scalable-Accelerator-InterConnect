@@ -4,7 +4,30 @@
 #define DEFAULT_NNINPUT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/input2.txt"
 #define DEFAULT_NNMODEL_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/newnet2.txt"
 #define randomeval
-#define YZLLMSwitchON
+
+//#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
+
+// CNN Random Data Test - Replace CNN inbuffer data with random values (same as LLM)
+#define CNN_RANDOM_DATA_TEST  // Enable this to make CNN use pure random data like LLM
+
+
+// NoC Configuration - Choose one
+#define MemNode2_4X4
+///#define MemNode4_4X4
+//#define MemNode4_8X8
+//#define MemNode4_16X16
+//#define MemNode4_32X32
+
+// Test Case Configuration - Choose one
+  //#define case1_default
+//#define case2_samos
+//#define case3_affiliatedordering
+#define case4_seperratedordering
+//#define case5_MOSAIC1
+//#define case6_MOSAIC2
+
+
+//#define YZLLMSwitchON
 constexpr int DIM_MODEL = 4096; 
 constexpr int NUM_HEAD = 32; 
 constexpr int SEQUENCE_LENGTH = 512; 
@@ -12,7 +35,7 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
 #define LLM_OUTPUT_PATH "src/output/"
 #define LLM_TEST_CASE 2
 #define LLM_DEBUG_LEVEL 1
-#define LLM_RANDOM_SEED 42
+#define LLM_RANDOM_SEED 0
 
 // LLM Data Mode - Toggle between weight-based and input-based
 // #define LLM_INPUT_BASED  // Comment this out for weight-based mode
@@ -24,20 +47,6 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
 #define LLM_USE_RANDOM_MATRICES    // Use randomly generated matrices
 // #define LLM_USE_REAL_MATRICES   // Use real LLaMA matrices from files
 
-// NoC Configuration - Choose one
-//#define MemNode2_4X4
-#define MemNode4_8X8
-//#define MemNode4_4X4
-//#define MemNode4_16X16
-//#define MemNode4_32X32
-
-// Test Case Configuration - Choose one
-//#define case1_default
-//#define case2_samos
-//#define case3_affiliatedordering
-//#define case4_seperratedordering
-//#define case5_MOSAIC1
-//#define case6_MOSAIC2
 
 // Test Case Logic
 #if defined(case1_default)
@@ -62,6 +71,8 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
     #define rowmapping
 #endif
 
+
+#define samplingWindowLength 100
 //#define FIXED_POINT_SORTING
 
 #define only3type
@@ -76,7 +87,7 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
 #define bitsPerElement 32
 #define payloadElementNum 16
 #define SoCC_Countlatency
-#define samplingWindowLength 100
+
 #define VN_NUM 1
 #define VC_PER_VN 4
 #define VC_PRIORITY_PER_VN 0

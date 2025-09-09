@@ -22,7 +22,7 @@
 
 using namespace std;
 
-extern int packet_id;
+extern long long packet_id;
 
 extern unsigned int cycles;
 
@@ -117,10 +117,7 @@ public:
 	// for print
 	vector<int> Layer_latency;
 
-	int  yzClusterLevelOrderingWeight(vector<vector<float>> t_yzweight_table , int t_inch);
-	int newyzClusterLevelOrderingWeight( vector<float> t_totalNetTaskInput , int t_inch);
-	int  yzClusterLevelOrderingInput(vector<vector<float>> t_yzinput_table , int t_inch);
-	//int  yzClusterLevelOrderingInputAndWeight(vector<vector<float>> t_yzweight_table ,	vector<vector<float>> t_yzinput_table, int t_inch);
+
 	vector<float>  totalNetTaskInput;
 	void  extract_and_divide_vectors(const std::vector<float>& sortedData, int blockSize, int numBlocks);
 	//  Create `numBlocks` blocks/vectore for "numblocks" nodes , one block contain the data for one node.

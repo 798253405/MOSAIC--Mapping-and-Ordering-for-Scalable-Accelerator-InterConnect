@@ -253,29 +253,45 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 			
 			msg.yzMSGPayload.clear();
 			for (int i = 0; i < 128; i++) {
-				// Generate random float between -1.0 and 1.0
-				float random_val = (static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f;
+				// Generate random float between -0.5 and 0.5 (same as CNN)
+				float random_val = static_cast<float>(rand()) / RAND_MAX - 0.5f;
 				msg.yzMSGPayload.push_back(random_val);
 			}
 		#else
+
+			
+			// CHANGED: Use pure random data instead of matrix data to eliminate data dependencies
+			msg.yzMSGPayload.clear();
+			/*
+			// Insert 10 zeros first
+			for (int i = 0; i < 10; i++) {
+				msg.yzMSGPayload.push_back(0.0f);
+			}
+			
+			// Then add 108 random values
+			for (int i = 0; i < 108; i++) {
+				// Generate random float between -0.5 and 0.5 (same range as before)
+				float random_val = static_cast<float>(rand()) / RAND_MAX - 0.5f;
+				msg.yzMSGPayload.push_back(random_val);
+			}
+			
+			// Finally insert 10 zeros at the end
+			for (int i = 0; i < 10; i++) {
+				msg.yzMSGPayload.push_back(0.0f);
+			}
+			*/
+
 			// Normal mode: Skip metadata like CNN - only send pure data
-			// input_buffer: [metadata(4) + query(64) + key(64)] = 132 elements
-			// We skip first 4, send only [query(64) + key(64)] = 128 elements
-			msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), input_buffer.begin() + 4,
-									input_buffer.end());
+				// input_buffer: [metadata(4) + query(64) + key(64)] = 132 elements
+				// We skip first 4, send only [query(64) + key(64)] = 128 elements
+		  msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), input_buffer.begin() + 4,
+							input_buffer.end());
 		#endif
 
-		// Calculate flits: 128/16 = 8 flits exactly (no padding needed!)
-		int flitNumSinglePacket = (msg.yzMSGPayload.size() + payloadElementNum - 1) / payloadElementNum;
-		
-		// Print flit information
-		if (selfMACid < 10) {
-			std::cout << "[LLM Flit Info] MAC " << selfMACid 
-			          << " Payload size: " << msg.yzMSGPayload.size() 
-			          << " floats, Flits needed: " << flitNumSinglePacket
-			          << " (each flit = " << payloadElementNum << " floats)" << std::endl;
-		}
-		
+		// Calculate flits and add padding like CNN does
+		//int flitNumSinglePacket = (msg.yzMSGPayload.size()) / (payloadElementNum) + 1;
+		  int flitNumSinglePacket = (msg.yzMSGPayload.size() -1 + payloadElementNum) / (payloadElementNum) ;
+		// Add padding to align with flit boundaries (same as CNN approach)
 		std::fill_n(std::back_inserter(msg.yzMSGPayload),
 					(flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size()),
 					0.0f);
@@ -813,8 +829,8 @@ void LLMMAC::llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
 
 
 void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<float>& key_data,
-                                          int colnum_per_row, int rownum_per_col) {
-	// === LLM版本：全局关联排序后按列填充（根据Key排序） ===
+                                          int keycolnum_per_row, int keyrownum_per_col) {
+	// === LLM版本：与CNN完全一致的关联排序 ===
 	if (key_data.empty() || query_data.empty()) {
 		std::cerr << "ERROR: sortMatrix_LLMAffiliated - key_data or query_data is empty!" << std::endl;
 		assert(false && "sortMatrix_LLMAffiliated: empty data provided");
@@ -825,12 +841,14 @@ void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<
 		assert(false && "sortMatrix_LLMAffiliated: size mismatch between key and query");
 	}
 
-	// Step 1: 创建索引数组，根据Key进行全局排序
+	// LLM Step 5.2.1: 创建索引数组，用于跟踪元素原始位置
+	// 这个方法与CNN Step 5.2.1完全相同
 	std::vector<int> indices(key_data.size());
-	for (size_t i = 0; i < key_data.size(); i++) {
-		indices[i] = i;
+	for (int i = 0; i < indices.size(); ++i) {
+		indices[i] = i;  // 初始化索引
 	}
 
+	// LLM Step 5.2.2: 根据key的bit数对索引排序
 	// 不直接移动数据，而是排序索引，这样query可以跟随相同顺序
 	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
 #ifdef FIXED_POINT_SORTING
@@ -840,7 +858,7 @@ void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<
 #endif
 	});
 
-	// Step 2: 根据排序后的索引重新排列query和key
+	// LLM Step 5.2.3: 根据排序后的索引重新排列query和key
 	// query和key保持配对关系，都按key的bit数顺序排列
 	std::deque<float> sortedKeys;
 	std::deque<float> sortedQueries;
@@ -849,30 +867,48 @@ void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<
 		sortedQueries.push_back(query_data[idx]); // query跟随key的顺序
 	}
 
-	// Step 3: 将排序后的数据写回原容器（与CNN保持一致）
-	// 不进行矩阵重组，保持一维数组形式
-	key_data  = sortedKeys;
+	// LLM Step 5.2.4: 将排序后的数据写回原容器
+	// 这些数据将在Step 6中进行半半重组
 	query_data = sortedQueries;
+	key_data = sortedKeys;
 }
 
 
 
 void LLMMAC::sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row, int rownum_per_col) {
-	// === LLM版本：全局排序（与CNN保持一致） ===
+	// === LLM版本：与CNN完全一致的按列填充排序 ===
 	if (data.empty()) return;
 
-	// Step 1: 对整个数据进行全局排序（降序）
-	std::vector<float> sorted_data(data.begin(), data.end());
+	// Step 1: 对整个数据进行全局排序
 #ifdef FIXED_POINT_SORTING
-	std::sort(sorted_data.begin(), sorted_data.end(), compareFloatsByFixed17Ones);
+	std::sort(data.begin(), data.end(), compareFloatsByFixed17Ones);
 #else
-	std::sort(sorted_data.begin(), sorted_data.end(), compareFloatsByOnes);
+	std::sort(data.begin(), data.end(), compareFloatsByOnes);
 #endif
 
-	// Step 2: 将排序后的数据写回原容器（与CNN保持一致）
-	// 不进行矩阵重组，保持一维数组形式，后续在矩阵组合时按列主序填充
+	// Step 2: 按列主序重新排列到矩阵（与CNN相同）
+	std::vector<std::deque<float>> rows(rownum_per_col);
+	int row_index = 0;
+	int col_index = 0;
+	for (float num : data) {
+		rows[row_index].push_back(num);
+		col_index++;
+		if (col_index == colnum_per_row) {
+			row_index++;
+			col_index = 0;
+		}
+		if (row_index == rownum_per_col) { // 达到最大行数，重置
+			row_index = 0;
+		}
+	}
+
+	// Step 3: 按行序写回数据
 	data.clear();
-	data.insert(data.end(), sorted_data.begin(), sorted_data.end());
+	for (const auto& row : rows) {
+		for (float val : row) {
+			data.push_back(val);
+		}
+	}
 }
 
 

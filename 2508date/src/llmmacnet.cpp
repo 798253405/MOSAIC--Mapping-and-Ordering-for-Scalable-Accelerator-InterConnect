@@ -200,7 +200,7 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	
 	// ==== SINGLE CONFIGURATION POINT FOR TEST SIZE ====
 	// Change this ONE variable to control test size:
-	int pixels_to_test = 10000;  // 1000 pixels
+	int pixels_to_test = 5000;  // 1000 pixels
 	
 	// Calculate total tasks
 	total_task_slicedPixels = pixels_to_test * tasks_per_pixel;  // 1000 * 1 = 1000 tasks total
@@ -431,8 +431,8 @@ void LLMMACnet::llmInitializeMatrices() {
 #ifdef LLM_USE_RANDOM_MATRICES
 	// 使用随机生成矩阵模式
 	LLM_DEBUG_INIT("LLM_USE_RANDOM_MATRICES mode: Generating random matrices...");
-	// 使用固定种子确保可重现性
-	srand(42);
+	// 使用固定种子确保可重现性（与CNN相同）
+	srand(0);
 	
 	// Create a demo deque to test our bit representation functions
 	std::deque<float> demo_data;
@@ -455,9 +455,9 @@ void LLMMACnet::llmInitializeMatrices() {
 		attention_output_table[i].resize(matrixOutputPixels_size);
 
 		for (int j = 0; j < matrixOutputPixels_size; j++) {
-			attention_query_table[i][j] = (float)rand() / RAND_MAX * 2.0f - 1.0f;
-			attention_key_table[i][j] = (float)rand() / RAND_MAX * 2.0f - 1.0f;
-			attention_value_table[i][j] = (float)rand() / RAND_MAX * 2.0f - 1.0f;
+			attention_query_table[i][j] = static_cast<float>(rand()) / RAND_MAX - 0.5f;
+			attention_key_table[i][j] = static_cast<float>(rand()) / RAND_MAX - 0.5f;
+			attention_value_table[i][j] = static_cast<float>(rand()) / RAND_MAX - 0.5f;
 			attention_output_table[i][j] = 0.0f;
 		}
 	}
@@ -617,8 +617,8 @@ void LLMMACnet::llmGenerateAllTasks() {
 				// Step 2.8: 随机数据替换测试
 				// 用随机数据替换真实数据，测试bit翻转优化的潜力
 				for (int i = 0; i < 64; i++) {
-					task.query_data[i] = (float)rand() / RAND_MAX * 2.0f - 1.0f;  // [-1, 1]随机数
-					task.key_data[i] = (float)rand() / RAND_MAX * 2.0f - 1.0f;
+					task.query_data[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f;  // [-0.5, 0.5]随机数
+					task.key_data[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f;
 				}
 #endif
 				
@@ -1362,39 +1362,7 @@ void LLMMACnet::llmRunOneStep() {
 							std::cout << "Task " << task_id << " - Memory " << mem_id 
 							          << " (Pixel " << task.pixel_id << ", Subchunk " << task.subchunk_id << ")" << std::endl;
 							
-							// Commented out detailed matrix printing
-							/*
-							// Print COMPLETE Query matrix BEFORE sorting with all 3 values
-							std::cout << "\n=== QUERY MATRIX BEFORE SORTING ===" << std::endl;
-							// ... detailed printing ...
-							
-							// Print COMPLETE Key matrix BEFORE sorting with all 3 values
-							std::cout << "\n=== KEY MATRIX BEFORE SORTING ===" << std::endl;
-							// ... detailed printing ...
-							*/
-							
-							// Calculate statistics BEFORE sorting - commented out
-							/*
-							std::cout << "\n=== BIT COUNT STATISTICS BEFORE SORTING ===" << std::endl;
-							int total_bits_query = 0, min_bits_query = 32, max_bits_query = 0;
-							int total_bits_key = 0, min_bits_key = 32, max_bits_key = 0;
-							for (int i = 0; i < query_data_copy.size(); i++) {
-								int ones = countOnesInIEEE754(query_data_copy[i]);
-								total_bits_query += ones;
-								min_bits_query = std::min(min_bits_query, ones);
-								max_bits_query = std::max(max_bits_query, ones);
-							}
-							for (int i = 0; i < key_data_copy.size(); i++) {
-								int ones = countOnesInIEEE754(key_data_copy[i]);
-								total_bits_key += ones;
-								min_bits_key = std::min(min_bits_key, ones);
-								max_bits_key = std::max(max_bits_key, ones);
-							}
-							std::cout << "Query: Min=" << min_bits_query << ", Max=" << max_bits_query 
-							          << ", Avg=" << (float)total_bits_query/query_data_copy.size() << std::endl;
-							std::cout << "Key: Min=" << min_bits_key << ", Max=" << max_bits_key 
-							          << ", Avg=" << (float)total_bits_key/key_data_copy.size() << std::endl;
-							*/
+
 						}
 						
 						// Apply ordering BEFORE transmission to reduce bit flips
@@ -1419,19 +1387,7 @@ void LLMMACnet::llmRunOneStep() {
 							
 							// Debug: Print data AFTER sorting
 							if (should_print) {
-								// Commented out detailed matrix printing
-								/*
-								// Print COMPLETE Query matrix AFTER sorting with all 3 values
-								std::cout << "\n=== QUERY MATRIX AFTER SORTING ===" << std::endl;
-								// ... detailed printing ...
-								
-								// Print COMPLETE Key matrix AFTER sorting with all 3 values
-								std::cout << "\n=== KEY MATRIX AFTER SORTING ===" << std::endl;
-								// ... detailed printing ...
-								*/
-								
-								// Removed column-wise output as requested
-								
+
 								// Show row-wise bit count to understand transmission order
 								std::cout << "\n=== ROW-WISE BIT COUNT (AFTER SORTING) ===" << std::endl;
 								std::cout << "Query Matrix - Bit counts by row:" << std::endl;
@@ -1469,175 +1425,9 @@ void LLMMACnet::llmRunOneStep() {
 								// Print bit counts (按行组织的实际传输顺序)
 								std::cout << "\nBit counts:" << std::endl;
 								// 重建最终的payload以正确显示
-								std::deque<float> final_payload;
-								for (int row = 0; row < 8; row++) {
-									// Query第row行的8个元素（每个元素来自不同列）
-									for (int col = 0; col < 8; col++) {
-										int idx = col * 8 + row;  // 按列主序索引，取每列的第row个元素
-										if (idx < query_data_copy.size()) {
-											final_payload.push_back(query_data_copy[idx]);
-										}
-									}
-									// Key第row行的8个元素（每个元素来自不同列）
-									for (int col = 0; col < 8; col++) {
-										int idx = col * 8 + row;  // 按列主序索引，取每列的第row个元素
-										if (idx < key_data_copy.size()) {
-											final_payload.push_back(key_data_copy[idx]);
-										}
-									}
-								}
-								
-								// 显示每个flit（每个flit 16个元素）
-								for (int flit = 0; flit < 8; flit++) {
-									std::cout << "Flit " << flit << ": ";
-									// 显示16个元素的bit count
-									for (int i = 0; i < 16; i++) {
-										int idx = flit * 16 + i;
-										if (idx < final_payload.size()) {
-											int ones = countOnesInIEEE754(final_payload[idx]);
-											std::cout << std::setw(2) << ones << " ";
-											if (i == 7) std::cout << "| ";  // 分隔Query和Key
-										}
-									}
-									std::cout << std::endl;
-								}
-								
-								// Print float values
-								std::cout << "\nFloat values:" << std::endl;
-								for (int flit = 0; flit < 8; flit++) {
-									std::cout << "Flit " << flit << ": ";
-									// 显示16个元素的float值
-									for (int i = 0; i < 16; i++) {
-										int idx = flit * 16 + i;
-										if (idx < final_payload.size()) {
-											std::cout << std::fixed << std::setprecision(2) << std::setw(6) << final_payload[idx] << " ";
-											if (i == 7) std::cout << "| ";  // 分隔Query和Key
-										}
-									}
-									std::cout << std::endl;
-								}
-								
-								// Calculate statistics AFTER sorting - commented out
-								/*
-								std::cout << "\n=== BIT COUNT STATISTICS AFTER SORTING ===" << std::endl;
-								int total_bits_query_after = 0, min_bits_query_after = 32, max_bits_query_after = 0;
-								int total_bits_key_after = 0, min_bits_key_after = 32, max_bits_key_after = 0;
-								for (int i = 0; i < query_data_copy.size(); i++) {
-									int ones = countOnesInIEEE754(query_data_copy[i]);
-									total_bits_query_after += ones;
-									min_bits_query_after = std::min(min_bits_query_after, ones);
-									max_bits_query_after = std::max(max_bits_query_after, ones);
-								}
-								for (int i = 0; i < key_data_copy.size(); i++) {
-									int ones = countOnesInIEEE754(key_data_copy[i]);
-									total_bits_key_after += ones;
-									min_bits_key_after = std::min(min_bits_key_after, ones);
-									max_bits_key_after = std::max(max_bits_key_after, ones);
-								}
-								std::cout << "Query: Min=" << min_bits_query_after << ", Max=" << max_bits_query_after 
-								          << ", Avg=" << (float)total_bits_query_after/query_data_copy.size() << std::endl;
-								std::cout << "Key: Min=" << min_bits_key_after << ", Max=" << max_bits_key_after 
-								          << ", Avg=" << (float)total_bits_key_after/key_data_copy.size() << std::endl;
-								*/
-								
-								// Print sample flits for comparison - commented out
-								/*
-								if (task_id == 100 || task_id == 500) {  // Print specific tasks for comparison
-									std::cout << "\n=== SAMPLE FLIT DATA (Task " << task_id << ") ===" << std::endl;
-									std::cout << "First 16 elements (Flit 0):" << std::endl;
-									for (int i = 0; i < 16 && i < query_data_copy.size(); i++) {
-										std::cout << "  Q[" << i << "]: " << std::fixed << std::setprecision(4) 
-										          << query_data_copy[i] << " (bits=" << countOnesInIEEE754(query_data_copy[i]) << ")" << std::endl;
-									}
-									
-									// Calculate bit flips between consecutive elements
-									std::cout << "\nBit transitions in Flit 0:" << std::endl;
-									int flit0_transitions = 0;
-									for (int i = 1; i < 16 && i < query_data_copy.size(); i++) {
-										// Calculate bit difference manually
-										std::string bits1 = float_to_ieee754(query_data_copy[i-1]);
-										std::string bits2 = float_to_ieee754(query_data_copy[i]);
-										int flips = 0;
-										for (int b = 0; b < 32; b++) {
-											if (bits1[b] != bits2[b]) flips++;
-										}
-										flit0_transitions += flips;
-										std::cout << "  Q[" << (i-1) << "]->Q[" << i << "]: " << flips << " flips" << std::endl;
-									}
-									std::cout << "Total transitions in Flit 0: " << flit0_transitions << std::endl;
-									
-									std::cout << "\nSecond 16 elements (Flit 1):" << std::endl;
-									for (int i = 16; i < 32 && i < query_data_copy.size(); i++) {
-										std::cout << "  Q[" << i << "]: " << std::fixed << std::setprecision(4) 
-										          << query_data_copy[i] << " (bits=" << countOnesInIEEE754(query_data_copy[i]) << ")" << std::endl;
-									}
-									
-									int flit1_transitions = 0;
-									for (int i = 17; i < 32 && i < query_data_copy.size(); i++) {
-										// Calculate bit difference manually
-										std::string bits1 = float_to_ieee754(query_data_copy[i-1]);
-										std::string bits2 = float_to_ieee754(query_data_copy[i]);
-										int flips = 0;
-										for (int b = 0; b < 32; b++) {
-											if (bits1[b] != bits2[b]) flips++;
-										}
-										flit1_transitions += flips;
-									}
-									std::cout << "Total transitions in Flit 1: " << flit1_transitions << std::endl;
-								}
-								*/
-								
-								// Calculate total bit flip reduction - commented out
-								/*
-								std::cout << "\n=== BIT FLIP REDUCTION ANALYSIS ===" << std::endl;
-								int total_transitions_before = 0, total_transitions_after = 0;
-								
-								// Calculate transitions in transmission order (sequential)
-								for (int i = 1; i < query_data_copy.size(); i++) {
-									std::string prev_bits = float_to_ieee754(query_data_copy[i-1]);
-									std::string curr_bits = float_to_ieee754(query_data_copy[i]);
-									int flips = 0;
-									for (int b = 0; b < 32; b++) {
-										if (prev_bits[b] != curr_bits[b]) flips++;
-									}
-									total_transitions_after += flips;
-								}
-								for (int i = 1; i < key_data_copy.size(); i++) {
-									std::string prev_bits = float_to_ieee754(key_data_copy[i-1]);
-									std::string curr_bits = float_to_ieee754(key_data_copy[i]);
-									int flips = 0;
-									for (int b = 0; b < 32; b++) {
-										if (prev_bits[b] != curr_bits[b]) flips++;
-									}
-									total_transitions_after += flips;
-								}
-								*/
-								
-								// Accumulate statistics - commented out
-								/*
-				static int accumulated_flips = 0;
-				static int task_count = 0;
-				accumulated_flips += total_transitions_after;
-				task_count++;
-				
-				std::cout << "Total bit flips during transmission (after sorting): " << total_transitions_after << std::endl;
-				
-				// Print accumulated stats every 100 tasks
-				if (task_count % 100 == 0) {
-					std::cout << "\n=== ACCUMULATED STATISTICS (Tasks 1-" << task_count << ") ===" << std::endl;
-					std::cout << "Total accumulated bit flips: " << accumulated_flips << std::endl;
-					std::cout << "Average bit flips per task: " << (float)accumulated_flips / task_count << std::endl;
-					std::cout << "Average bit flips per element: " << (float)accumulated_flips / (task_count * 126) << std::endl;
-				}
-								std::cout << "Average flips per transition: " << (float)total_transitions_after / (query_data_copy.size() + key_data_copy.size() - 2) << std::endl;
-								
-								std::cout << "\n=== End of Task " << task_id << " Debug ===" << std::endl;
-								*/
 							}
 						#else
 							// Baseline - no ordering
-							
-							
 							// Only print details for first few tasks
 							if (should_print) {
 								std::cout << "  [Baseline - No ordering applied]" << std::endl;
@@ -1651,12 +1441,7 @@ void LLMMACnet::llmRunOneStep() {
 						tmpLLMMAC->input_buffer.insert(tmpLLMMAC->input_buffer.end(),
 							key_data_copy.begin(), key_data_copy.end());
 
-						if (LLM_DEBUG_LEVEL >= 2) {
-							std::cout << "[DEBUG @" << cycles << "] Memory " << mem_id << " received request from MAC " << src_mac
-							          << " for task " << task_id << " at cycle " << cycles
-							          << " [pixel(" << task.pixel_x << "," << task.pixel_y
-							          << "), subchunk=" << task.subchunk_id << "]" << std::endl;
-						}
+
 
 						// Step 7: NoC传输与注入
 						// 功能：将打包好的数据注入NoC网络进行传输

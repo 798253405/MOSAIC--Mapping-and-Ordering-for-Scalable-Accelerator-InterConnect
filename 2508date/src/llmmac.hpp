@@ -1,8 +1,42 @@
-/*
- * LLMMAC.hpp
- *
- *  Created on: Dec 19, 2024
- *      Author: LLM Version
+/**
+ * @file llmmac.hpp
+ * @brief LLM MAC计算单元头文件 - Transformer Attention处理器
+ * 
+ * 定义了LLM模式下的MAC计算单元类，实现Transformer架构的Attention计算。
+ * 与CNN MAC不同，LLM MAC采用状态机驱动的异步处理模式。
+ * 
+ * 状态机定义：
+ * -----------
+ * State 0 (IDLE):    空闲状态，检查任务队列
+ * State 1 (REQUEST): 请求状态，发送type 0消息获取数据
+ * State 2 (WAIT):    等待状态，等待type 1响应数据
+ * State 3 (COMPUTE): 计算状态，执行attention计算
+ * 
+ * 消息类型定义：
+ * ------------
+ * Type 0: 数据请求 - MAC向内存节点请求Query/Key数据
+ * Type 1: 数据响应 - 内存节点返回排序后的数据
+ * Type 2: 中间结果 - LLM模式中未使用
+ * Type 3: 最终结果 - Attention计算的最终输出
+ * 
+ * 主要功能：
+ * ---------
+ * - 任务队列管理：维护待处理的attention任务
+ * - 数据请求发送：向内存节点请求所需数据
+ * - 排序优化处理：对数据应用bit翻转优化排序
+ * - Attention计算：Q*K^T/sqrt(d_k)及softmax
+ * - 结果输出管理：将计算结果发送到目标节点
+ * 
+ * 排序策略：
+ * ---------
+ * - 分离排序：Query和Key独立排序，最大化减少bit翻转
+ * - 关联排序：保持Query-Key配对，维护语义关联
+ * 
+ * @see llmmacnet.hpp - LLM网络管理器
+ * @see yzIEEE754.hpp - IEEE754位操作函数
+ * 
+ * @author LLM Version, YZ (comments)
+ * @date 2024-12-19 (original), 2025 (updated)
  */
 
 #ifndef LLMMAC_HPP_
@@ -34,6 +68,7 @@
 #include "parameters.hpp"
 #include "NoC/Packet.hpp"
 #include "NoC/NI.hpp"
+#include "yzllmieee754.hpp"  // LLM专用IEEE754排序优化
 // 注意: llmmacnet.hpp 会在 .cpp 文件中包含，避免循环依赖
 
 #if defined MemNode2_4X4
@@ -184,11 +219,56 @@ class LLMMAC
 		bool llmIsWaitingForData();
 		void llmResetForNextTask();
 		void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload);  // LLM payload ordering
-		void sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row, int rownum_per_col);
-		void sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<float>& key_data, int colnum_per_row, int rownum_per_col);
-		void llmPrintDetailedData(const std::deque<float>& data, const std::string& name, int max_elements = 8);  // Debug print function
+		// 注意: 排序函数已移至 yzllmieee754.hpp/cpp
 
 		~LLMMAC();
 };
+
+
+
+// Hierarchical debug macros based on LLM_DEBUG_LEVEL from parameters.hpp
+// With cycle info and system time (for runtime use)
+#define LLM_INFO(x) do { \
+    if (LLM_DEBUG_LEVEL >= 1) { \
+        std::cout << "[" << getCurrentTimeStr() << "] [INFO @" << cycles << "] " << x << std::endl; \
+    } \
+} while(0)
+
+#define LLM_DEBUG(x) do { \
+    if (LLM_DEBUG_LEVEL >= 2) { \
+        std::cout << "[DEBUG @" << cycles << "] " << x << std::endl; \
+    } \
+} while(0)
+
+#define LLM_TRACE(x) do { \
+    if (LLM_DEBUG_LEVEL >= 3) { \
+        std::cout << "[TRACE @" << cycles << "] " << x << std::endl; \
+    } \
+} while(0)
+
+// Without cycle info (for initialization)
+#define LLM_INFO_INIT(x) do { \
+    if (LLM_DEBUG_LEVEL >= 1) { \
+        std::cout << "[" << getCurrentTimeStr() << "] [INFO @init] " << x << std::endl; \
+    } \
+} while(0)
+
+#define LLM_DEBUG_INIT(x) do { \
+    if (LLM_DEBUG_LEVEL >= 2) { \
+        std::cout << "[DEBUG @init] " << x << std::endl; \
+    } \
+} while(0)
+
+#define LLM_TRACE_INIT(x) do { \
+    if (LLM_DEBUG_LEVEL >= 3) { \
+        std::cout << "[TRACE @init] " << x << std::endl; \
+    } \
+} while(0)
+
+// Helper function
+template<class C, typename T>
+bool contains(C &&c, T e) {
+	return find(begin(c), end(c), e) != end(c);
+}
 
 #endif /* LLMMAC_HPP_ */

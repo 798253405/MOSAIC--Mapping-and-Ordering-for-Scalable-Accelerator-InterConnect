@@ -1,3 +1,108 @@
+/**
+ * @file MACnet.cpp
+ * @brief CNN (Convolutional Neural Network) MAC网络实现
+ * 
+ * 本文件实现了CNN模式下的MAC（Multiply-Accumulate）网络管理器。
+ * MACnet是CNN加速器的核心控制组件，负责协调多个MAC单元完成CNN推理。
+ * 
+ * =============================
+ * 主要执行步骤 (Step Functions)
+ * =============================
+ * 
+ * Step() 函数是MACnet的核心调度器，每个时钟周期执行一次：
+ * 
+ * 1. **数据初始化阶段** (cycles == 1)
+ *    - 调用 preparelayer() 准备当前层数据
+ *    - 初始化 input_table、weight_table、output_table
+ *    - 根据层类型（conv/pool/FC）配置参数
+ * 
+ * 2. **MAC分配阶段** (mapping)
+ *    - xmapping(): 按行映射neurons到MAC单元
+ *    - ymapping(): 按列映射neurons到MAC单元  
+ *    - yzFuncSAMOSSampleMapping(): 基于延迟采样的动态映射
+ *    - 将neurons均匀或按性能分配给各MAC单元
+ * 
+ * 3. **数据请求阶段** (MAC发送请求)
+ *    - MAC单元向内存节点发送type 0消息请求数据
+ *    - 请求weight数据（卷积核参数）
+ *    - 请求input数据（输入特征图）
+ *    - 通过NoC发送Packet到对应内存节点
+ * 
+ * 4. **数据接收阶段** (处理type 1响应)
+ *    - 内存节点返回type 1消息携带数据
+ *    - MAC接收并缓存weight和input数据
+ *    - 检查数据完整性，准备计算
+ * 
+ * 5. **计算执行阶段** (MAC compute)
+ *    - 执行MAC运算：output += weight * input
+ *    - 卷积层：滑动窗口卷积计算
+ *    - 池化层：最大/平均池化
+ *    - FC层：矩阵乘法运算
+ *    - 激活函数：ReLU/Sigmoid等
+ * 
+ * 6. **结果输出阶段** (发送type 2消息)
+ *    - MAC计算完成后生成type 2消息
+ *    - 结果写入output_table供下一层使用
+ *    - 最后一层输出到指定内存节点
+ * 
+ * 7. **层切换阶段** (layer transition)
+ *    - 检查当前层是否完成（used_pe == 0）
+ *    - current_layerSeq++切换到下一层
+ *    - output_table变为下一层的input_table
+ *    - 重复步骤1-6直到所有层完成
+ * 
+ * =============================
+ * 关键数据结构
+ * =============================
+ * 
+ * - input_table[channel][data]: 输入特征图
+ * - weight_table[och*ich + j][kernel]: 卷积核权重
+ * - output_table[channel][data]: 输出特征图
+ * - mapping_table[mac_id][neuron_ids]: MAC-neuron映射表
+ * - MAC_list[]: 所有MAC单元的列表
+ * 
+ * =============================
+ * 消息类型处理
+ * =============================
+ * 
+ * - Type 0 (Request): MAC请求数据
+ *   格式：{src_id, dest_mem_id, data_addr, request_type}
+ *   
+ * - Type 1 (Response): 内存返回数据
+ *   格式：{mem_id, dest_mac_id, data_payload[16]}
+ *   
+ * - Type 2 (Result): MAC输出结果
+ *   格式：{mac_id, dest_id, result_data, layer_info}
+ * 
+ * =============================
+ * 优化策略
+ * =============================
+ * 
+ * - Weight复用：同一卷积核在多个位置使用时缓存
+ * - 流水线并行：计算与数据传输重叠执行
+ * - 负载均衡：根据MAC延迟动态调整任务分配
+ * - Padding策略：使用PADDING_RANDOM减少边界效应
+ * 
+ * =============================
+ * 与LLM模式的关键区别
+ * =============================
+ * 
+ * CNN模式特点：
+ * - 层级顺序处理，数据流规律可预测
+ * - Weight参数固定，可大量复用
+ * - 数据访问模式规则（卷积窗口滑动）
+ * - Bit flipping较少（12-22 bits随机分布）
+ * 
+ * LLM模式特点：
+ * - 任务级并行处理，数据流动态变化
+ * - Attention矩阵每次不同，无法复用
+ * - 数据访问模式不规则（attention pattern）
+ * - Bit flipping较多（23→13 bits梯度排序）
+ * 
+ * @author YZ
+ * @date 2025
+ */
+
 #include "MACnet.hpp"
 #include "MAC.hpp" // 確保這一行存在
 #include <cassert>

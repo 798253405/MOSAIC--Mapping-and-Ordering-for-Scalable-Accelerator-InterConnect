@@ -1,8 +1,34 @@
-/*
- * MAC.hpp
- *
- *  Created on: Dec 19, 2022
- *      Author: wenyao
+/**
+ * @file MAC.hpp
+ * @brief CNN MAC计算单元头文件
+ * 
+ * 定义了CNN模式下的单个MAC (Multiply-Accumulate) 计算单元。
+ * MAC是CNN硬件加速器的基础计算单元，负责执行卷积、池化等操作。
+ * 
+ * 内存节点配置：
+ * - MemNode2_4X4: 2个内存节点，位于{9, 11}
+ * - MemNode4_4X4: 4个内存节点，位于{5, 6, 9, 10}
+ * - MemNode8_4X4: 8个内存节点，分布在网格中
+ * - MemNode16_4X4: 16个内存节点，每个节点都是内存
+ * 
+ * MAC单元状态：
+ * - selfstatus: 0(空闲), 1(请求数据), 2(计算中), 3(发送结果)
+ * - pecycle: PE计算周期计数
+ * - send: 发送控制标志
+ * 
+ * 数据缓存：
+ * - weight: 权重缓存，支持权重复用
+ * - infeature: 输入特征缓存
+ * - inbuffer: 输入数据缓冲区
+ * - outfeature: 输出特征值
+ * 
+ * 支持的操作：
+ * - 卷积计算: weight * input的累加
+ * - 池化操作: 最大池化、平均池化
+ * - 数据传输: 通过NoC请求和发送数据
+ * 
+ * @author wenyao (original), YZ (comments)
+ * @date 2022-12-19 (original), 2025 (updated)
  */
 
 #ifndef MAC_HPP_

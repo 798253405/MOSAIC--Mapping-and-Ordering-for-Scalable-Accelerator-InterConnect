@@ -1,4 +1,45 @@
 
+/**
+ * @file MAC.cpp
+ * @brief CNN模式下的MAC (Multiply-Accumulate) 计算单元实现
+ * 
+ * 本文件实现了CNN加速器中的单个MAC计算单元。
+ * MAC是CNN硬件加速的基本计算单元，执行乘累加运算：
+ * output = Σ(weight[i] * input[i]) + bias
+ * 
+ * 主要功能：
+ * 1. 权重(weight)和输入特征(input feature)的缓存管理
+ * 2. 卷积、池化、全连接层的计算执行
+ * 3. 与NoC的数据交互（发送请求、接收数据、输出结果）
+ * 4. 支持不同的池化策略（最大池化、平均池化）
+ * 
+ * 数据处理流程：
+ * - requestData(): 向内存节点请求weight/input数据
+ * - receiveData(): 接收并缓存数据
+ * - compute(): 执行MAC运算或池化操作
+ * - sendOutput(): 将结果发送到下一层或输出
+ * 
+ * 内存节点映射：
+ * - 根据NI_id自动计算对应的内存节点dest_mem_id
+ * - 支持多种内存配置（MemNode2_4X4, MemNode4_4X4, MemNode8_4X4等）
+ * - 采用就近原则减少NoC传输距离
+ * 
+ * 优化特性：
+ * - 数据复用：缓存weight减少重复传输
+ * - 流水线处理：计算与数据传输重叠
+ * - 批量处理：一次处理多个channel提高效率
+ * 
+ * 与LLMMAC的区别：
+ * - MAC处理规则的CNN层数据，LLMMAC处理不规则的attention矩阵
+ * - MAC的数据访问模式固定，LLMMAC更加动态
+ * - MAC支持多种层类型，LLMMAC专注于transformer计算
+ * 
+ * @note 本实现中使用了PADDING_RANDOM宏来控制padding策略
+ * @note dest_list定义了内存节点的物理位置映射
+ * 
+ * @author YZ
+ * @date 2025
+ */
 
 #include "MAC.hpp"
 
@@ -108,16 +149,7 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 	msg.mac_id = mac_src; //MAC
 	msg.msgdata_length = t_eleNum; // element num only for resp and results
 	int selector = rand() % 90;
-#ifdef LCS_URS_TRAFFIC
-	if (selector >= 45)
-		msg.QoS = 3;
-	else
-		msg.QoS = 0;
-#endif
-#ifdef SHARED_VC
-  if(msg.QoS == 3)
-	  msg.QoS = 1;
-#endif
+
 	msg.QoS = 0;
 
 	msg.data.assign(1, t_output);
@@ -139,8 +171,8 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 	if (msg.msgtype == 0) {
 		// Request message padding
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
-#define PADDING_RANDOM
-#ifdef PADDING_RANDOM
+
+#ifdef  PADDING_RANDOM
 		// Use random padding instead of zeros
 		static bool warning_printed = false;
 		if (!warning_printed) {
@@ -169,14 +201,14 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 		//cout<<" maccpp check msg.yzMSGPayload.size before grid "<< msg.yzMSGPayload.size()<<endl;
 		//int flitNumSinglePacket = (msg.yzMSGPayload.size()) 		/ (payloadElementNum) + 1;
 		  int flitNumSinglePacket = (msg.yzMSGPayload.size() -1 + payloadElementNum) / (payloadElementNum) ;
-		float tempRandom =static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - 0.5f ;
+		//float tempRandom =static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - 0.5f ;
 		// Fill the remaining space with zeros
 		//cout<<"flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size() "<< flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size() <<endl;
 		//cout <<" checked  tempRandomis not  the same  " <<tempRandom<<endl; // this proves that the improvement is not only due to  padding zeros
 		std::fill_n(std::back_inserter(msg.yzMSGPayload),
 				(flitNumSinglePacket * payloadElementNum
 			//			  - msg.yzMSGPayload.size()), tempRandom);  // this is for debugging, to check whether padding zeros matters. //test, fill random values
-						 - msg.yzMSGPayload.size()), tempRandom);
+						 - msg.yzMSGPayload.size()), 0.0f);
 		//cout<<" maccpp check msg.yzMSGPayload.size after grid "<< msg.yzMSGPayload.size()<<endl;
 
 #ifdef CoutDebugAll0

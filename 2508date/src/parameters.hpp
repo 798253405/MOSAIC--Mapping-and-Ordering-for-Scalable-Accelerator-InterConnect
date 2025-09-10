@@ -3,12 +3,13 @@
 #define DEFAULT_NNWEIGHT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/weight.txt"
 #define DEFAULT_NNINPUT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/input2.txt"
 #define DEFAULT_NNMODEL_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/newnet2.txt"
-#define randomeval
 
+//#define randomeval
+#define fulleval
 //#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
 
 // CNN Random Data Test - Replace CNN inbuffer data with random values (same as LLM)
-#define CNN_RANDOM_DATA_TEST  // Enable this to make CNN use pure random data like LLM
+//#define CNN_RANDOM_DATA_TEST  // Enable this to make CNN use pure random data like LLM
 
 
 // NoC Configuration - Choose one
@@ -26,8 +27,11 @@
 //#define case5_MOSAIC1
 //#define case6_MOSAIC2
 
+//#define  PADDING_RANDOM
 
-//#define YZLLMSwitchON
+
+// #define YZLLMSwitchON
+//#define LLMPADDING_RANDOM
 constexpr int DIM_MODEL = 4096; 
 constexpr int NUM_HEAD = 32; 
 constexpr int SEQUENCE_LENGTH = 512; 

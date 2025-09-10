@@ -1,3 +1,120 @@
+/**
+ * @file llmmac.cpp
+ * @brief LLM MAC计算单元实现 - Attention计算核心
+ * 
+ * 本文件实现了LLM模式下的单个MAC计算单元，负责执行Transformer的
+ * Attention计算。通过状态机控制整个处理流程，并实现数据排序优化。
+ * 
+ * ========================================================================
+ * 执行流程对应llmmacnet.cpp的7步骤
+ * ========================================================================
+ * 
+ * Step 0: 初始化（在构造函数中完成）
+ * ----------------------------------------
+ * 函数：LLMMAC::LLMMAC() [行54-83]
+ * - 设置MAC ID和NI接口ID
+ * - 初始化dest_mem_id（内存节点映射）
+ * - 清空任务队列和数据缓存
+ * - selfstatus设为0（IDLE状态）
+ * 
+ * Step 1: 状态检查与转换【核心状态机】
+ * ----------------------------------------
+ * 函数：LLMMAC::llmRunOneStep() [行319-479]
+ * 
+ * 状态机定义：
+ *   State 0 (IDLE):    空闲，等待任务
+ *   State 1 (REQUEST): 发送数据请求
+ *   State 2 (WAIT):    等待数据响应
+ *   State 3 (COMPUTE): 执行计算
+ * 
+ * 状态转换逻辑：
+ *   IDLE → REQUEST:    当llmtasktable非空时 [行336-342]
+ *   REQUEST → WAIT:    发送请求后立即转换 [行373]
+ *   WAIT → COMPUTE:    由processCNNPacket()设置 [行520]
+ *   COMPUTE → IDLE:    计算完成后回到空闲 [行476]
+ * 
+ * Step 2: 数据请求发送（状态1执行）
+ * ----------------------------------------
+ * 函数：LLMMAC::llmInject() [行212-260]
+ * 触发条件：selfstatus == 1
+ * 关键操作：
+ *   - 从llmtasktable取出任务ID [行349]
+ *   - 创建type 0请求消息 [行228]
+ *   - 计算源和目标坐标 [行229-232]
+ *   - 通过NoC注入请求 [行238]
+ * 
+ * Step 3: 响应包创建与排序（内存节点端）
+ * ----------------------------------------
+ * 函数：LLMMAC::processCNNPacket() [行262-301]
+ * 3.1 创建响应payload：
+ *   - 132个float容器 [行278]
+ *   - 元数据[0-3]：magic、size、chunk_id、pixel_id
+ *   - Query数据[4-67]：64个元素
+ *   - Key数据[68-131]：64个元素
+ * 
+ * 3.2 应用排序优化：
+ *   函数：llmReshapeFlatToQueryKeyMatrix() [行643-793]
+ *   - 分离排序：sortMatrix_LLMSeparated() [行872-923]
+ *   - 关联排序：sortMatrix_LLMAffiliated() [行926-984]
+ * 
+ * Step 4: 数据接收处理（状态2执行）
+ * ----------------------------------------
+ * 函数：LLMMAC::processCNNPacket() [行487-545]
+ * 触发条件：收到type 1响应消息
+ * 关键操作：
+ *   - 检查消息类型 [行489]
+ *   - 提取payload数据 [行507,514]
+ *   - 缓存到infeature/weight [行507,514]
+ *   - 设置selfstatus = 3准备计算 [行520]
+ * 
+ * Step 5: 运算执行（状态3执行）
+ * ----------------------------------------
+ * 函数：LLMMAC::compute() [行547-608]
+ * 触发条件：selfstatus == 3
+ * 关键操作：
+ *   - MAC运算：outfeature += weight[k] * infeature[i] [行568]
+ *   - 激活函数：tanh(outfeature) [行573]
+ *   - 检查是否需要更多数据 [行585]
+ *   - 准备发送结果：selfstatus = 4 [行577]
+ * 
+ * Step 6: 结果输出与状态复位
+ * ----------------------------------------
+ * 函数：LLMMAC::sendOutput() [行610-640]
+ * 关键操作：
+ *   - 创建type 2结果消息 [行615]
+ *   - 打包计算结果 [行622]
+ *   - 通过NoC发送 [行630]
+ *   - 复位到IDLE：selfstatus = 0 [行635]
+ * 
+ * ========================================================================
+ * 排序优化算法详解
+ * ========================================================================
+ * 
+ * 分离排序（Separated Ordering）：
+ * - Query和Key独立排序，每列按1-bit数递增
+ * - 优点：最大化减少bit翻转
+ * - 缺点：破坏Query-Key语义关联
+ * 
+ * 关联排序（Affiliated Ordering）：
+ * - Key排序，Query保持配对关系
+ * - 优点：保持attention语义
+ * - 缺点：bit翻转减少效果略差
+ * 
+ * ========================================================================
+ * 关键数据结构
+ * ========================================================================
+ * 
+ * - llmtasktable: 任务队列，存储待处理任务ID
+ * - infeature: 输入特征缓存（Query数据）
+ * - weight: 权重缓存（Key数据）
+ * - outfeature: 输出结果
+ * - selfstatus: 当前状态（0-3）
+ * - pecycle: PE执行周期计数
+ * 
+ * @author YZ
+ * @date 2025
+ */
+
 // 小矩阵版本的 llmmac.cpp - 4x4可调试
 #include "llmmac.hpp"
 #include "llmmacnet.hpp"
@@ -153,11 +270,11 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	}
 }
 
-bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* t_NI, int p_id, int mac_src) {
+bool LLMMAC::llmInject(int type, int d_id, int  tllm_eleNum, float t_output, NI* t_NI, int p_id, int mac_src) {
 	Message msg;
 	msg.NI_id = NI_id;
 	msg.mac_id = mac_src;
-	msg.msgdata_length = data_length;
+	msg.msgdata_length =  tllm_eleNum;
 	msg.QoS = 0;
 
 	if (type == 2 || type == 3) {
@@ -208,24 +325,18 @@ bool LLMMAC::llmInject(int type, int d_id, int data_length, float t_output, NI* 
 	if (msg.msgtype == 0) { // Request
 		// Request message padding
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
-#ifdef PADDING_RANDOM
-		// Use random padding instead of zeros
-		static bool warning_printed = false;
-		if (!warning_printed) {
-			cout << "WARNING: PADDING_RANDOM enabled in LLM mode - using random values for padding instead of zeros" << endl;
-			warning_printed = true;
-		}
+#ifdef LLMPADDING_RANDOM
+
 		for (int i = 0; i < payloadElementNum; i++) {
 			msg.yzMSGPayload[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f; // Random [-0.5, 0.5]
 		}
 #endif
-		if (selfMACid < 10) {
-			LLM_DEBUG("MAC " << selfMACid << " sending request (type 0) to " << d_id << " for task " << t_output);
-		}
+
 	} else if (msg.msgtype == 2 || msg.msgtype == 3) { // Result (type 2 intermediate, type 3 final)
-		// Result message padding
+
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
-#ifdef PADDING_RANDOM
+		// Result message padding
+#ifdef LLMPADDING_RANDOM
 		// Use random padding instead of zeros  
 		for (int i = 1; i < payloadElementNum; i++) { // i从1开始，保留[0]位置给t_output
 			msg.yzMSGPayload[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f; // Random [-0.5, 0.5]
@@ -648,268 +759,19 @@ void LLMMAC::llmResetForNextTask() {
 
 void LLMMAC::llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
 	// === Step 4 & 5: 矩阵重组与排序 ===
-	// 功能：将线性payload数据重组为8x8矩阵并应用排序优化
-	// Commented out reshape function call tracking for cleaner output
-	static int call_count = 0;
-	call_count++;
-	// if (call_count <= 10) {
-	//	std::cout << "\n=== llmReshapeFlatToQueryKeyMatrix CALLED (call #" << call_count << ") ===" << std::endl;
-	//	std::cout << "    Payload size: " << payload.size() << " floats" << std::endl;
-	// }
-	
-	// Step 4.1: 检查payload格式
-	// 新的LLM payload格式（跳过元数据）: [query数据(64个), key数据(64个)]
-	// 总共128个float元素（纯数据，无元数据）
-	if (payload.size() < 128) {
-		std::cout << "WARNING: Payload too small: " << payload.size() << " < 128" << std::endl;
-		return;
-	}
-	
-	// Step 4.2: 设置数据大小（固定值，因为没有元数据了）
-	int data_size = 64;  // 每个矩阵64个元素
-	
-	// Step 4.3: 验证payload完整性
-	// 需要: 64(query) + 64(key) = 128个元素
-	if (payload.size() < data_size * 2) return;
-	
-	// Step 4.4: 提取Query和Key数据段
-	// Query数据: payload[0]到payload[63] (64个元素)
-	std::deque<float> query_data(payload.begin(), 
-	                             payload.begin() + data_size);
-	// Key数据: payload[64]到payload[127] (64个元素)
-	std::deque<float> key_data(payload.begin() + data_size,
-	                           payload.begin() + data_size * 2);
-	
-	// Debug: Print raw data and bit statistics - only for ordered cases
-	#ifdef YzAffiliatedOrdering
-	if (call_count <= 3) {
-		std::cout << "\n--- RAW DATA ANALYSIS (call #" << call_count << ") ---" << std::endl;
-		
-		// Print first 16 values
-		std::cout << "Query raw values (first 16): ";
-		for (int i = 0; i < 16; i++) {
-			std::cout << std::fixed << std::setprecision(3) << query_data[i] << " ";
-		}
-		std::cout << std::endl;
-		
-		std::cout << "Key raw values (first 16): ";
-		for (int i = 0; i < 16; i++) {
-			std::cout << std::fixed << std::setprecision(3) << key_data[i] << " ";
-		}
-		std::cout << std::endl;
-		
-		// Analyze bit counts
-		int q_bit_counts[64], k_bit_counts[64];
-		for (int i = 0; i < 64; i++) {
-			q_bit_counts[i] = countOnesInIEEE754(query_data[i]);
-			k_bit_counts[i] = countOnesInIEEE754(key_data[i]);
-		}
-		
-
-		// Show bit count distribution
-		std::cout << "\nQuery bit counts (first 16): ";
-		for (int i = 0; i < 16; i++) {
-			std::cout << q_bit_counts[i] << " ";
-		}
-		std::cout << std::endl;
-		
-		std::cout << "Key bit counts (first 16): ";
-		for (int i = 0; i < 16; i++) {
-			std::cout << k_bit_counts[i] << " ";
-		}
-		std::cout << std::endl;
-	}
-
-	// Step 5: 根据配置应用排序算法
-#ifdef YZSeperatedOrdering_reArrangeInput
-	// Step 5.1: 分离排序 - Query和Key各自独立按列排序
-	// 每列按1-bit数量升序排列，减少列内bit翻转
-	sortMatrix_LLMSeparated(query_data, 8, 8);  // 将64个元素视为8x8矩阵
-	sortMatrix_LLMSeparated(key_data, 8, 8);
-#elif defined(YzAffiliatedOrdering)
-	// Step 5.2: 关联排序 - Query跟随Key的bit数排序
-	// Key按bit数排序，Query保持与Key的对应关系
-	sortMatrix_LLMAffiliated(query_data, key_data, 8, 8);
-#endif
-
-	#endif
-
-	// Define row and column dimensions for LLM matrices
-	int rownum_per_col = 8;  // 8 rows in the matrix
-	int querycolnum_per_row = 8;  // 8 columns for query matrix
-	int keycolnum_per_row = 8;    // 8 columns for key matrix
-	int totalcolnum_per_row = querycolnum_per_row + keycolnum_per_row;  // Total 16 columns per row when combined
-
-	std::vector<std::deque<float>> query_rows(rownum_per_col); // one row contains "colnum_per_row" elements //for example， overall 40 = 5row *8 elements。 Inside one row， the left 4 elements are query the right 4 elements are key
-	std::vector<std::deque<float>> key_rows(rownum_per_col); // one row contains "colnum_per_row" elements
-	// convert 1 row to matrix. and  padding zero elements from flatten payload to matrix payload
-	// Calculate the number of columns required  // to understand, assumming 4 rows, 16 cols
-	for (int col_index = 0; col_index < querycolnum_per_row; col_index++) {	// first col, 4 element, then next col 4elemetn, next col 4 elements...
-		for (int row_index = 0; row_index < rownum_per_col; row_index++) {
-			if (col_index * rownum_per_col + row_index < query_data.size())// fill elements
-					{
-				query_rows[row_index].push_back(
-						query_data[col_index * rownum_per_col + row_index]);
-			}
-
-			else {  //else padding zeros
-				query_rows[row_index].push_back(0.0f);
-			}
-			//std::cout << querycolnum_per_row << " " << col_index	<< " ieee754line99 combined rows ok " << col_index << std::endl;
-		}
-	}
-	// Calculate the number of columns required  // to understand, assumming 4 rows, 16 cols
-	for (int col_index = 0; col_index < keycolnum_per_row; col_index++) { // first col, 4 element, then next col 4elemetn, next col 4 elements...
-		for (int row_index = 0; row_index < rownum_per_col; row_index++) {
-			if (col_index * rownum_per_col + row_index < key_data.size()) // fill elements
-					{
-				key_rows[row_index].push_back(
-						key_data[col_index * rownum_per_col + row_index]);
-			}
-
-			else {  //else padding zeros
-				key_rows[row_index].push_back(0.0f);
-			}
-			//	std::cout << " querycolnum_per_row " << querycolnum_per_row << " col_index " << col_index	<< " ieee754line99 combined rows ok " << col_index << std::endl;
-		}
-	}
-	// Step 6.1: 按行组合query和key数据
-	// 每个flit格式：[query第i行的8个元素] + [key第i行的8个元素]
-	// 注意：由于数据已按列主序填充，第0行包含各列的第0个元素（bit数最多的元素）
-	std::vector<std::deque<float>> combined_flits(rownum_per_col);  // 8个flits
-
-	for (int row = 0; row < rownum_per_col; ++row) { // 遍历每一行
-		// 先添加query第row行的所有列元素
-		combined_flits[row].insert(combined_flits[row].end(), 
-			query_rows[row].begin(), query_rows[row].end());
-		// 再添加key第row行的所有列元素
-		combined_flits[row].insert(combined_flits[row].end(), 
-			key_rows[row].begin(), key_rows[row].end());
-		//std::cout << combined_flits.size() << " " << combined_flits[row].size() 	<< "  combined_flits.size()lineafterinsert" << std::endl;
-		if (combined_flits[row].size() != totalcolnum_per_row) { // Each flit should have 16 elements (8 query + 8 key)
-			std::cerr
-					<< "Error: flit size not equal to expected 16 elements "
-					<< "Flit " << row << " size: " << combined_flits[row].size()
-					<< " Expected: " << totalcolnum_per_row
-					<< std::endl;
-			assert(
-					false
-							&& "Error: flit size not equal to expected 16 elements");
-			return;
-		}
-	}
-
-	// original dq is: k*k inputs, k*k weights, 1 bias. For example, 25 inputs and 25 weights.
-
-#ifdef printCombinedMatrix
-	int printnextRowIndex1 = 0;
-	std::cout << "dq:before halfinput half weight " << std::endl;
-	for (const auto &element : dq) {
-				std::cout << std::setw(10) << element << " ";
-				printnextRowIndex1++;
-				if (printnextRowIndex1 == totalcolnum_per_row) {
-					std::cout << std::endl;
-					printnextRowIndex1 = 0;
-				}
-			}
-			std::cout << std::endl;
-#endif
-	// Step 6.2: 将重组后的数据写回原始容器
-	// 这些数据将通过NoC传输（Step 7）
-	payload.clear(); // 清空原始数据
-	for (const auto &flit : combined_flits) {
-		for (const auto &element : flit) {
-			payload.push_back(element);  // 按flit顺序展开存储
-		}
-	}
-
+	// 功能：调用新的yzllmieee754模块进行数据重组和排序优化
+	// 排序模式由编译时宏定义决定
+	YzLLMIEEE754::reshapeAndOptimize(payload);
 }
 
 
 
 
-void LLMMAC::sortMatrix_LLMAffiliated(std::deque<float>& query_data, std::deque<float>& key_data,
-                                          int keycolnum_per_row, int keyrownum_per_col) {
-	// === LLM版本：与CNN完全一致的关联排序 ===
-	if (key_data.empty() || query_data.empty()) {
-		std::cerr << "ERROR: sortMatrix_LLMAffiliated - key_data or query_data is empty!" << std::endl;
-		assert(false && "sortMatrix_LLMAffiliated: empty data provided");
-	}
-	if (key_data.size() != query_data.size()) {
-		std::cerr << "ERROR: sortMatrix_LLMAffiliated - key_data size (" << key_data.size() 
-		          << ") != query_data size (" << query_data.size() << ")" << std::endl;
-		assert(false && "sortMatrix_LLMAffiliated: size mismatch between key and query");
-	}
-
-	// LLM Step 5.2.1: 创建索引数组，用于跟踪元素原始位置
-	// 这个方法与CNN Step 5.2.1完全相同
-	std::vector<int> indices(key_data.size());
-	for (int i = 0; i < indices.size(); ++i) {
-		indices[i] = i;  // 初始化索引
-	}
-
-	// LLM Step 5.2.2: 根据key的bit数对索引排序
-	// 不直接移动数据，而是排序索引，这样query可以跟随相同顺序
-	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
-#ifdef FIXED_POINT_SORTING
-		return compareFloatsByFixed17Ones(key_data[i], key_data[j]);  // 定点数比较
-#else
-		return compareFloatsByOnes(key_data[i], key_data[j]);         // 浮点数bit数比较
-#endif
-	});
-
-	// LLM Step 5.2.3: 根据排序后的索引重新排列query和key
-	// query和key保持配对关系，都按key的bit数顺序排列
-	std::deque<float> sortedKeys;
-	std::deque<float> sortedQueries;
-	for (int idx : indices) {
-		sortedKeys.push_back(key_data[idx]);      // key按bit数排序
-		sortedQueries.push_back(query_data[idx]); // query跟随key的顺序
-	}
-
-	// LLM Step 5.2.4: 将排序后的数据写回原容器
-	// 这些数据将在Step 6中进行半半重组
-	query_data = sortedQueries;
-	key_data = sortedKeys;
-}
+// 注意: sortMatrix_LLMAffiliated 函数已移至 yzllmieee754.cpp
 
 
 
-void LLMMAC::sortMatrix_LLMSeparated(std::deque<float>& data, int colnum_per_row, int rownum_per_col) {
-	// === LLM版本：与CNN完全一致的按列填充排序 ===
-	if (data.empty()) return;
-
-	// Step 1: 对整个数据进行全局排序
-#ifdef FIXED_POINT_SORTING
-	std::sort(data.begin(), data.end(), compareFloatsByFixed17Ones);
-#else
-	std::sort(data.begin(), data.end(), compareFloatsByOnes);
-#endif
-
-	// Step 2: 按列主序重新排列到矩阵（与CNN相同）
-	std::vector<std::deque<float>> rows(rownum_per_col);
-	int row_index = 0;
-	int col_index = 0;
-	for (float num : data) {
-		rows[row_index].push_back(num);
-		col_index++;
-		if (col_index == colnum_per_row) {
-			row_index++;
-			col_index = 0;
-		}
-		if (row_index == rownum_per_col) { // 达到最大行数，重置
-			row_index = 0;
-		}
-	}
-
-	// Step 3: 按行序写回数据
-	data.clear();
-	for (const auto& row : rows) {
-		for (float val : row) {
-			data.push_back(val);
-		}
-	}
-}
+// 注意: sortMatrix_LLMSeparated 函数已移至 yzllmieee754.cpp
 
 
 
@@ -944,27 +806,7 @@ void LLMMAC::llmReceive(Message* re_msg) {
 	}
 }
 
-// LLM-specific sorting functions for IEEE754 bit-count optimization
-
-void LLMMAC::llmPrintDetailedData(const std::deque<float>& data, const std::string& name, int max_elements) {
-	std::cout << "\n=== " << name << " Debug Info ===\n";
-	std::cout << "Total elements: " << data.size() << "\n";
-	
-	int print_count = std::min((int)data.size(), max_elements);
-	for (int i = 0; i < print_count; i++) {
-		float value = data[i];
-		std::string bit_repr = float_to_ieee754(value);
-		int bit_count = countOnesInIEEE754(value);
-		
-		std::cout << "[" << i << "] Value: " << std::fixed << std::setprecision(6) << value
-		          << " | Bits: " << bit_repr 
-		          << " | 1-Count: " << bit_count << "\n";
-	}
-	if ((int)data.size() > max_elements) {
-		std::cout << "... (showing first " << max_elements << " of " << data.size() << " elements)\n";
-	}
-	std::cout << std::endl;
-}
+// 注意: llmPrintDetailedData 函数已移至 yzllmieee754.cpp
 
 
 // Destructor

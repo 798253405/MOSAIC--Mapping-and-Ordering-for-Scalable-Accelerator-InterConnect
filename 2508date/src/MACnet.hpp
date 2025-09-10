@@ -1,4 +1,26 @@
 
+/**
+ * @file MACnet.hpp
+ * @brief CNN MAC网络管理器头文件
+ * 
+ * 定义了CNN模式下的MAC网络管理器类，负责协调多个MAC单元进行CNN推理。
+ * 
+ * 类层次结构：
+ * - MACnet: 网络管理器，控制所有MAC单元
+ *   - MAC_list: 包含所有MAC计算单元
+ *   - VCNetwork: NoC通信网络接口
+ *   - Model: CNN模型定义
+ * 
+ * 关键数据结构：
+ * - input_table: 输入特征图缓存
+ * - output_table: 输出特征图缓存
+ * - weight_table: 权重参数缓存
+ * - pe_allocation: PE资源分配表
+ * 
+ * @see MAC.hpp - MAC计算单元定义
+ * @see VCNetwork.hpp - NoC网络接口
+ * @see Model.hpp - CNN模型定义
+ */
 
 #ifndef MACNET_HPP_
 #define MACNET_HPP_

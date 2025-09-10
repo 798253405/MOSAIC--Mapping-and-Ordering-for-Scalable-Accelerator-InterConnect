@@ -1,92 +1,205 @@
-// 小矩阵版本的 llmmacnet.cpp - 4x4可调试
-
-/*
-==================================================================
-LLM 排序优化7步骤总览
-目标：减少NoC传输中的bit翻转，提高能效
-==================================================================
-
-Step 1: 数据生成与加载
-  函数：LLMMACnet::llmLoadRealMatrices() [llmmacnet.cpp]
-  功能：从文件加载真实LLaMA矩阵或生成随机数据
-  - 1.1: 初始化矩阵尺寸为512x512
-  - 1.2: 分配Query/Key/Value/Output矩阵存储空间
-  - 1.3: 尝试打开LLaMA数据文件
-  - 1.4: 读取文件维度信息
-  - 1.5: 逐行读取矩阵数据
-  - 1.6: 循环复制填充不足的行/列
-  - 1.7: 对Key矩阵重复加载流程
-
-Step 2: 任务分配与数据提取  
-  函数：LLMMACnet::llmGenerateAllTasks() [llmmacnet.cpp]
-  功能：将512x512大矩阵分解为多个小任务
-  - 2.1: 计算任务参数（262,144像素×4子任务=1,048,576任务）
-  - 2.2: 根据像素生成任务
-  - 2.3: 遍历所有512×512像素位置
-  - 2.4: 每像素生成4个子任务（2×2 subchunks）
-  - 2.5: 计算数据偏移量（每子块64×64）
-  - 2.6: 提取64个Query和64个Key元素
-  - 2.7: 根据模式选择数据提取方式（权重为主/输入为主）
-
-Step 3: 数据打包为Payload
-  函数：LLMMACnet::llmRunOneStep() [llmmacnet.cpp]
-  功能：将任务数据打包成NoC传输格式
-  - 3.1: 创建payload容器[元数据(4)+query(64)+key(64)]
-  - 3.2: 添加元数据（标识符、数据大小、子块ID、像素ID）
-  - 3.3: 复制Query和Key数据准备排序
-  - 3.4: 应用排序优化（调用Step 5函数）
-  - 3.5: 添加Query数据到payload
-  - 3.6: 添加Key数据到payload
-
-Step 4 & 5: 矩阵重组与排序
-  主函数：LLMMAC::llmReshapeFlatToQueryKeyMatrix() [llmmac.cpp]
-  功能：将线性数据重组为8×8矩阵并应用排序
-  - 4.1: 检查payload格式完整性
-  - 4.2: 提取Query和Key数据段
-  - 4.3: 调用排序算法（Step 5.1或5.2）
-  - 4.4: 将线性数据重组为8×8矩阵
-
-  Step 5.1 分离排序：
-    函数：LLMMAC::sortMatrix_LLMSeparated() [llmmac.cpp]
-    辅助：countOnesInIEEE754(), compareFloatsByOnes() [yzIEEE754.cpp]
-    - Query和Key独立按列排序
-    - 每列内按1-bit数量递增排列
-    
-  Step 5.2 关联排序：
-    函数：LLMMAC::sortMatrix_LLMAffiliated() [llmmac.cpp]  
-    辅助：countOnesInIEEE754(), compareFloatsByOnes() [yzIEEE754.cpp]
-    - Key按bit数排序，Query保持配对关系
-    - 保持Query-Key语义关联
-
-Step 6: CNN风格半半重组
-  函数：继续在llmReshapeFlatToQueryKeyMatrix()中 [llmmac.cpp]
-  功能：按行组合Query和Key数据
-  - 6.1: 每行格式[Query第i行(8个)+Key第i行(8个)]=16元素
-  - 6.2: 将重组后的数据写回payload
-  备注：CNN版本在cnnReshapeFlatToInputWeightMatrix() [yzIEEE754.cpp]
-
-Step 7: NoC传输与注入
-  函数：LLMMAC::inject()/llmInject() [llmmac.cpp/llmmacnet.cpp]
-  功能：将打包好的数据注入NoC网络
-  - 7.1: 创建NoC消息包和数据包
-  - 7.2: 将payload复制到消息中
-  - 7.3: 注入到网络接口(NI)
-  - 7.4: 数据切分为多个flit传输
-  - 7.5: 每个flit包含16个float(512位)
-  辅助：calculate32BitDiff()评估bit翻转 [yzIEEE754.cpp]
-
-配置选项（parameters.hpp）：
-  - case1_default: 基准线（无排序）
-  - case3_affiliatedordering: 关联排序
-  - case4_seperratedordering: 分离排序
-  - YzAffiliatedOrdering: 启用排序
-  - YZSeperatedOrdering_reArrangeInput: 选择分离排序
-  - LLM_CNN_HALFHALF_RESHAPE: 启用半半重组
-
-优化效果：
-  基准线：1620.5 bit flips → 排序后：1595 bit flips (1.57%改善)
-==================================================================
-*/
+/**
+ * @file llmmacnet.cpp
+ * @brief LLM (Large Language Model) MAC网络实现 - 优化版本
+ * 
+ * 本文件实现了LLM模式下的MAC网络管理器，专门处理Transformer架构的
+ * Attention计算。主要目标是通过数据排序优化减少NoC传输中的bit翻转。
+ * 
+ * ==================================================================
+ * LLM处理流程 - 7大步骤详解
+ * ==================================================================
+ * 
+ * Step 0: 初始化 - 数据加载与任务创建
+ * ---------------------------------
+ * 0.1 全部数据加载 [llmmacnet.cpp]
+ *     函数：LLMMACnet::llmLoadRealMatrices() [行273-391]
+ *     关键代码：
+ *       llm_query_matrix.resize(matrix_size);  // 行279
+ *       llm_key_matrix.resize(matrix_size);    // 行280
+ *       std::ifstream file(filepath);          // 行304
+ *       llm_query_matrix[i][j] = value;        // 行338
+ *     功能：
+ *     - 初始化512x512矩阵尺寸
+ *     - 分配Query/Key/Value/Output矩阵存储空间
+ *     - 从文件加载真实LLaMA数据或生成随机数据
+ *     - 处理维度不匹配时的循环填充
+ * 
+ * 0.2 子任务创建 [llmmacnet.cpp]
+ *     函数：LLMMACnet::llmGenerateAllTasks() [行536-659]
+ *     关键代码：
+ *       all_tasks.reserve(matrixOutputPixels * 4);  // 行549
+ *       for(int pixel_y=0; pixel_y<matrixOutputPixels_size; pixel_y++)  // 行553
+ *       for(int subchunk_id=0; subchunk_id<4; subchunk_id++)  // 行556
+ *       task.query_data[data_idx] = llm_query_matrix[src_y][src_x];  // 行586
+ *     功能：
+ *     - 将512x512大矩阵分解为262,144个像素
+ *     - 每像素生成4个子任务（2x2 subchunks）
+ *     - 总计生成1,048,576个任务
+ *     - 提取每任务的64个Query和64个Key元素
+ * 
+ * Step 1: 状态检查与转换
+ * ---------------------------------
+ * 函数：LLMMAC::llmRunOneStep() [llmmac.cpp 行319-479]
+ * 关键代码与状态：
+ *   if (selfstatus == 0) {  // IDLE状态 行332
+ *     if (llmtasktable.size() > 0) selfstatus = 1;  // 有任务则转REQUEST 行342
+ *   }
+ *   else if (selfstatus == 1) {  // REQUEST状态 行348
+ *     request = llmtasktable.front();  // 获取任务 行349
+ *     llmInject(0, dest_mem_id, ...);  // 发送请求 行362
+ *     selfstatus = 2;  // 转WAIT状态 行373
+ *   }
+ *   else if (selfstatus == 2) {  // WAIT状态 行378
+ *     // 等待数据到达，由processCNNPacket()设置selfstatus=3
+ *   }
+ *   else if (selfstatus == 3) {  // COMPUTE状态 行443
+ *     compute();  // 执行计算 行454
+ *     selfstatus = 0;  // 完成后回IDLE 行476
+ *   }
+ * 功能：
+ *   - 状态机控制：IDLE(0) -> REQUEST(1) -> WAIT(2) -> COMPUTE(3) -> IDLE(0)
+ *   - 检查任务队列，管理任务执行流程
+ *   - 跟踪每个状态的转换时间点
+ * 
+ * Step 2: 数据请求发送 (状态1: REQUEST)
+ * ---------------------------------
+ * 函数：LLMMAC::llmInject() [llmmac.cpp 行212-260]
+ * 关键代码：
+ *   msg.msgtype = 0;  // 请求消息类型 行228
+ *   msg.src_x = selfMACid % X_NUM;  // 源坐标 行229
+ *   msg.dest_x = dest_mem_id % X_NUM;  // 目标坐标 行231
+ *   msg.payload = request;  // 任务ID 行233
+ *   inject(s_id, d_id, Message_cnt, NMessage);  // NoC注入 行238
+ * 触发条件：
+ *   selfstatus == 1 且 llmtasktable非空
+ * 功能：
+ * - 从任务队列取出任务ID
+ * - 创建type 0请求消息
+ * - 计算源和目标坐标
+ * - 通过NoC发送到内存节点
+ * 
+ * Step 3: 响应包创建与排序 (内存节点处理)
+ * ---------------------------------
+ * 3.1 内存节点处理请求
+ *     函数：Memory::processLLMRequest() [Memory.cpp]
+ *     功能：
+ *     - 接收MAC发来的type 0请求
+ *     - 根据任务ID查找对应的Query/Key数据
+ *     - 创建type 1响应消息
+ *     - 准备数据容器：[元数据(4) + query(64) + key(64)]
+ * 
+ * 3.2 应用排序优化 [llmmac.cpp]
+ *     主函数：LLMMAC::llmReshapeFlatToQueryKeyMatrix() [行643-793]
+ *     
+ *     分离排序模式：
+ *     - 函数：LLMMAC::sortMatrix_LLMSeparated() [行872-923]
+ *     - 关键代码：
+ *       std::sort(col_data.begin(), col_data.end(), compareFloatsByOnes);  // 行900
+ *       sortMatrix_LLMSeparated(query_data, 8, 8);  // 行721
+ *     - Query和Key独立按列排序
+ *     - 每列按IEEE754 1-bit数递增排列
+ *     
+ *     关联排序模式：
+ *     - 函数：LLMMAC::sortMatrix_LLMAffiliated() [行926-984]
+ *     - 关键代码：
+ *       std::sort(paired_data.begin(), paired_data.end(), ...);  // 行959
+ *       sortMatrix_LLMAffiliated(query_data, key_data, 8, 8);  // 行726
+ *     - Key按bit数排序，Query保持配对
+ *     - 保持attention语义关联性
+ *     
+ *     辅助函数 [yzIEEE754.cpp]：
+ *     - countOnesInIEEE754() [行76-89]: 计算浮点数1-bit数
+ *     - compareFloatsByOnes() [行125-127]: 比较函数
+ * 
+ * Step 4: 数据接收处理 (状态2: WAIT)
+ * ---------------------------------
+ * 函数：LLMMAC::llmReceive() [llmmac.cpp 行262-317]
+ * 关键代码：
+ *   if(re_msg->msgtype == 1) {  // 行264
+ *   input_buffer = re_msg->yzMSGPayload;  // 行281
+ *   llmReshapeFlatToQueryKeyMatrix(input_buffer);  // 行293
+ *   selfstatus = 3;  // 准备计算 行315
+ * 功能：
+ * - 接收type 1响应消息
+ * - 提取payload数据到input_buffer
+ * - 调用reshape函数重组数据
+ * - 触发状态转换到COMPUTE
+ * 
+ * Step 5: 运算执行与新请求发送 (状态3: COMPUTE)
+ * ---------------------------------
+ * 函数：LLMMAC::llmComputeAttention() [llmmac.cpp 行795-868]
+ * 关键代码：
+ *   llmComputeQueryKeyDot();  // Q*K^T计算 行809
+ *   llmApplySoftmax();        // Softmax归一化 行812
+ *   llmComputeValueWeightedSum();  // 与Value相乘 行815
+ *   attention_output = result;  // 保存结果 行853
+ * 功能：
+ * - 执行attention三步计算
+ * - Q*K^T矩阵乘法，除以sqrt(d_k)
+ * - Softmax归一化获得注意力权重
+ * - 权重与Value矩阵相乘得最终输出
+ * 
+ * Step 6: 结果输出与状态复位
+ * ---------------------------------
+ * 函数：LLMMAC::llmInject() with type=3 [llmmac.cpp 行212-260]
+ * 关键代码：
+ *   msg.msgtype = 3;  // LLM最终结果消息 行228
+ *   msg.yzMSGPayload.push_back(attention_output);  // 添加结果 行235
+ *   t_NI->inject(s_id, d_id, Message_cnt, NMessage);  // 发送 行238
+ *   selfstatus = 0;  // 回到空闲状态 行257
+ * 功能：
+ * - 创建type 3最终结果消息（LLM专用）
+ * - 打包attention计算结果
+ * - 通过NoC发送到内存节点
+ * - MAC状态复位，准备处理下一任务
+ * 
+ * ==================================================================
+ * 数据格式与优化策略
+ * ==================================================================
+ * 
+ * Payload结构（132个float）：
+ * [0-3]   : 元数据（magic, size, chunk_id, pixel_id）
+ * [4-67]  : Query数据（64个元素）
+ * [68-131]: Key数据（64个元素）
+ * 
+ * 半半重组格式（CNN兼容）：
+ * 每行：[Query_row[0-7] | Key_row[0-7]] = 16元素
+ * 8行x16列 = 128元素矩阵
+ * 
+ * Bit翻转优化效果：
+ * - 基准线（无排序）：1620.5 bit flips
+ * - 分离排序：1595 bit flips (1.57%改善)
+ * - 关联排序：保持语义同时减少翻转
+ * 
+ * ==================================================================
+ * 配置选项 (parameters.hpp)
+ * ==================================================================
+ * 
+ * - YZLLMSwitchON: 启用LLM模式
+ * - case4_seperratedordering: 使用分离排序
+ * - case3_affiliatedordering: 使用关联排序
+ * - LLM_CNN_HALFHALF_RESHAPE: 启用半半重组
+ * - YzAffiliatedOrdering: 激活排序优化
+ * 
+ * ==================================================================
+ * 与CNN模式的关键区别
+ * ==================================================================
+ * 
+ * LLM特点：
+ * - 任务级并行（百万级子任务）
+ * - 动态数据访问模式
+ * - Attention矩阵每次不同
+ * - Bit flipping较多（需要排序优化）
+ * 
+ * CNN特点：
+ * - 层级顺序处理
+ * - 固定卷积核复用
+ * - 规则的滑动窗口
+ * - Bit flipping较少（天然随机分布）
+ * 
+ * @author YZ
+ * @date 2025
+ */
 
 #include "llmmacnet.hpp"
 #include "llmmac.hpp"
@@ -97,7 +210,7 @@ Step 7: NoC传输与注入
 #include <climits>
 #include <chrono>
 #include <cmath>  // For sqrt and ceil functions
-
+#include <sstream>  // For std::istringstream
 // Helper function to get current time string
 static inline std::string getCurrentTimeStr() {
     auto now = std::chrono::system_clock::now();
@@ -107,52 +220,6 @@ static inline std::string getCurrentTimeStr() {
     strftime(buffer, sizeof(buffer), "%H:%M", timeinfo);
     return std::string(buffer);
 }
-
-// Hierarchical debug macros based on LLM_DEBUG_LEVEL from parameters.hpp
-// With cycle info and system time (for runtime use)
-#define LLM_INFO(x) do { \
-    if (LLM_DEBUG_LEVEL >= 1) { \
-        std::cout << "[" << getCurrentTimeStr() << "] [INFO @" << cycles << "] " << x << std::endl; \
-    } \
-} while(0)
-
-#define LLM_DEBUG(x) do { \
-    if (LLM_DEBUG_LEVEL >= 2) { \
-        std::cout << "[DEBUG @" << cycles << "] " << x << std::endl; \
-    } \
-} while(0)
-
-#define LLM_TRACE(x) do { \
-    if (LLM_DEBUG_LEVEL >= 3) { \
-        std::cout << "[TRACE @" << cycles << "] " << x << std::endl; \
-    } \
-} while(0)
-
-// Without cycle info (for initialization)
-#define LLM_INFO_INIT(x) do { \
-    if (LLM_DEBUG_LEVEL >= 1) { \
-        std::cout << "[" << getCurrentTimeStr() << "] [INFO @init] " << x << std::endl; \
-    } \
-} while(0)
-
-#define LLM_DEBUG_INIT(x) do { \
-    if (LLM_DEBUG_LEVEL >= 2) { \
-        std::cout << "[DEBUG @init] " << x << std::endl; \
-    } \
-} while(0)
-
-#define LLM_TRACE_INIT(x) do { \
-    if (LLM_DEBUG_LEVEL >= 3) { \
-        std::cout << "[TRACE @init] " << x << std::endl; \
-    } \
-} while(0)
-
-// Helper function
-template<class C, typename T>
-bool contains(C &&c, T e) {
-	return find(begin(c), end(c), e) != end(c);
-}
-
 LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) {
 	macNum = mac_num;
 	LLMMAC_list.reserve(mac_num);
@@ -491,52 +558,6 @@ void LLMMACnet::llmInitializeMatrices() {
 	LLM_DEBUG_INIT("Matrices initialized successfully");
 }
 
-void LLMMACnet::llmExportMatricesToFile() {
-	LLM_DEBUG_INIT("Exporting matrices to output/ for verification...");
-
-	// Export Query matrix
-	std::ofstream query_file("src/output/cpp_query_matrix.txt");
-	if (query_file.is_open()) {
-		for (int i = 0; i < matrixOutputPixels_size; i++) {
-			for (int j = 0; j < matrixOutputPixels_size; j++) {
-				query_file << std::fixed << std::setprecision(10) << attention_query_table[i][j];
-				if (j < matrixOutputPixels_size - 1) query_file << ",";
-			}
-			query_file << "\n";
-		}
-		query_file.close();
-		LLM_DEBUG_INIT("Query matrix exported to src/output/cpp_query_matrix.txt");
-	}
-
-	// Export Key matrix
-	std::ofstream key_file("src/output/cpp_key_matrix.txt");
-	if (key_file.is_open()) {
-		for (int i = 0; i < matrixOutputPixels_size; i++) {
-			for (int j = 0; j < matrixOutputPixels_size; j++) {
-				key_file << std::fixed << std::setprecision(10) << attention_key_table[i][j];
-				if (j < matrixOutputPixels_size - 1) key_file << ",";
-			}
-			key_file << "\n";
-		}
-		key_file.close();
-		LLM_DEBUG_INIT("Key matrix exported to src/output/cpp_key_matrix.txt");
-	}
-
-	// Export Value matrix
-	std::ofstream value_file("src/output/cpp_value_matrix.txt");
-	if (value_file.is_open()) {
-		for (int i = 0; i < matrixOutputPixels_size; i++) {
-			for (int j = 0; j < matrixOutputPixels_size; j++) {
-				value_file << std::fixed << std::setprecision(10) << attention_value_table[i][j];
-				if (j < matrixOutputPixels_size - 1) value_file << ",";
-			}
-			value_file << "\n";
-		}
-		value_file.close();
-		LLM_DEBUG_INIT("Value matrix exported to src/output/cpp_value_matrix.txt");
-	}
-}
-
 void LLMMACnet::llmGenerateAllTasks() {
 	// === Step 2: 任务分配与数据提取 ===
 	// 功能：将512x512的大矩阵分解为多个小任务
@@ -624,18 +645,7 @@ void LLMMACnet::llmGenerateAllTasks() {
 				
 				task.partial_sum = 0.0f;  // Initialize
 				
-				// Debug: Verify data diversity for first few tasks in row 0
-				if (pixel_y == 0 && pixel_x < 4 && subchunk_id == 0) {
-					LLM_DEBUG_INIT("Task " << task_id << " (pixel " << pixel_x << "," << pixel_y << "):");
-					LLM_DEBUG_INIT("  First 3 query values: " 
-						<< task.query_data[0] << ", " 
-						<< task.query_data[1] << ", " 
-						<< task.query_data[2]);
-					LLM_DEBUG_INIT("  First 3 key values: " 
-						<< task.key_data[0] << ", " 
-						<< task.key_data[1] << ", " 
-						<< task.key_data[2]);
-				}
+
 				
 				all_tasks.push_back(task);
 				task_id++;
@@ -905,154 +915,16 @@ void LLMMACnet::llmXMapping(int total_pixels) {
 
 void LLMMACnet::llmLoadBalanceMapping(int total_pixels) {
 	LLM_DEBUG("Starting load-balanced mapping...");
-	llmXMapping(total_pixels);  // 对于小矩阵，使用简单映射即可
+	llmXMapping(total_pixels);  //
 }
 
-int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
-	// Clear and prepare mapping tables
-	this->llmOutputPixelMappingTable.clear();
-	this->llmOutputPixelMappingTable.resize(macNum);
-	this->llmTaskMappingTable.clear();
-	this->llmTaskMappingTable.resize(macNum);
-	// Also sync with base class mapping_table for compatibility
-	this->mapping_table.clear();
-	this->mapping_table.resize(macNum);
-	
-	// 1) Collect compute nodes (exclude memory nodes)
-	std::vector<int> pe_ids;
-	pe_ids.reserve(macNum);
-	for (int id = 0; id < macNum; ++id) {
-		if (!contains(dest_list, id))
-			pe_ids.push_back(id);
-	}
-	if (pe_ids.empty() || pixel_count <= 0)
-		return 0;
-	
-	// 2) Calculate average latency for each node (from sampling window)
-	double sum_lat = 0.0;
-	int nz = 0;
-	for (int id : pe_ids) {
-		double lat = double(samplingWindowDelay[id]) / std::max(1, samplingWindowLength);
-		if (lat > 0.0) {
-			sum_lat += lat;
-			++nz;
-		}
-	}
-	const double default_lat = (nz > 0) ? (sum_lat / nz) : 1.0;
-	const double eps = 1e-12;
-	
-	struct NodeW {
-		int id;
-		double w;     // Weight = 1/latency
-		double want;  // Ideal allocation  
-		int alloc;    // Actual integer allocation
-		double frac;  // Fractional remainder
-	};
-	
-	std::vector<NodeW> nodes;
-	nodes.reserve(pe_ids.size());
-	
-	double sumW = 0.0;
-	for (int id : pe_ids) {
-		double lat = double(samplingWindowDelay[id]) / std::max(1, samplingWindowLength);
-		if (lat <= 0.0)
-			lat = default_lat;
-		double w = 1.0 / (lat + eps);
-		nodes.push_back({id, w, 0.0, 0, 0.0});
-		sumW += w;
-	}
-	
-	if (sumW <= 0.0) { // Extreme fallback: uniform distribution
-		int base = pixel_count / int(nodes.size());
-		int rem = pixel_count - base * int(nodes.size());
-		int current_pixel_id = start_pixel_id;
-		for (auto &n : nodes) {
-			for (int k = 0; k < base; ++k) {
-				// 记录像素分配
-				this->llmOutputPixelMappingTable[n.id].push_back(current_pixel_id);
-				// 该像素的4个task都分配给同一个节点
-				for (int chunk_id = 0; chunk_id < this->tasks_per_pixel; chunk_id++) {
-					int task_id = current_pixel_id * this->tasks_per_pixel + chunk_id;
-					this->llmTaskMappingTable[n.id].push_back(task_id);
-				}
-				current_pixel_id++;
-			}
-		}
-		for (int i = 0; i < rem; ++i) {
-			this->llmOutputPixelMappingTable[nodes[i].id].push_back(current_pixel_id);
-			for (int chunk_id = 0; chunk_id < this->tasks_per_pixel; chunk_id++) {
-				int task_id = current_pixel_id * this->tasks_per_pixel + chunk_id;
-				this->llmTaskMappingTable[nodes[i].id].push_back(task_id);
-			}
-			current_pixel_id++;
-		}
-		return 0;
-	}
-	
-	// 3) Hamilton's method (largest remainder)
-	int allocated = 0;
-	for (auto &n : nodes) {
-		double exact = pixel_count * (n.w / sumW);
-		n.want = exact;
-		n.alloc = int(std::floor(exact));
-		n.frac = exact - n.alloc;
-		allocated += n.alloc;
-	}
-	int remainder = pixel_count - allocated;
-	
-	// Allocate remaining pixels to nodes with largest fractional parts
-	std::sort(nodes.begin(), nodes.end(), [](const NodeW &a, const NodeW &b) {
-		return a.frac > b.frac;
-	});
-	for (int i = 0; i < remainder; ++i)
-		nodes[i % nodes.size()].alloc++;
-	
-	// 4) Generate pixel and task mapping
-	int current_pixel_id = start_pixel_id;
-	for (auto &n : nodes) {
-		for (int pixel_idx = 0; pixel_idx < n.alloc; ++pixel_idx) {
-			// 记录像素分配
-			this->llmOutputPixelMappingTable[n.id].push_back(current_pixel_id);
-			
-			// 每个像素生成4个任务，都分配给同一个节点（便于聚合）
-			for (int chunk_id = 0; chunk_id < this->tasks_per_pixel; chunk_id++) {
-				int task_id = current_pixel_id * this->tasks_per_pixel + chunk_id;
-				this->llmTaskMappingTable[n.id].push_back(task_id);
-			}
-			current_pixel_id++;
-		}
-	}
-	
-	// Debug output for LLM SAMOS mapping
-	if (LLM_DEBUG_LEVEL >= 2) {
-		int total_tasks = pixel_count * this->tasks_per_pixel;
-		std::cout << "[SAMOS] Total pixels=" << pixel_count 
-		          << " Total tasks=" << total_tasks
-		          << " Total PEs=" << nodes.size() << "\n";
-		if (LLM_DEBUG_LEVEL >= 3) {
-			for (auto &n : nodes) {
-				double avgLat = double(samplingWindowDelay[n.id]) / std::max(1, samplingWindowLength);
-				std::cout << "  MAC " << n.id << " lat=" << avgLat 
-                  << " pixels=" << n.alloc << " tasks=" << (n.alloc * this->tasks_per_pixel) << "\n";
-			}
-		}
-	}
-	
-	return 0;
-}
 
 void LLMMACnet::llmCheckStatus() {
 	static int status_check_count = 0;
 	status_check_count++;
 
 	// Progress reporting at different levels
-	if (cycles % 50000 == 0 && LLM_DEBUG_LEVEL >= 1) {  // Level 1: Basic progress every 50k cycles
-		int progress = (executed_tasks * 100) / std::max(1, total_task_slicedPixels);
-		LLM_INFO("[Cycle " << cycles << "] Progress: " << progress << "% (" << executed_tasks << "/" << total_task_slicedPixels << " tasks)");
-	} else if (status_check_count % 10000 == 0 && LLM_DEBUG_LEVEL >= 2) {  // Level 2: More frequent status
-		LLM_DEBUG("Status check #" << status_check_count << " at cycle " << cycles);
-		LLM_DEBUG("Ready flag: " << ready_flag << ", Mapping again: " << mapping_again);
-	}
+
 
 	if (ready_flag == 0) {
 		LLM_INFO("Initializing layer " << current_layer << " at cycle " << cycles);
@@ -1297,32 +1169,18 @@ void LLMMACnet::llmRunOneStep() {
 		// Process ALL message types in buffer[0]
 		pbuffer_size = tmpNI->packet_buffer_out[0].size();
 		
-		// Debug: check if we have any packets
-		static int debug_count = 0;
-		if (pbuffer_size > 0 && debug_count++ % 1000 == 0) {
-			LLM_DEBUG("Memory " << mem_id << " has " << pbuffer_size << " packets in buffer[0]");
-		}
-		
 		for (int j = 0; j < pbuffer_size; j++) {
 			tmpPacket = tmpNI->packet_buffer_out[0].front();
-			
-			// Debug: log all packet types
-			static int pkt_debug_count = 0;
-			if (pkt_debug_count++ % 100 == 0) {
-				LLM_DEBUG("Memory " << mem_id << " processing packet type " << tmpPacket->message.msgtype 
-				          << " from MAC " << tmpPacket->message.mac_id);
-			}
 			if (tmpPacket->message.msgtype == 3) {
 				std::cout << "[TYPE3-FOUND] Memory " << mem_id << " found type 3 packet from MAC " 
 				          << tmpPacket->message.mac_id << std::endl;
 			}
-			
 			// Handle type 0 requests
 			if (tmpPacket->message.msgtype == 0) {
 				if (tmpPacket->message.out_cycle >= cycles) {
 					tmpNI->packet_buffer_out[0].pop_front();
 					tmpNI->packet_buffer_out[0].push_back(tmpPacket);
-					continue;
+					continue;  //跳过后续对当前包，而是检查下一个包。
 				}
 
 				src = tmpPacket->message.source_id;
@@ -1340,11 +1198,11 @@ void LLMMACnet::llmRunOneStep() {
 					if (task_id >= 0 && task_id < all_tasks.size()) {
 						LLMTask& task = all_tasks[task_id];  // 获取对应任务
 
-						// Step 3.1: 构建payload（总共132个float）
+						// Step 3.1: 构建input_buffer（总共132个float） 128个payload和4个header
 						tmpLLMMAC->input_buffer.clear();
 						
 						// Step 3.2: 添加元数据（4个float）
-						tmpLLMMAC->input_buffer.push_back(1.0f);              // [0] 函数标志
+						tmpLLMMAC->input_buffer.push_back(1.0f);              // [0] 函数标志 == llm
 						tmpLLMMAC->input_buffer.push_back(64);                // [1] 数据大小（每个64元素）
 						tmpLLMMAC->input_buffer.push_back(task.subchunk_id);  // [2] 子块ID
 						tmpLLMMAC->input_buffer.push_back(task.pixel_id);     // [3] 像素ID（用于跟踪）
@@ -1353,86 +1211,7 @@ void LLMMACnet::llmRunOneStep() {
 						std::deque<float> query_data_copy(task.query_data.begin(), task.query_data.end());
 						std::deque<float> key_data_copy(task.key_data.begin(), task.key_data.end());
 						
-						// Debug: Print data BEFORE sorting (only for first few tasks)
-						static int debug_print_count = 0;
-						bool should_print = (debug_print_count < 10);  // Print first 10 tasks total
-						
-						if (should_print) {
-							debug_print_count++;  // Increment here to count actual prints
-							std::cout << "Task " << task_id << " - Memory " << mem_id 
-							          << " (Pixel " << task.pixel_id << ", Subchunk " << task.subchunk_id << ")" << std::endl;
-							
 
-						}
-						
-						// Apply ordering BEFORE transmission to reduce bit flips
-						#ifdef YzAffiliatedOrdering
-							if (should_print) {
-								std::cout << "\n=== APPLYING DATA ORDERING ===" << std::endl;
-							}
-							#ifdef YZSeperatedOrdering_reArrangeInput
-								// Separated ordering: sort both independently
-								if (should_print) {
-									std::cout << "Using SEPARATED ordering (Query and Key sorted independently)" << std::endl;
-								}
-								LLMMAC_list[mem_id]->sortMatrix_LLMSeparated(query_data_copy, 8, 8);
-								LLMMAC_list[mem_id]->sortMatrix_LLMSeparated(key_data_copy, 8, 8);
-							#else
-								// Affiliated ordering: sort together
-								if (should_print) {
-									std::cout << "Using AFFILIATED ordering (Query and Key sorted together by Key's bit count)" << std::endl;
-								}
-								LLMMAC_list[mem_id]->sortMatrix_LLMAffiliated(query_data_copy, key_data_copy, 8, 8);
-							#endif
-							
-							// Debug: Print data AFTER sorting
-							if (should_print) {
-
-								// Show row-wise bit count to understand transmission order
-								std::cout << "\n=== ROW-WISE BIT COUNT (AFTER SORTING) ===" << std::endl;
-								std::cout << "Query Matrix - Bit counts by row:" << std::endl;
-								for (int row = 0; row < 8; row++) {
-									std::cout << "Row " << row << ": ";
-									for (int col = 0; col < 8; col++) {
-										int idx = row * 8 + col;
-										if (idx < query_data_copy.size()) {
-											int ones = countOnesInIEEE754(query_data_copy[idx]);
-											std::cout << std::setw(2) << ones << " ";
-										}
-									}
-									std::cout << std::endl;
-								}
-								
-								std::cout << "\nKey Matrix - Bit counts by row:" << std::endl;
-								for (int row = 0; row < 8; row++) {
-									std::cout << "Row " << row << ": ";
-									for (int col = 0; col < 8; col++) {
-										int idx = row * 8 + col;
-										if (idx < key_data_copy.size()) {
-											int ones = countOnesInIEEE754(key_data_copy[idx]);
-											std::cout << std::setw(2) << ones << " ";
-										}
-									}
-									std::cout << std::endl;
-								}
-								
-								// Show concatenated Query+Key matrix with both values and bit counts
-								// NOTE: At this point, query_data_copy and key_data_copy have been reorganized by sorting
-								// They are now in row-major order ready for transmission
-								std::cout << "\n=== 拼接后的矩阵 (Query | Key) - 按Flit传输顺序 ===" << std::endl;
-								std::cout << "NOTE: This shows the actual data that will be transmitted in each flit" << std::endl;
-								
-								// Print bit counts (按行组织的实际传输顺序)
-								std::cout << "\nBit counts:" << std::endl;
-								// 重建最终的payload以正确显示
-							}
-						#else
-							// Baseline - no ordering
-							// Only print details for first few tasks
-							if (should_print) {
-								std::cout << "  [Baseline - No ordering applied]" << std::endl;
-							}
-						#endif
 						
 						// Step 3.5: 添加Query数据（64个float）
 						tmpLLMMAC->input_buffer.insert(tmpLLMMAC->input_buffer.end(),
@@ -1450,6 +1229,7 @@ void LLMMACnet::llmRunOneStep() {
 						
 						// 记录响应发送时间
 						tmpLLMMAC->current_task_timing.response_send_cycle = cycles + mem_delay;
+						LLMMAC_list[mem_id]->input_buffer.clear();
 						LLMMAC_list[mem_id]->input_buffer = tmpLLMMAC->input_buffer;
 						// Step 7.1: 注入到网络接口，数据将被切分为多个flit进行传输
 						// 每个flit包含16个float元素（512位）
@@ -1603,7 +1383,171 @@ void LLMMACnet::llmRunOneStep() {
 
 
 
+int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
+	// Clear and prepare mapping tables
+	this->llmOutputPixelMappingTable.clear();
+	this->llmOutputPixelMappingTable.resize(macNum);
+	this->llmTaskMappingTable.clear();
+	this->llmTaskMappingTable.resize(macNum);
+	// Also sync with base class mapping_table for compatibility
+	this->mapping_table.clear();
+	this->mapping_table.resize(macNum);
 
+	// 1) Collect compute nodes (exclude memory nodes)
+	std::vector<int> pe_ids;
+	pe_ids.reserve(macNum);
+	for (int id = 0; id < macNum; ++id) {
+		if (!contains(dest_list, id))
+			pe_ids.push_back(id);
+	}
+	if (pe_ids.empty() || pixel_count <= 0)
+		return 0;
+
+	// 2) Calculate average latency for each node (from sampling window)
+	double sum_lat = 0.0;
+	int nz = 0;
+	for (int id : pe_ids) {
+		double lat = double(samplingWindowDelay[id]) / std::max(1, samplingWindowLength);
+		if (lat > 0.0) {
+			sum_lat += lat;
+			++nz;
+		}
+	}
+	const double default_lat = (nz > 0) ? (sum_lat / nz) : 1.0;
+	const double eps = 1e-12;
+
+	struct NodeW {
+		int id;
+		double w;     // Weight = 1/latency
+		double want;  // Ideal allocation
+		int alloc;    // Actual integer allocation
+		double frac;  // Fractional remainder
+	};
+
+	std::vector<NodeW> nodes;
+	nodes.reserve(pe_ids.size());
+
+	double sumW = 0.0;
+	for (int id : pe_ids) {
+		double lat = double(samplingWindowDelay[id]) / std::max(1, samplingWindowLength);
+		if (lat <= 0.0)
+			lat = default_lat;
+		double w = 1.0 / (lat + eps);
+		nodes.push_back({id, w, 0.0, 0, 0.0});
+		sumW += w;
+	}
+
+	if (sumW <= 0.0) { // Extreme fallback: uniform distribution
+		int base = pixel_count / int(nodes.size());
+		int rem = pixel_count - base * int(nodes.size());
+		int current_pixel_id = start_pixel_id;
+		for (auto &n : nodes) {
+			for (int k = 0; k < base; ++k) {
+				// 记录像素分配
+				this->llmOutputPixelMappingTable[n.id].push_back(current_pixel_id);
+				// 该像素的4个task都分配给同一个节点
+				for (int chunk_id = 0; chunk_id < this->tasks_per_pixel; chunk_id++) {
+					int task_id = current_pixel_id * this->tasks_per_pixel + chunk_id;
+					this->llmTaskMappingTable[n.id].push_back(task_id);
+				}
+				current_pixel_id++;
+			}
+		}
+		for (int i = 0; i < rem; ++i) {
+			this->llmOutputPixelMappingTable[nodes[i].id].push_back(current_pixel_id);
+			for (int chunk_id = 0; chunk_id < this->tasks_per_pixel; chunk_id++) {
+				int task_id = current_pixel_id * this->tasks_per_pixel + chunk_id;
+				this->llmTaskMappingTable[nodes[i].id].push_back(task_id);
+			}
+			current_pixel_id++;
+		}
+		return 0;
+	}
+
+	// 3) Hamilton's method (largest remainder)
+	int allocated = 0;
+	for (auto &n : nodes) {
+		double exact = pixel_count * (n.w / sumW);
+		n.want = exact;
+		n.alloc = int(std::floor(exact));
+		n.frac = exact - n.alloc;
+		allocated += n.alloc;
+	}
+	int remainder = pixel_count - allocated;
+
+	// Allocate remaining pixels to nodes with largest fractional parts
+	std::sort(nodes.begin(), nodes.end(), [](const NodeW &a, const NodeW &b) {
+		return a.frac > b.frac;
+	});
+	for (int i = 0; i < remainder; ++i)
+		nodes[i % nodes.size()].alloc++;
+
+	// 4) Generate pixel and task mapping
+	int current_pixel_id = start_pixel_id;
+	for (auto &n : nodes) {
+		for (int pixel_idx = 0; pixel_idx < n.alloc; ++pixel_idx) {
+			// 记录像素分配
+			this->llmOutputPixelMappingTable[n.id].push_back(current_pixel_id);
+
+			// 每个像素生成4个任务，都分配给同一个节点（便于聚合）
+			for (int chunk_id = 0; chunk_id < this->tasks_per_pixel; chunk_id++) {
+				int task_id = current_pixel_id * this->tasks_per_pixel + chunk_id;
+				this->llmTaskMappingTable[n.id].push_back(task_id);
+			}
+			current_pixel_id++;
+		}
+	}
+
+
+	return 0;
+}
+
+
+void LLMMACnet::llmExportMatricesToFile() {
+	LLM_DEBUG_INIT("Exporting matrices to output/ for verification...");
+
+	// Export Query matrix
+	std::ofstream query_file("src/output/cpp_query_matrix.txt");
+	if (query_file.is_open()) {
+		for (int i = 0; i < matrixOutputPixels_size; i++) {
+			for (int j = 0; j < matrixOutputPixels_size; j++) {
+				query_file << std::fixed << std::setprecision(10) << attention_query_table[i][j];
+				if (j < matrixOutputPixels_size - 1) query_file << ",";
+			}
+			query_file << "\n";
+		}
+		query_file.close();
+		LLM_DEBUG_INIT("Query matrix exported to src/output/cpp_query_matrix.txt");
+	}
+
+	// Export Key matrix
+	std::ofstream key_file("src/output/cpp_key_matrix.txt");
+	if (key_file.is_open()) {
+		for (int i = 0; i < matrixOutputPixels_size; i++) {
+			for (int j = 0; j < matrixOutputPixels_size; j++) {
+				key_file << std::fixed << std::setprecision(10) << attention_key_table[i][j];
+				if (j < matrixOutputPixels_size - 1) key_file << ",";
+			}
+			key_file << "\n";
+		}
+		key_file.close();
+		LLM_DEBUG_INIT("Key matrix exported to src/output/cpp_key_matrix.txt");
+	}
+
+	// Export Value matrix
+	std::ofstream value_file("src/output/cpp_value_matrix.txt");
+	if (value_file.is_open()) {
+		for (int i = 0; i < matrixOutputPixels_size; i++) {
+			for (int j = 0; j < matrixOutputPixels_size; j++) {
+				value_file << std::fixed << std::setprecision(10) << attention_value_table[i][j];
+				if (j < matrixOutputPixels_size - 1) value_file << ",";
+			}
+			value_file << "\n";
+		}
+		value_file.close();
+		LLM_DEBUG_INIT("Value matrix exported to src/output/cpp_value_matrix.txt");
+	}
+}
 
 void LLMMACnet::llmPrintTimingStatistics() {
 	std::cout << "\n=== Task Timing Statistics ===" << std::endl;

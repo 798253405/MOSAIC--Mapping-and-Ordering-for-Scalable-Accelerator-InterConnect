@@ -16,18 +16,7 @@
 
 namespace YzLLMIEEE754 {
 
-void reshapeAndOptimize(std::deque<float>& payload) {
-    // 根据宏定义自动选择排序模式
-    #ifdef YZSeperatedOrdering_reArrangeInput
-        reshapeAndOptimizeWithMode(payload, true, 1);  // 分离排序
-    #elif defined(YzAffiliatedOrdering)
-        reshapeAndOptimizeWithMode(payload, true, 2);  // 关联排序
-    #else
-        reshapeAndOptimizeWithMode(payload, false, 0);  // 无排序
-    #endif
-}
-
-void reshapeAndOptimizeWithMode(std::deque<float>& payload, bool apply_sorting, int sorting_mode) {
+void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
     // Step 1: 检查payload格式
     // LLM payload格式: [query数据(64个), key数据(64个)]
     if (payload.size() < 128) {
@@ -40,16 +29,15 @@ void reshapeAndOptimizeWithMode(std::deque<float>& payload, bool apply_sorting, 
     std::deque<float> query_data(payload.begin(), payload.begin() + data_size);
     std::deque<float> key_data(payload.begin() + data_size, payload.begin() + data_size * 2);
     
-    // Step 3: 应用排序优化
-    if (apply_sorting) {
-        if (sorting_mode == 1) {
-            // 分离排序模式
-            sortSeparated(query_data, key_data, 8, 8);
-        } else if (sorting_mode == 2) {
-            // 关联排序模式
-            sortAffiliated(query_data, key_data, 8, 8);
-        }
-    }
+    // Step 3: 根据宏定义应用排序优化
+    #ifdef YZSeperatedOrdering_reArrangeInput
+        // 分离排序模式
+        sortSeparated(query_data, key_data, 8, 8);
+    #elif defined(YzAffiliatedOrdering)
+        // 关联排序模式
+        sortAffiliated(query_data, key_data, 8, 8);
+    #endif
+    // 否则不排序
     
     // Step 4: 矩阵重组 - 按列主序填充
     int rownum_per_col = 8;

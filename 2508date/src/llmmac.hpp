@@ -141,8 +141,57 @@ class LLMMAC
 		 *
 		 */
 		int selfstatus;
-		int request;
-		int tmp_requestID;
+		
+		/**
+		 * @brief 当前正在处理的任务ID（原名request）
+		 * 
+		 * 数据流程详解：
+		 * ================
+		 * 
+		 * 1. 任务ID的来源 (State 1: REQUEST)
+		 * ------------------------------------
+		 * - 从llmtasktable队列中取出: current_processing_task_id = llmtasktable.front()
+		 * - 任务ID范围: 0 到 1,048,575 (总共262,144像素 × 4个子块)
+		 * - 任务ID编码: pixel_id * 4 + subchunk_id
+		 *   例如: 任务ID 1025 = 像素256的第1个子块 (256*4+1)
+		 * 
+		 * 2. 发送数据请求 (State 1: REQUEST)
+		 * ------------------------------------
+		 * - 将任务ID作为请求包发送到内存节点
+		 * - llmInject(type=0, ..., current_processing_task_id, ...)
+		 * - 内存节点收到后，根据ID查找对应数据
+		 * 
+		 * 3. 内存节点处理 (Memory Node)
+		 * -------------------------------
+		 * - 接收type 0请求，提取任务ID
+		 * - 从all_tasks数组中查找: task = all_tasks[task_id]
+		 * - 提取该任务的Query和Key数据(各64个float)
+		 * - 应用排序优化(如果启用)
+		 * - 创建type 1响应包，包含排序后的数据
+		 * 
+		 * 4. 接收响应数据 (State 2: WAIT)
+		 * ---------------------------------
+		 * - 收到type 1响应后，设置current_processing_task_id = -1
+		 * - 表示数据已到达，进入计算阶段
+		 * - saved_task_id_for_result保存原始ID用于后续
+		 * 
+		 * 5. 任务ID的编解码
+		 * -----------------
+		 * - 解码: pixel_id = task_id / 4, subchunk_id = task_id % 4
+		 * - 每个像素需要4个任务完成才能得到最终结果
+		 * - 用于聚合4个子块的部分和
+		 */
+		int current_processing_task_id;  // 当前正在处理的任务ID，-1表示空闲
+		
+		/**
+		 * @brief 保存的任务ID，用于发送结果（原名tmp_requestID）
+		 * 
+		 * 作用：
+		 * - 在State 1保存任务ID: saved_task_id_for_result = current_processing_task_id
+		 * - 在State 3/4使用此ID发送结果和更新输出表
+		 * - 保持任务ID贯穿整个处理流程
+		 */
+		int saved_task_id_for_result;    // 保存的任务ID，用于发送结果时使用
 
 		int send;
 		int NI_id;
@@ -218,8 +267,7 @@ class LLMMAC
 		// State management
 		bool llmIsWaitingForData();
 		void llmResetForNextTask();
-		void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload);  // LLM payload ordering
-		// 注意: 排序函数已移至 yzllmieee754.hpp/cpp
+		// 注意: llmReshapeFlatToQueryKeyMatrix 已移至 yzllmieee754.hpp/cpp
 
 		~LLMMAC();
 };

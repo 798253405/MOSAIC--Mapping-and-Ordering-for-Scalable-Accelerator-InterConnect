@@ -42,26 +42,14 @@
 namespace YzLLMIEEE754 {
 
 /**
- * @brief LLM数据重组与排序优化
+ * @brief LLM数据重组与排序优化 - 主入口函数
  * 
  * 将线性payload数据重组为矩阵格式，并应用排序优化。
  * 根据编译时宏定义自动选择排序策略。
  * 
  * @param payload 输入/输出数据容器，包含128个float（64 query + 64 key）
  */
-void reshapeAndOptimize(std::deque<float>& payload);
-
-/**
- * @brief LLM数据重组与排序优化（带模式参数）
- * 
- * 将线性payload数据重组为矩阵格式，并应用排序优化。
- * 用于Step 4和Step 5的数据处理。
- * 
- * @param payload 输入/输出数据容器，包含128个float（64 query + 64 key）
- * @param apply_sorting 是否应用排序优化
- * @param sorting_mode 排序模式：0=无排序, 1=分离排序, 2=关联排序
- */
-void reshapeAndOptimizeWithMode(std::deque<float>& payload, bool apply_sorting, int sorting_mode);
+void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload);
 
 /**
  * @brief LLM分离排序 - Query和Key独立排序

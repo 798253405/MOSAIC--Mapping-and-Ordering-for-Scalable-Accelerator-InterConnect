@@ -55,8 +55,8 @@ MAC::MAC(int t_id, MACnet *t_net, int t_NI_id) {
 	fn = -1;
 	tmpch = -1;
 	tmpm = 0;
-	request = -1;
-	tmp_requestID = -1;
+	cnn_current_layer_task_id = -1;  // 初始化CNN任务ID为空闲
+	cnn_saved_task_id = -1;           // 初始化保存的任务ID
 
 	outfeature = 0.0;
 	nextMAC = NULL;
@@ -138,7 +138,7 @@ MAC::MAC(int t_id, MACnet *t_net, int t_NI_id) {
 
 
 #endif
-	routing_table.clear();
+	cnn_task_queue.clear();
 }
 
 bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
@@ -147,7 +147,9 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 	Message msg;
 	msg.NI_id = NI_id;
 	msg.mac_id = mac_src; //MAC
-	msg.msgdata_length = t_eleNum; // element num only for resp and results
+	msg.msgdata_length = t_eleNum ; // element num only for resp and results
+	//
+	//cout<<" 	msg.msgdata_length "<<	msg.msgdata_length <<"   "<<inbuffer[0] <<" "<<inbuffer[1] <<" "<<inbuffer[2]<<endl;
 	int selector = rand() % 90;
 
 	msg.QoS = 0;
@@ -201,31 +203,34 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 		//cout<<" maccpp check msg.yzMSGPayload.size before grid "<< msg.yzMSGPayload.size()<<endl;
 		//int flitNumSinglePacket = (msg.yzMSGPayload.size()) 		/ (payloadElementNum) + 1;
 		  int flitNumSinglePacket = (msg.yzMSGPayload.size() -1 + payloadElementNum) / (payloadElementNum) ;
-		//float tempRandom =static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - 0.5f ;
-		// Fill the remaining space with zeros
-		//cout<<"flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size() "<< flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size() <<endl;
-		//cout <<" checked  tempRandomis not  the same  " <<tempRandom<<endl; // this proves that the improvement is not only due to  padding zeros
+		
+		  /*
+		// DEBUG: Fill padding with random values instead of zeros
+		int padding_size = flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size();
+		for (int i = 0; i < padding_size; i++) {
+			float tempRandom = static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - 0.5f;
+		//	msg.yzMSGPayload.push_back(tempRandom);
+			msg.yzMSGPayload.push_back(0.0f);
+		}
+		*/
+		// cout<<" msg.yzMSGPayload.size() "<<msg.yzMSGPayload.size()<<" padding_size "<< padding_size <<" msg.msgdata_length "<<msg.msgdata_length<<endl;
+		// Original code - fill with zeros (commented out for debug)
+
 		std::fill_n(std::back_inserter(msg.yzMSGPayload),
 				(flitNumSinglePacket * payloadElementNum
-			//			  - msg.yzMSGPayload.size()), tempRandom);  // this is for debugging, to check whether padding zeros matters. //test, fill random values
 						 - msg.yzMSGPayload.size()), 0.0f);
+
 		//cout<<" maccpp check msg.yzMSGPayload.size after grid "<< msg.yzMSGPayload.size()<<endl;
 
-#ifdef CoutDebugAll0
-		 for (const auto& element : msg.yzMSGPayload) {
-		     if(element < (0.0000001) &&  element > (-0.0000001)  &&  element!=0 )
-			 std::cout << element << " ";
-		     }
-		     //std::cout<< "  Mac.cpp_msg.yzMSGPayload.size()=  "<< msg.yzMSGPayload.size()  <<" ifflitze, flitnum= "<< flitNumSinglePacket << "  msg.yzMSGPayloadBeforePaddingForFlits  " << std::endl;
-#endif
+
 
 #ifdef YzAffiliatedOrdering
 		if (inbuffer[0] != 8)		 //if(not pooling  )
 				{
 			cnnReshapeFlatToInputWeightMatrix(msg.yzMSGPayload,
-					inbuffer[2] * inbuffer[1] /* t_inputCount */,
+					inbuffer[2] * inbuffer[1]   /* t_inputCount */,
 					inbuffer[2]
-							* inbuffer[1]+1/*weights used,inbuffer[2]= 5x5=25, inbuffer[1]= inputchannel=3, for example*/,
+							* inbuffer[1]+1    /*weights used,inbuffer[2]= 5x5=25, inbuffer[1]= inputchannel=3, for example*/,
 					8/*input in one row*/, 8/*weight in one row*/,
 					16 /*total in one row*/,
 					flitNumSinglePacket/*how many rows/flits*/); /// four flits for 32/2-1=15, 15*4>51
@@ -284,7 +289,7 @@ void MAC::runOneStep() {
 		int stats1SigID;
 		int stats1SigIDplus2;
 		if (selfstatus == 0) { // status = 0 is IDLE. routing table is not zero, status = 1, mac is running
-			if (routing_table.size() == 0) {
+			if (cnn_task_queue.size() == 0) {
 				selfstatus = 0;
 				pecycle = cycles;
 			} else {
@@ -294,17 +299,17 @@ void MAC::runOneStep() {
 		}
 		// request data state
 		else if (selfstatus == 1) {	// now is 1, we need to send request and wait for response. After sending requst and before recv response is status2.
-			request = routing_table.front();
-			tmp_requestID = request; //taskid
-			routing_table.pop_front();
+			cnn_current_layer_task_id = cnn_task_queue.front();  // 从队列取出输出通道索引
+			cnn_saved_task_id = cnn_current_layer_task_id;       // 保存任务ID副本 //taskid
+			cnn_task_queue.pop_front();
 			//send_request(), fill inbuffer type 0
-			inject(0, dest_mem_id, 1, request, net->vcNetwork->NI_list[NI_id],
-					packet_id + request, selfMACid); //taskid
+			inject(0, dest_mem_id, 1, cnn_current_layer_task_id, net->vcNetwork->NI_list[NI_id],
+					packet_id + cnn_current_layer_task_id, selfMACid); //taskid
 			selfstatus = 2;
 			pecycle = cycles;
 #ifdef SoCC_Countlatency
 			//statistics
-			stats1SigID = (packet_id + tmp_requestID) * 3;
+			stats1SigID = (packet_id + cnn_saved_task_id) * 3;
 
 			DNN_latency[stats1SigID][0] = net->current_layerSeq; //DNN_yzlatency[x][0]	//net->current_layerSeq+1000;
 			DNN_latency[stats1SigID][1] = 0; //DNN_yzlatency[x][1] type 0 req
@@ -313,14 +318,14 @@ void MAC::runOneStep() {
 
 #endif
 		} else if (selfstatus == 2) {
-			if (request >= 0) { // if request is still active/waitting after sending request, just return (continue waitting and do nothing)
+			if (cnn_current_layer_task_id >= 0) { // if request is still active/waitting after sending request, just return (continue waitting and do nothing)
 				pecycle = cycles;
 				selfstatus = 2;
 				return;
 			}
 			assert(
 					(inbuffer.size() >= 4)
-							&& "Inbuffer not correct after request is set to 0");
+							&& "Inbuffer not correct after cnn_current_layer_task_id is set to 0");
 
 			// inbuffer: [fn]
 			fn = inbuffer[0];
@@ -335,7 +340,7 @@ void MAC::runOneStep() {
 						inbuffer.end()); // w matrix + b (ch_size * m_size + 1)
 				assert(
 						(weight.size() == ch_size * m_size + 1)
-								&& "Weight not correct after request (Conv)");
+								&& "Weight not correct after cnn_current_layer_task_id (Conv)");
 			} else if (fn >= 4 && fn <= 7) // fcDense [fn] [map size] [i] [w + b]
 					{
 				ch_size = 1;
@@ -350,7 +355,7 @@ void MAC::runOneStep() {
 				infeature.assign(inbuffer.begin() + 3, inbuffer.end());
 				assert(
 						(infeature.size() == m_size)
-								&& "Inbuffer not correct after request (pooling)");
+								&& "Inbuffer not correct after cnn_current_layer_task_id (pooling)");
 			}
 			outfeature = 0.0;
 			selfstatus = 3;
@@ -389,10 +394,10 @@ void MAC::runOneStep() {
 
 				inject(2, dest_mem_id, 1, outfeature,
 						net->vcNetwork->NI_list[NI_id],
-						packet_id + tmp_requestID, selfMACid);
+						packet_id + cnn_saved_task_id, selfMACid);
 #ifdef SoCC_Countlatency
 				//statistics
-				stats1SigIDplus2 = (packet_id + tmp_requestID) * 3 + 2;
+				stats1SigIDplus2 = (packet_id + cnn_saved_task_id) * 3 + 2;
 				//  here is pooling
 				DNN_latency[stats1SigIDplus2][0] = net->current_layerSeq;//DNN_yzlatency[x+2][2]			// current_layerSeq+3000;
 				DNN_latency[stats1SigIDplus2][1] = 2;
@@ -443,12 +448,12 @@ void MAC::runOneStep() {
 			// inject
 #ifndef newpooling
 			inject(2, dest_mem_id, 1, outfeature,
-					net->vcNetwork->NI_list[NI_id], packet_id + tmp_requestID,
+					net->vcNetwork->NI_list[NI_id], packet_id + cnn_saved_task_id,
 					selfMACid); // inject type 2
 			//cout<<" injectdest "<<dest_mem_id <<" "<<id<<endl;
 #ifdef SoCC_Countlatency
 			//statistics
-			stats1SigIDplus2 = (packet_id + tmp_requestID) * 3 + 2;		//result
+			stats1SigIDplus2 = (packet_id + cnn_saved_task_id) * 3 + 2;		//result
 			DNN_latency[stats1SigIDplus2][0] = net->current_layerSeq;//DNN_yzlatency[x+2][0]			// current_layerSeq+3000;
 			DNN_latency[stats1SigIDplus2][1] = 2; //DNN_yzlatency[x+2][1]
 			DNN_latency[stats1SigIDplus2][2] = selfMACid; //DNN_yzlatency[x+2][2]
@@ -465,7 +470,7 @@ void MAC::runOneStep() {
 		} else if (selfstatus == 4) {
 #ifdef only3type
 			this->send = 0;
-			if (this->routing_table.size() == 0) {
+			if (this->cnn_task_queue.size() == 0) {
 				this->selfstatus = 5;
 				//cout << cycles << " status=5currentPEis " << selfMACid << endl;
 			} else {

@@ -19,10 +19,7 @@ namespace YzLLMIEEE754 {
 void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
     // Step 1: 检查payload格式
     // LLM payload格式: [query数据(64个), key数据(64个)]
-    if (payload.size() < 128) {
-        std::cerr << "WARNING: Payload too small: " << payload.size() << " < 128" << std::endl;
-        return;
-    }
+
     
     // Step 2: 提取Query和Key数据段
     int data_size = 64;  // 每个矩阵64个元素
@@ -32,11 +29,12 @@ void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
     // Step 3: 根据宏定义应用排序优化
     #ifdef YZSeperatedOrdering_reArrangeInput
         // 分离排序模式
-        sortSeparated(query_data, key_data, 8, 8);
+    sortMatrixByColumns(query_data,8, 8);
+    sortMatrixByColumns(key_data, 8, 8);
     #elif defined(YzAffiliatedOrdering)
         // 关联排序模式
         sortAffiliated(query_data, key_data, 8, 8);
-    #endif
+#endif
     // 否则不排序
     
     // Step 4: 矩阵重组 - 按列主序填充
@@ -92,7 +90,7 @@ void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
         }
     }
     
-    // Step 6: 将重组后的数据写回原始容器
+    // Step 6: 将重组后的数据写回原始容器，也就是重新变成1维的
     payload.clear();
     for (const auto &flit : combined_flits) {
         for (const auto &element : flit) {
@@ -101,13 +99,44 @@ void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
     }
 }
 
-void sortSeparated(std::deque<float>& query_data, 
-                   std::deque<float>& key_data,
-                   int cols, int rows) {
-    // 分别对Query和Key进行独立排序
-    sortMatrixByColumns(query_data, cols, rows);
-    sortMatrixByColumns(key_data, cols, rows);
+
+
+void sortMatrixByColumns(std::deque<float>& dq, int colnum_per_row, int rownum_per_col) {
+    if (dq.empty()) return;
+
+    // Step 1: 对整个数据进行全局排序（与CNN完全相同）
+    // 将矩阵展开为一行：B0, B1, B2, ..., B31
+#ifdef FIXED_POINT_SORTING
+    std::sort(dq.begin(), dq.end(), compareFloatsByFixed17Ones);
+#else
+    std::sort(dq.begin(), dq.end(), compareFloatsByOnes);
+#endif
+
+	// put the sorted number back to one row. Make sure the order is col-major
+	//
+		std::vector<std::deque<float>> rows(rownum_per_col); //rownum_per_col = the number of flits
+		// Fill rows with elements from dq
+		int row_index = 0;
+		int col_index = 0;
+		for (float num : dq) {
+			rows[row_index].push_back(num);
+			col_index++;
+			if (col_index == colnum_per_row) {
+				row_index++;
+				col_index = 0;
+			}
+			if (row_index == rownum_per_col) { // reach max row number,reset
+				row_index = 0;
+			}
+		}
+		dq.clear();
+		for (const auto &row : rows) {
+			for (const auto &element : row) {
+				dq.push_back(element);
+			}
+		}
 }
+
 
 void sortAffiliated(std::deque<float>& query_data,
                     std::deque<float>& key_data,
@@ -153,41 +182,8 @@ void sortAffiliated(std::deque<float>& query_data,
     key_data = sortedKeys;
 }
 
-void sortMatrixByColumns(std::deque<float>& data, int cols, int rows) {
-    if (data.empty()) return;
-    
-    // Step 1: 对整个数据进行全局排序
-#ifdef FIXED_POINT_SORTING
-    std::sort(data.begin(), data.end(), compareFloatsByFixed17Ones);
-#else
-    std::sort(data.begin(), data.end(), compareFloatsByOnes);
-#endif
-    
-    // Step 2: 按列主序重新排列到矩阵
-    std::vector<std::deque<float>> matrix_rows(rows);
-    int row_index = 0;
-    int col_index = 0;
-    
-    for (float num : data) {
-        matrix_rows[row_index].push_back(num);
-        col_index++;
-        if (col_index == cols) {
-            row_index++;
-            col_index = 0;
-        }
-        if (row_index == rows) {
-            row_index = 0;
-        }
-    }
-    
-    // Step 3: 按行序写回数据
-    data.clear();
-    for (const auto& row : matrix_rows) {
-        for (float val : row) {
-            data.push_back(val);
-        }
-    }
-}
+
+
 
 void printDetailedData(const std::deque<float>& data, 
                       const std::string& name,

@@ -34,11 +34,11 @@ public:
 	std::vector<LLMMAC*> LLMMAC_list;
 	VCNetwork* vcNetwork;
 
-	// LLM-specific data structures
-	vector<vector<float>> attention_query_table;
-	vector<vector<float>> attention_key_table;
-	vector<vector<float>> attention_value_table;
-	vector<vector<float>> attention_output_table;
+	// LLM-specific data structures - 只有Input和Query，没有Key
+	vector<vector<float>> input_matrix;         // 输入矩阵 (8×4096)
+	vector<vector<float>> query_weight_matrix;  // Query权重矩阵 (128×4096)
+	// Key已移除
+	vector<vector<float>> Q_resOutput_matrix;   // 输出结果矩阵 (8×128)
 
 	// Task mapping and scheduling
 	deque<deque<int>> mapping_table;  // Keep for base class compatibility
@@ -53,18 +53,17 @@ public:
 
 	// LLM attention layer management
 	void llmCreateAttentionData();
-	void llmInitializeMatrices();
+	bool llmReadSavedMatrix();  // Read matrices from files, returns true if successful
+	void llmInitializeRandomMatrices();  // Initialize with random data
 	bool llmLoadRealMatrices(const std::string& input_dir);
 	void llmTaskPartitioning();
 
-	// 新增：数据导出函数
-	void llmExportMatricesToFile();
 	void llmExportTasksToFile();
 	void llmExportVerificationResults();
 	void llmPrintTimingStatistics();
 
 	// Network and execution management
-	void llmRunOneStep();
+	void llmNetRunStep();
 	void llmCheckStatus();
 
 	// LLM parameters
@@ -76,22 +75,19 @@ public:
 
 	// Matrix dimensions
 	int matrixOutputPixels_size;  // Size of output pixel matrix (e.g., 128x128)
-	int totalTileCount;           // Total number of tiles (NoC nodes - MC nodes)
-	int tile_Pixels_size;
-	int pixelNumPerTile;              // Size of each tile (calculated from NoC)
 
-	int tiles_Pixels_per_dim;     // Number of tiles per dimension
-	int total_tile_Pixels;        // Total number of tiles
+	// New dimensions for 8×4096 input and 128×4096 Query
+	int input_sequence_length;    // 输入序列长度 (8)
+	int input_hidden_dim;         // 输入隐藏维度 (4096)
+	int query_output_dim;         // Query输出维度 (128)
+	int matrixOutputPixels_inputsequencelength;
+	int matrixOutputPixels_queryoutputdim;
+
+
 	int time_slices;
 	int tasks_per_pixel;          // Number of sub-tasks each pixel is divided into (e.g., 4)
 	int total_task_slicedPixels;  // Total number of tasks (sliced pixels)
 
-	/*	matrixOutputPixels_size = 512, 512*512
-	totalTileCount = noc_total_nodes - memory_controller_nodes;  //64- 4= 60
-	pixelNumPerTile = matrixOutputPixels_size / sqrt(totalTileCount);  // Calculate based on NoC configuration
-	pixelNumPerTile = static_cast<int>(ceil(pixelNumPerTile));  // Round up to ensure complete coverage
-	// Note: 128/sqrt(60) ≈ 16.5 → 17, so each tile processes 17x17 ≈ 289 pixels
-	 */
 
 
 	// Execution state
@@ -108,29 +104,82 @@ public:
 	struct LLMTask {
 		int task_id;              // 全局任务ID
 		int pixel_id;             // 所属pixel ID
-		int pixel_x, pixel_y;     // pixel坐标 (在512x512矩阵中)
+		int pixel_x, pixel_y;     // pixel坐标 (在8x128矩阵中)
 		int time_slice;           // 时间片ID，与subchunk_id相同
 		int subchunk_id;          // 子块ID (0-3)
-		int tile_id;              // tile ID（保留用于兼容）
 		
-		// 数据内容
-		vector<float> query_data; // 64个query元素
-		vector<float> key_data;   // 64个key元素
-		vector<float> value_data; // 保留用于future扩展
+		// 数据内容 - 只有Input和Query，没有Key
+		vector<float> input_data;  // Input数据元素
+		vector<float> query_data;  // Query权重元素
+		// Key已移除，因为只需要Input和Query
 		
 		// 数据范围信息
-		int query_offset;         // query数据起始偏移 (0或64)
-		int key_offset;           // key数据起始偏移 (0或64)
+		int input_offset;         // input数据起始偏移
+		int query_offset;         // query数据起始偏移
 		float partial_sum;        // 该子块的计算结果
 	};
 
 	vector<LLMTask> all_tasks;
+	
+	/**
+	 * @brief LLM状态管理与包处理流程
+	 * 
+	 * 状态转换与包交互：
+	 * ==================
+	 * 
+	 * MAC状态机循环：
+	 * ----------------
+	 * State 0 (IDLE) → State 1 (REQUEST)
+	 *   触发：llmtasktable有待处理任务
+	 *   动作：取出task_id，准备发送请求
+	 * 
+	 * State 1 (REQUEST) → State 2 (WAIT)
+	 *   触发：发送Type 0请求包
+	 *   包格式：msgtype=0, data[0]=task_id
+	 *   目标：内存节点
+	 * 
+	 * State 2 (WAIT) → State 3 (COMPUTE)
+	 *   触发：收到Type 1响应包
+	 *   包格式：msgtype=1, payload=[header(4)+query(64)+key(64)]
+	 *   来源：内存节点
+	 * 
+	 * State 3 (COMPUTE) → State 4 (COMPLETE)
+	 *   触发：Attention计算完成
+	 *   动作：发送结果包(Type 2或3)
+	 * 
+	 * State 4 (COMPLETE) → State 0/5
+	 *   分支：有任务→State 0，无任务→State 5(FINISHED)
+	 * 
+	 * 包类型详解：
+	 * -----------
+	 * Type 0 (REQUEST): MAC请求数据
+	 *   - 方向：MAC → Memory
+	 *   - 内容：task_id
+	 *   - 处理：Memory查找all_tasks[task_id]
+	 * 
+	 * Type 1 (RESPONSE): Memory返回数据
+	 *   - 方向：Memory → MAC
+	 *   - 内容：132个float (header+payload)
+	 *   - 处理：MAC开始计算
+	 * 
+	 * Type 2 (INTERMEDIATE): 中间结果
+	 *   - 方向：MAC → Memory
+	 *   - 内容：[value, x, y, slice]
+	 *   - 用途：调试验证
+	 * 
+	 * Type 3 (FINAL): 最终结果
+	 *   - 方向：MAC → Memory
+	 *   - 内容：[value, x, y, slice]
+	 *   - 处理：更新output_table
+	 */
 	void llmGenerateAllTasks();
 	void llmDistributeTasks();
+	
+	// Set external input matrices for real data processing
+	void setInputMatrices(const vector<vector<float>>& X_input, 
+	                     const vector<vector<float>>& Wq);
 
 	// Helper functions
-	int llmGetTileId(int pixel_x, int pixel_y);
-	int llmGetMACIdForTile(int tile_id);
 	bool llmIsMemoryNode(int node_id);
 
 	~LLMMACnet();

@@ -62,9 +62,7 @@ void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload);
  * @param cols 矩阵列数（默认8）
  * @param rows 矩阵行数（默认8）
  */
-void sortSeparated(std::deque<float>& query_data, 
-                   std::deque<float>& key_data,
-                   int cols = 8, int rows = 8);
+
 
 /**
  * @brief LLM关联排序 - 保持Query-Key配对

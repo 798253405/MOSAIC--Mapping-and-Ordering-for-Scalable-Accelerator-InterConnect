@@ -4,8 +4,8 @@
 #define DEFAULT_NNINPUT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/input2.txt"
 #define DEFAULT_NNMODEL_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/newnet2.txt"
 
-//#define randomeval
-#define fulleval
+#define randomeval
+//#define fulleval
 //#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
 
 // CNN Random Data Test - Replace CNN inbuffer data with random values (same as LLM)
@@ -20,17 +20,17 @@
 //#define MemNode4_32X32
 
 // Test Case Configuration - Choose one
-  //#define case1_default
+// #define case1_default
 //#define case2_samos
 //#define case3_affiliatedordering
-#define case4_seperratedordering
+ #define case4_seperratedordering
 //#define case5_MOSAIC1
 //#define case6_MOSAIC2
 
 //#define  PADDING_RANDOM
 
 
-// #define YZLLMSwitchON
+#define YZLLMSwitchON
 //#define LLMPADDING_RANDOM
 constexpr int DIM_MODEL = 4096; 
 constexpr int NUM_HEAD = 32; 
@@ -40,6 +40,7 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
 #define LLM_TEST_CASE 2
 #define LLM_DEBUG_LEVEL 1
 #define LLM_RANDOM_SEED 0
+#define LLM_SUBCHUNKS_PER_PIXEL 4  // Number of subchunks per pixel for task decomposition (4096/4=1024 per chunk)
 
 // LLM Data Mode - Toggle between weight-based and input-based
 // #define LLM_INPUT_BASED  // Comment this out for weight-based mode

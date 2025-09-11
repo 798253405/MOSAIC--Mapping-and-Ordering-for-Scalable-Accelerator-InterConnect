@@ -107,8 +107,31 @@ class MAC
 	int fn;
 	int pecycle;
 	int selfstatus;
-	int request;
-	int tmp_requestID;
+	
+	/**
+	 * @brief CNN当前处理的层计算任务ID（原名request）
+	 * 
+	 * CNN任务ID含义：
+	 * - 表示当前层的第几个输出通道/特征图
+	 * - 从routing_table队列中取出
+	 * - 范围：0 到 该层输出通道数-1
+	 * - -1表示MAC空闲，无任务处理
+	 * 
+	 * 与LLM的区别：
+	 * - CNN: 任务ID = 输出通道索引，用于索引权重
+	 * - LLM: 任务ID = pixel_id*4 + subchunk_id，用于索引矩阵块
+	 */
+	int cnn_current_layer_task_id;  // CNN当前处理的层任务ID（原名request）
+	
+	/**
+	 * @brief CNN保存的任务ID副本（原名tmp_requestID）
+	 * 
+	 * 作用：
+	 * - 在发送请求时保存: tmp_requestID = request
+	 * - 用于统计延迟: DNN_latency[packet_id + tmp_requestID]
+	 * - 用于发送结果包时的packet ID计算
+	 */
+	int cnn_saved_task_id;  // CNN保存的任务ID副本（原名tmp_requestID）
 
 	int send;
 	int NI_id;
@@ -123,9 +146,14 @@ class MAC
 	int m_count;
 	float outfeature{}; //from MRL
 
-
-
-	deque <int> routing_table;
+	/**
+	 * @brief CNN任务队列（原名routing_table）
+	 * 
+	 * 存储待处理的输出通道索引
+	 * 例如：对于有64个输出通道的卷积层，队列包含[0,1,2,...,63]
+	 * MAC从队列取出任务ID，计算对应的输出特征图
+	 */
+	deque <int> cnn_task_queue;  // CNN待处理任务队列（原名routing_table）
 
 	// for new pooling
 	int npoolflag;

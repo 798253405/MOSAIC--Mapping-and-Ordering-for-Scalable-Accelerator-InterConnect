@@ -191,51 +191,6 @@ MACnet::MACnet(int mac_num, int t_pe_x, int t_pe_y, Model *m,
 	executedTask = 0;
 }
 
-// Function to extract and divide vectors based on the criteria
-void MACnet::extract_and_divide_vectors(const std::vector<float> &sortedData,
-		int blockSize, int numBlocks) {
-	// Ensure parameters are valid
-	if (blockSize <= 0 || numBlocks <= 0 || sortedData.size() < blockSize) {
-		std::cerr << "line276Invalid parameters or data size. " << blockSize
-				<< " " << numBlocks << " " << sortedData.size() << std::endl;
-		return;
-	}
-	// Initialize `numBlocks` empty vectors
-	for (int i = 0; i < numBlocks; i++) {
-		yzblocks.push_back(std::vector<float>());
-	}
-	int totalSize = sortedData.size();
-	cout << " \n clustelevel blockextract totalSizeline284 " << totalSize
-			<< endl;
-
-	for (int channeltemp = 0; channeltemp < o_ch; channeltemp++) {
-		int jumpIndexForMem = 0;
-		int tempNodeOrder[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
-				14, 15 };
-		//int tempNodeOrder[16] ={10,3,2,1,0,4,5,6,7,8,9,11,12,13, 14,15};
-		//int tempNodeOrder[16] = { 13, 15, 5, 7, 8, 10, 12, 6, 4, 14, 1, 3, 0, 2 ,9,11};
-		for (int i = 0; i < numBlocks; i++) {
-			//if memory, allocate empty data.
-			if (tempNodeOrder[i] == 9 || tempNodeOrder[i] == 11) {
-				jumpIndexForMem = jumpIndexForMem + blockSize;
-				continue;
-			}
-			// if pe, allocate data.
-			// Fill each block with elements
-			else {
-				for (int j = 0; j < blockSize; ++j) {
-					int index = i * blockSize + j - jumpIndexForMem;
-					// Ensure we do not go out of bounds
-					if (index < totalSize) {
-						yzblocks[tempNodeOrder[i]].push_back(sortedData[index]);
-					} else {
-						break; // Exit early if not enough elements
-					}
-				}
-			}
-		}
-	}
-}
 
 
 void MACnet::create_input() {
@@ -355,447 +310,6 @@ void MACnet::xmapping(int neuronnum) {
 	return;
 }
 
-// default direct y mapping
-void MACnet::ymapping(int neuronnum) {
-	this->mapping_table.clear();
-	this->mapping_table.resize(macNum);
-
-	int npos[macNum];
-	for (int c = 0; c < PE_X_NUM; c++) {
-		for (int r = 0; r < PE_Y_NUM; r++) {
-			npos[c * PE_Y_NUM + r] = r * PE_X_NUM + c;
-		}
-	}
-
-	//dir_y, col mapping, except dest_list
-	int j = 0;
-	int k = 0;
-	while (j < neuronnum) {
-		for (int i = 0; i < macNum; i++) {
-			k = npos[i];
-			int temp_i = k % TOT_NUM;
-
-			if (contains(dest_list, temp_i)) {
-				continue;
-			}
-
-			this->mapping_table[k].push_back(j);
-			j = j + 1;
-			if (j == neuronnum)
-				break;
-		}
-	}
-	return;
-}
-
-// random mapping
-void MACnet::rmapping(int neuronnum) {
-	this->mapping_table.clear();
-	this->mapping_table.resize(macNum);
-
-	unsigned seed = 0; // std::chrono::system_clock::now().time_since_epoch().count();
-	vector<int> npos;
-	for (int c = 0; c < macNum; c++) {
-		npos.push_back(c);
-	}
-
-	shuffle(npos.begin(), npos.end(), default_random_engine(seed));
-
-	//random mapping, except dest_list
-	int j = 0;
-	int k = 0;
-	while (j < neuronnum) {
-		for (int i = 0; i < macNum; i++) {
-			k = npos[i];
-			int temp_i = k % TOT_NUM;
-
-			if (contains(dest_list, temp_i)) {
-				continue;
-			}
-
-			this->mapping_table[k].push_back(j);
-			j = j + 1;
-			if (j == neuronnum)
-				break;
-		}
-	}
-	return;
-}
-
-// yzrandom mapping
-void generateRandomArray(std::vector<int> &array, int macNum, int neuronnum,
-		unsigned seed) {
-	std::default_random_engine generator(seed);
-	int baseNum = 200;
-	int PENum = (macNum - YZMEMCount);
-	int tempRange = (neuronnum) / PENum - baseNum;
-	cout << "tempRange " << tempRange << endl;
-	std::uniform_int_distribution<int> distribution(0, 2 * tempRange);
-	distribution(generator); //first distribution seems to be strange, drop it
-	int sum = 0;
-	for (int i = 0; i < PENum; ++i) {
-		if (i == PENum - 1) {
-			array[i] = neuronnum - sum; // 确保总和为neuronnum
-		} else {
-			int tempGenRandom = distribution(generator);
-			array[i] = tempGenRandom + baseNum;
-			//cout<<" debugneuronnum/macNum);"<< "  array[i] "<<array[i]<<" "<<tempGenRandom<<" "<<(neuronnum/(macNum-YZMEMCount))<<endl;
-			sum += array[i];
-			if (sum >= neuronnum) {
-				array[i] -= (sum - neuronnum); // 调整以确保不超过总和
-				sum = neuronnum;
-			}
-		}
-	}
-}
-void MACnet::yzrmapping(int neuronnum) {
-	this->mapping_table.clear();
-	this->mapping_table.resize(macNum);
-
-	unsigned seed = 0; // std::chrono::system_clock::now().time_since_epoch().count();
-	vector<int> npos;
-	for (int c = 0; c < macNum; c++) {
-		npos.push_back(c);
-	}
-
-	shuffle(npos.begin(), npos.end(), default_random_engine(seed));
-
-	//
-	std::vector<int> myArray(macNum);
-	int yzmappingseed = 0;
-	generateRandomArray(myArray, macNum, neuronnum, yzmappingseed);
-	// print array
-	int tempi = 0;
-	for (int num : myArray) {
-
-		std::cout << tempi << "_" << num << " ";
-		tempi = tempi + 1;
-	}
-	std::cout << std::endl;
-
-	// check sum: should equal to neuronnum
-	int sum = std::accumulate(myArray.begin(), myArray.end(), 0);
-	std::cout << "checkmyrandomarrayTotal Sum: " << sum << std::endl;
-	//
-
-	//yz random mapping, except dest_list
-	int j = 0;
-	int bias = 0;
-	for (int i = 0; i < macNum; i++) {
-		//int k = npos[i]; // random PEid
-		int k = i;
-		if (contains(dest_list, k)) {
-			bias = bias + 1;
-			continue;
-		}
-		for (int tempCount = 0; tempCount < myArray[i - bias]; tempCount++) {
-			this->mapping_table[k].push_back(j);
-			j = j + 1;
-			if (j == neuronnum)
-				break;
-		}
-	}
-	cout << "debugjisinyzrandommapping " << j << endl;
-	int totalCount = 0;
-	for (const auto &list : this->mapping_table) {
-		int onelayercount = 0;
-		for (int num : list) {
-			totalCount += 1;
-			onelayercount = onelayercount + 1;
-
-		}
-		//cout<<"checkthisnumonelayercount "<<onelayercount<<endl;
-	}
-	cout << " checkmappingtablesum " << totalCount << endl;
-	return;
-}
-
-int MACnet::yzDistancemapping(int neuronnum) {
-	this->mapping_table.clear();
-	this->mapping_table.resize(macNum);
-	int j = 0;
-	int countPerPE = 0;
-#ifdef MMemNode2_4X4
-	cout << " yzDistancemappingneuronnumis " << neuronnum << endl;
-// 9and 11 are memnodes  // or 9and10
-	for (int i = 0; i < macNum; i++) {
-		int countPerPE;
-		if (i == 0 || i == 2) {
-			countPerPE = neuronnum * 1 / 32;
-			cout << "DistancemappingcountPerPE " << i << " " << countPerPE
-					<< endl;
-		} else if (i == 1 || i == 3 || i == 4 || i == 6 || i == 12 || i == 14) {
-			countPerPE = neuronnum * 2 / 32;
-			cout << "DistancemappingcountPerPE " << i << " " << countPerPE
-					<< endl;
-		} else if (i == 5 || i == 7 || i == 8 || i == 10 || i == 13
-				|| i == 15) {
-			countPerPE = neuronnum * 3 / 32;
-			cout << "DistancemappingcountPerPE " << i << " " << countPerPE
-					<< endl;
-		} else {
-			continue; // 或者 assert(1 == 1);
-		}
-
-		for (int k = 0; k < countPerPE; k++) {
-			this->mapping_table[i].push_back(j);
-			j = j + 1;
-			//cout << " mapping  notdone" <<" iis "<<i<< " jis " << j << endl;
-		}
-	}
-	int tempAllocatedCount = j;
-	cout << " yzdistancemappinginbtermidate" << j << endl;
-	// Assuming 'neuronnum' and other relevant variables are defined elsewhere
-	//int customOrder[] = { 13, 15, 5, 7, 8, 10, 12, 6, 4, 14, 1, 3, 0, 2 }; // Custom order specified
-	//int customOrder[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14 }; // Custom order specified
-	int customOrder[] = { 0,  2, 4, 6 , 8,  10, 12,14  , 1,  3, 5, 7, 13, 14 };
-	int orderSize = sizeof(customOrder) / sizeof(customOrder[0]); // Size of the custom order array
-	int orderIndex = 0; // Start from the first element in the custom order
-
-	for (int k = tempAllocatedCount; k < neuronnum; k++) {
-		int idLoop = customOrder[orderIndex]; // Use the current order from the custom sequence
-		this->mapping_table[idLoop].push_back(j);
-		j = j + 1;
-		orderIndex = (orderIndex + 1) % orderSize; // Move to the next index in the custom order, loop back if at the end
-	}
-
-	cout << " neuronnum-tempAllocatedCount not = 0 "
-			<< neuronnum - tempAllocatedCount << std::endl;
-	cout << " yzdistancemappingdone " << j << endl;
-
-#endif
-#ifdef MemNode4_4X4
-	for (int i = 0; i < macNum; i++) {
-			int countPerPE;
-			if (i == 0 || i == 2 || i == 8|| i== 10) {
-				countPerPE = neuronnum * 1 / 20;
-				cout << "DistancemappingcountPerPE " << i << " " << countPerPE
-						<< endl;
-			} else if (i == 1 || i == 3 || i == 9 || i == 11  ) {
-				countPerPE = neuronnum * 2 / 20;
-				cout << "DistancemappingcountPerPE " << i << " " << countPerPE
-						<< endl;
-			} else if (i == 4 || i == 6 || i == 12 || i == 14 ) {
-				countPerPE = neuronnum * 2 / 20;
-				cout << "DistancemappingcountPerPE " << i << " " << countPerPE
-						<< endl;
-			} else {
-				continue; // 或者 assert(1 == 1);
-			}
-
-			for (int k = 0; k < countPerPE; k++) {
-				this->mapping_table[i].push_back(j);
-				j = j + 1;
-				//cout << " mapping  notdone" <<" iis "<<i<< " jis " << j << endl;
-			}
-		}
-		int tempAllocatedCount = j;
-		cout << " yzdistancemappinginbtermidate" << j << endl;
-		// Assuming 'neuronnum' and other relevant variables are defined elsewhere
-		//int customOrder[] = { 1,3,9,11,4,6,12,14,0,2,8,10 }; // Custom order specified
-		int customOrder[] = { 0,1,2,3,4,6,8,9,10,11,12,14 }; // Custom order specified
-		int orderSize = sizeof(customOrder) / sizeof(customOrder[0]); // Size of the custom order array
-		int orderIndex = 0; // Start from the first element in the custom order
-
-		for (int k = tempAllocatedCount; k < neuronnum; k++) {
-			int idLoop = customOrder[orderIndex]; // Use the current order from the custom sequence
-			this->mapping_table[idLoop].push_back(j);
-			j = j + 1;
-			orderIndex = (orderIndex + 1) % orderSize; // Move to the next index in the custom order, loop back if at the end
-		}
-
-		cout << " neuronnum-tempAllocatedCount not = 0 "
-				<< neuronnum - tempAllocatedCount << std::endl;
-		cout << " yzdistancemappingdone " << j << endl;
-#endif
-
-	return 0;
-}
-
-/*
- int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
-
- this->mapping_table.clear();
- this->mapping_table.resize(macNum);
-
- int j = 0;
- int countPerPE = 0;
- int tempAllocatedCount = 0;
-
-
- #ifdef MemNode2_4X4
- cout << " YZSAMOSSampleMappingneuronnumis " << neuronnum << " atcycles "
- << cycles << endl;
-
- double timeHop1 = samplingWindowDelay[13] / samplingWindowLength, timeHop2 =
- samplingWindowDelay[5] / samplingWindowLength, timeHop3 =
- samplingWindowDelay[8] / samplingWindowLength, timeHop4 =
- samplingWindowDelay[1] / samplingWindowLength, timeHop5 =
- samplingWindowDelay[4] / samplingWindowLength, timeHop6 =
- samplingWindowDelay[12] / samplingWindowLength, timeHop7 =
- samplingWindowDelay[0] / samplingWindowLength;
-
- cout << " timeHop1totimeHop7 " << " " << timeHop1 << " " << timeHop2 << " "
- << timeHop3 << " " << timeHop4 << " " << timeHop5 << " " << timeHop6
- << " " << timeHop7 << endl;
- cout << " timeHop1totimeHop7 " << " " << samplingWindowDelay[13] << " "
- << samplingWindowDelay[5] << " " << samplingWindowDelay[8] << " "
- << samplingWindowDelay[1] << " " << samplingWindowDelay[4] << " "
- << samplingWindowDelay[12] << " " << samplingWindowDelay[0] << endl;
-
- double c1double = neuronnum
- * (timeHop2 * timeHop3 * timeHop4 * timeHop5 * timeHop6 * timeHop7)
- / (timeHop2 * timeHop3 * timeHop4 * timeHop5 * timeHop6 * timeHop7
- + timeHop1 * timeHop3 * timeHop4 * timeHop5 * timeHop6
- * timeHop7
- + timeHop1 * timeHop2 * timeHop4 * timeHop5 * timeHop6
- * timeHop7
- + timeHop1 * timeHop2 * timeHop3 * timeHop5 * timeHop6
- * timeHop7
- + timeHop1 * timeHop2 * timeHop3 * timeHop4 * timeHop6
- * timeHop7
- + timeHop1 * timeHop2 * timeHop3 * timeHop4 * timeHop5
- * timeHop7
- + timeHop1 * timeHop2 * timeHop3 * timeHop4 * timeHop5
- * timeHop6) / 2;
- // cout << " fenzi " << numeratorfenzi << " " << denominatorfenmu << endl;
- double c2double = c1double * timeHop1 / timeHop2;
- double c3double = c1double * timeHop1 / timeHop3;
- double c4double = c1double * timeHop1 / timeHop4;
- double c5double = c1double * timeHop1 / timeHop5;
- double c6double = c1double * timeHop1 / timeHop6;
- double c7double = c1double * timeHop1 / timeHop7;
- int c1 = int(c1double);
- int c2 = int(c2double);
- int c3 = int(c3double);
- int c4 = int(c4double);
- int c5 = int(c5double);
- int c6 = int(c6double);
- int c7 = int(c7double);
- cout << " c1line436 " << neuronnum << " " << " " << " " << c1 << " " << c2
- << " " << c3 << " " << endl;
- int numeratorfenzi = timeHop1 * timeHop2;
- int denominatorfenmu = 3 * timeHop3 * timeHop1 + 3 * timeHop3 * timeHop2
- + timeHop1 * timeHop2;
- //cout << " fenzi " << numeratorfenzi <<" "<< denominatorfenmu<< endl;
- // 9and 11 are memnodes  // or 9and10
- for (int i = 0; i < macNum; i++) {
- int countPerPE = 0;
- if (i == 0 || i == 2) {
- countPerPE = c7;
- tempAllocatedCount = tempAllocatedCount + countPerPE;
- cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
- << endl;
- } else if (i == 13 || i == 15) {
- countPerPE = c1;
- tempAllocatedCount = tempAllocatedCount + countPerPE;
- cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
- << endl;
- } else if (i == 5 || i == 7) {
- countPerPE = c2;
- tempAllocatedCount = tempAllocatedCount + countPerPE;
- cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
- << endl;
- } else if (i == 8 || i == 10) {
- countPerPE = c3;
- tempAllocatedCount = tempAllocatedCount + countPerPE;
- cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
- << endl;
- } else if (i == 1 || i == 3) {
- countPerPE = c4;
- tempAllocatedCount = tempAllocatedCount + countPerPE;
- cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
- << endl;
- } else if (i == 4 || i == 6) {
- countPerPE = c5;
- tempAllocatedCount = tempAllocatedCount + countPerPE;
- cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
- << endl;
- } else if (i == 12 || i == 14) {
- countPerPE = c6;
- tempAllocatedCount = tempAllocatedCount + countPerPE;
- cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
- << endl;
- } else {
- continue; // 或者 assert(1 == 1);
- }
-
- for (int k = 0; k < countPerPE; k++) {
- this->mapping_table[i].push_back(j);
- j = j + 1;
- //cout << " mapping  notdone" <<" iis "<<i<< " jis " << j << endl;
- }
- }
- cout << " YZSAMOSSampleMappingginbtermidate" << j << endl;
- // Assuming 'neuronnum' and other relevant variables are defined elsewhere
- int customOrder[] = { 13, 15, 5, 7, 8, 10, 12, 6, 4, 14, 1, 3, 0, 2 }; // Custom order specified
- int orderSize = sizeof(customOrder) / sizeof(customOrder[0]); // Size of the custom order array
- int orderIndex = 0; // Start from the first element in the custom order
-
- for (int k = tempAllocatedCount; k < neuronnum; k++) {
- int idLoop = customOrder[orderIndex]; // Use the current order from the custom sequence
- this->mapping_table[idLoop].push_back(j);
- j = j + 1;
- orderIndex = (orderIndex + 1) % orderSize; // Move to the next index in the custom order, loop back if at the end
- }
-
- cout << " neuronnum-tempAllocatedCount not = 0 "
- << neuronnum - tempAllocatedCount << std::endl;
- cout << " YZSAMOSSampleMappinggdone " << j << endl;
- #endif
-
- #ifdef MemNode4_4X4
- double timeHop1 = 42.08, timeHop2 = 42.08, timeHop3 = 47.12;
- double c1double = neuronnum / 4 * (timeHop2 * timeHop3)
- / (timeHop2 * timeHop3 + timeHop1 * timeHop3 + timeHop1 * timeHop2);
- double c2double = c1double * timeHop1 / timeHop2;
- double c3double = c1double * timeHop1 / timeHop3;
- int c1 = int(c1double);
- int c2 = int(c2double);
- int c3 = int(c3double);
- for (int i = 0; i < macNum; i++) {
- int countPerPE;
- if (i == 0 || i == 2 || i == 8 || i == 10) {
- countPerPE = c3;
- tempAllocatedCount = tempAllocatedCount + countPerPE;
- cout << "countPerPE " << i << " " << countPerPE << endl;
- } else if (i == 4 || i == 6 || i == 12|| i == 14) {
- countPerPE = c2;
- tempAllocatedCount = tempAllocatedCount + countPerPE;
- cout << "countPerPE " << i << " " << countPerPE << endl;
- } else if (i == 1 || i == 3 || i == 9 || i == 11) {
- countPerPE = c1;
- tempAllocatedCount = tempAllocatedCount + countPerPE;
- cout << "countPerPE " << i << " " << countPerPE << endl;
- } else {
- continue; // 或者 assert(1 == 1);
- }
- for (int k = 0; k < countPerPE; k++) {
- this->mapping_table[i].push_back(j);
- j = j + 1;
- //cout << " mapping  notdone" <<" iis "<<i<< " jis " << j << endl;
- }
- }
- cout << " YZSAMOSSampleMappingginbtermidate" << j << endl;
- int customOrder[] = { 4, 6, 12, 14, 1, 3, 9, 11, 0, 2, 8, 10 }; // Custom order specified
- int orderSize = sizeof(customOrder) / sizeof(customOrder[0]); // Size of the custom order array
- int orderIndex = 0; // Start from the first element in the custom order
-
- for (int k = tempAllocatedCount; k < neuronnum; k++) {
- int idLoop = customOrder[orderIndex]; // Use the current order from the custom sequence
- this->mapping_table[idLoop].push_back(j);
- j = j + 1;
- orderIndex = (orderIndex + 1) % orderSize; // Move to the next index in the custom order, loop back if at the end
- }
-
- cout << " neuronnum-tempAllocatedCount not = 0 "
- << neuronnum - tempAllocatedCount << std::endl;
- cout << " YZSAMOSSampleMappinggdone " << j << endl;
- #endif
-
- return 0;
- }
- */
 
 int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 	// 清空并按 macNum 大小准备映射表
@@ -1177,8 +691,8 @@ void MACnet::checkStatus() {
 #endif
 
 			} else {
-				this->MAC_list[i]->routing_table.assign(
-						mapping_table[i].begin(), mapping_table[i].end()); //mapping table
+				this->MAC_list[i]->cnn_task_queue.assign(
+						mapping_table[i].begin(), mapping_table[i].end()); //mapping table - 分配输出通道任务
 			}
 		}
 		readyflag = 1; // loading complete
@@ -1377,6 +891,11 @@ void MACnet::checkStatus() {
 
 }
 
+
+
+
+
+
 void MACnet::runOneStep() {
 	MAC *tmpMAC;
 	NI *tmpNI;
@@ -1422,15 +941,15 @@ void MACnet::runOneStep() {
 			DNN_latency[pidSignalID * 3 + 1][1] = 1;
 			DNN_latency[pidSignalID * 3 + 1][2] = src_mac;
 			DNN_latency[pidSignalID * 3 + 1][3] = cycles;
-			//cout<<" tmpMAC->requestline1868 "<<tmpMAC->request<<endl;
+			//cout<<" tmpMAC->cnn_current_layer_task_idline1868 "<<tmpMAC->cnn_current_layer_task_id<<endl;
 #endif
 			// cout<<cycles << " MEM " << tmpPacket->message.destination << " receive type " << tmpPacket->message.msgtype << " from MAC " << src << endl;
 			tmpMAC = MAC_list[src_mac];
 			if (this->cnnmodel->all_layer_type[current_layerSeq] == 'c') { // conv layer fetch data
 				if (tmpMAC->selfstatus == 2) // request data && this->cnnmodel->all_layer_type[current_layerSeq]=='c'
 						{
-					tmpMAC->tmpch = tmpMAC->request / (o_x * o_y); //current output channel
-					tmpMAC->tmpm = tmpMAC->request % (o_x * o_y); //current output map id
+					tmpMAC->tmpch = tmpMAC->cnn_current_layer_task_id / (o_x * o_y); //current output channel
+					tmpMAC->tmpm = tmpMAC->cnn_current_layer_task_id % (o_x * o_y); //current output map id
 					tmpMAC->npoolflag = 0;
 					int tmpx = tmpMAC->tmpm % o_x;
 					int tmpy = tmpMAC->tmpm / o_x;
@@ -1533,8 +1052,8 @@ void MACnet::runOneStep() {
 					{
 				if (tmpMAC->selfstatus == 2) // request data && this->cnnmodel->all_layer_type[current_layerSeq]=='p'
 						{
-					tmpMAC->tmpch = tmpMAC->request / (o_x * o_y); //current output channel
-					tmpMAC->tmpm = tmpMAC->request % (o_x * o_y); //current output map id
+					tmpMAC->tmpch = tmpMAC->cnn_current_layer_task_id / (o_x * o_y); //current output channel
+					tmpMAC->tmpm = tmpMAC->cnn_current_layer_task_id % (o_x * o_y); //current output map id
 					int tmpx = tmpMAC->tmpm % o_x;
 					int tmpy = tmpMAC->tmpm / o_x;
 					tmpMAC->inbuffer.clear();
@@ -1574,7 +1093,7 @@ void MACnet::runOneStep() {
 				if (tmpMAC->selfstatus == 2) // request data && this->cnnmodel->all_layer_type[current_layerSeq]=='f'
 						{
 					tmpMAC->tmpch = 0; //current output channel 1*ox*1
-					tmpMAC->tmpm = tmpMAC->request; //current output vector id (also w_ch)
+					tmpMAC->tmpm = tmpMAC->cnn_current_layer_task_id; //current output vector id (also w_ch)
 					tmpMAC->npoolflag = 0;
 					tmpMAC->inbuffer.clear();
 					// inbuffer: [fn] [map size w_x * w_y] [i] [w + b]
@@ -1673,7 +1192,7 @@ void MACnet::runOneStep() {
 		}
 	}
 
-// only check non-mem node
+// only check non-mem node recive resp， pick it up(deleted from packetbuffer) and for computation
 	for (int i = 0; i < TOT_NUM; i++) {
 		// skip mem nodes
 		if (contains(dest_list, i)) {
@@ -1701,12 +1220,10 @@ void MACnet::runOneStep() {
 			DNN_latency[pidSignalID * 3 + 1][7] = cycles; //DNN_yzlatency[x+1][7]
 #endif
 			tmpMAC = MAC_list[src_mac];
-			tmpMAC->request = -1;
+			tmpMAC->cnn_current_layer_task_id = -1;
 			tmpNI->packet_buffer_out[0].pop_front();
 
 		}
-		//changed to reduce trans delay
-		// for message type 3 from MEM to MAC
 	}
 
 	return;

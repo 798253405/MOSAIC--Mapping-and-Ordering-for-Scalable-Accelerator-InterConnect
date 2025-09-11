@@ -319,7 +319,7 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "  Average NI Hops per Flit: " << fixed << setprecision(2) << avg_ni_hops_per_flit << endl;
 	cout << "  Average Bit Flips per Flit（totalhops）: " << fixed << setprecision(2) << avg_flips_per_flit << endl;
 	cout << "  Average Bit Flips per Router Hop: " << fixed << setprecision(2) << avg_flips_per_router_hop << endl;
-
+	cout << "  Average Bit Flips per respRouter Hop: " << fixed << setprecision(2) <<respRouterFlip/respRouterHop  << endl;
 
 	cout << "!!END!!" << endl;
 
@@ -397,13 +397,14 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "Creating LLMMACnet with " << PE_NUM << " MAC units" << endl;
 	LLMMACnet *llmMacnet = new LLMMACnet(PE_NUM, PE_X_NUM, PE_Y_NUM, vcNetwork);
 
+	// Matrix loading is now handled inside LLMMACnet initialization
+	// No need to load here anymore
+
 	cout << "LLM Attention Parameters:" << endl;
-	cout << "  Matrix size: " << llmMacnet->matrixOutputPixels_size << "x" << llmMacnet->matrixOutputPixels_size << endl;
-	cout << "  Tile size: " << llmMacnet->tile_Pixels_size << "x" << llmMacnet->tile_Pixels_size << endl;
+	cout << "  Output matrix size: " << llmMacnet->input_sequence_length << "x" << llmMacnet->query_output_dim << endl;
 	cout << "  Time slices: " << llmMacnet->time_slices << endl;
 	cout << "  Total tasks (quicktest): " << llmMacnet->total_task_slicedPixels << endl;
-	cout << "  Full task count: " << llmMacnet->matrixOutputPixels_size * llmMacnet->matrixOutputPixels_size * 4 << endl;
-	cout << "  Total tiles: " << llmMacnet->total_tile_Pixels << endl;
+	cout << "  Full task count: " << llmMacnet->matrixOutputPixels_size * llmMacnet->matrixOutputPixels_size * LLM_SUBCHUNKS_PER_PIXEL << endl;
 
 	// Simulation parameters
 	cycles = 0;
@@ -469,7 +470,7 @@ int main(int arg_num, char *arg_vet[]) {
 		}
 
 		// Run one simulation step
-		llmMacnet->llmRunOneStep();
+		llmMacnet->llmNetRunStep();
 
 		// Run network simulation
 		vcNetwork->runOneStep();
@@ -488,7 +489,7 @@ int main(int arg_num, char *arg_vet[]) {
 		cout << "Sample attention output matrix (first 10x10):" << endl;
 		for (int i = 0; i < min(10, llmMacnet->matrixOutputPixels_size); i++) {
 			for (int j = 0; j < min(10, llmMacnet->matrixOutputPixels_size); j++) {
-				cout << fixed << setprecision(4) << llmMacnet->attention_output_table[i][j] << " ";
+				cout << fixed << setprecision(4) << llmMacnet->Q_resOutput_matrix[i][j] << " ";
 			}
 			cout << endl;
 		}
@@ -589,22 +590,8 @@ int main(int arg_num, char *arg_vet[]) {
 	*/
 #endif
 
-	// Save attention output matrix
-	cout << "Saving attention output matrix..." << endl;
-	ofstream output_file("src/output/llm_attention_output.txt", ios::out);
-	if (output_file.is_open()) {
-		for (int i = 0; i < llmMacnet->matrixOutputPixels_size; i++) {
-			for (int j = 0; j < llmMacnet->matrixOutputPixels_size; j++) {
-				output_file << fixed << setprecision(6) << llmMacnet->attention_output_table[i][j];
-				if (j < llmMacnet->matrixOutputPixels_size - 1) output_file << ",";
-			}
-			output_file << endl;
-		}
-		output_file.close();
-		cout << "Attention output saved to src/output/llm_attention_output.txt" << endl;
-	} else {
-		cout << "Warning: Could not open output matrix file" << endl;
-	}
+	// Q computation is now handled inside LLMMACnet during initialization
+	// The matrices are loaded and Q is computed in llmInitializeMatrices()
 
 	// Network statistics (similar to original main)
 	long long tempRouterNetWholeFlipCount = 0;
@@ -674,12 +661,7 @@ int main(int arg_num, char *arg_vet[]) {
 	if (YZGlobalRouterHopCount > 0) {
 		avg_flips_per_router_hop = (float)tempRouterNetWholeFlipCount / YZGlobalRouterHopCount;
 	}
-	cout << "  Average Hops per Flit (total): " << fixed << setprecision(2) << avg_hops_per_flit << endl;
-	cout << "  Average Router Hops per Flit: " << fixed << setprecision(2) << avg_router_hops_per_flit << endl;
-	cout << "  Average NI Hops per Flit: " << fixed << setprecision(2) << avg_ni_hops_per_flit << endl;
-	cout << "  Average Bit Flips per Flit（totalhops）: " << fixed << setprecision(2) << avg_flips_per_flit << endl;
-	cout << "  Average Bit Flips per Router Hop: " << fixed << setprecision(2) << avg_flips_per_router_hop << endl;
-	
+
 	// Message type-specific bit flip statistics
 	cout << " reqRouterFlip " << reqRouterFlip 
 		 << " respRouterFlip " << respRouterFlip 
@@ -689,6 +671,12 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << " reqRouterHop " << reqRouterHop 
 		 << " respRouterHop " << respRouterHop 
 		 << " resRouterHop " << resRouterHop << endl;
+	cout << "  Average Hops per Flit (total): " << fixed << setprecision(2) << avg_hops_per_flit << endl;
+	cout << "  Average Router Hops per Flit: " << fixed << setprecision(2) << avg_router_hops_per_flit << endl;
+	cout << "  Average NI Hops per Flit: " << fixed << setprecision(2) << avg_ni_hops_per_flit << endl;
+	cout << "  Average Bit Flips per Flit（totalhops）: " << fixed << setprecision(2) << avg_flips_per_flit << endl;
+	cout << "  Average Bit Flips per Router Hop: " << fixed << setprecision(2) << avg_flips_per_router_hop << endl;
+	cout << "  Average Bit Flips per respRouter Hop: " << fixed << setprecision(2) <<respRouterFlip/respRouterHop  << endl;
 	
 #if LLM_DEBUG_LEVEL >= 2
 	cout << "\n==================== DETAILED NETWORK ANALYSIS (Debug Level 2) ====================" << endl;

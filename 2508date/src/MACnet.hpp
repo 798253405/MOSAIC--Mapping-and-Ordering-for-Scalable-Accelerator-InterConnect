@@ -141,9 +141,6 @@ public:
 
 
 	vector<float>  totalNetTaskInput;
-	void  extract_and_divide_vectors(const std::vector<float>& sortedData, int blockSize, int numBlocks);
-	//  Create `numBlocks` blocks/vectore for "numblocks" nodes , one block contain the data for one node.
-	std::vector<std::vector<float>> yzblocks;
 
 
 

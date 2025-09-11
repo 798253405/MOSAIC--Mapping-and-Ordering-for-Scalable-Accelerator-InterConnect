@@ -152,7 +152,7 @@ class LLMMAC
 		 * ------------------------------------
 		 * - 从llmtasktable队列中取出: current_processing_task_id = llmtasktable.front()
 		 * - 任务ID范围: 0 到 1,048,575 (总共262,144像素 × 4个子块)
-		 * - 任务ID编码: pixel_id * 4 + subchunk_id
+		 * - 任务ID编码: pixel_id * LLM_SUBCHUNKS_PER_PIXEL + subchunk_id
 		 *   例如: 任务ID 1025 = 像素256的第1个子块 (256*4+1)
 		 * 
 		 * 2. 发送数据请求 (State 1: REQUEST)
@@ -177,7 +177,7 @@ class LLMMAC
 		 * 
 		 * 5. 任务ID的编解码
 		 * -----------------
-		 * - 解码: pixel_id = task_id / 4, subchunk_id = task_id % 4
+		 * - 解码: pixel_id = task_id / LLM_SUBCHUNKS_PER_PIXEL, subchunk_id = task_id % LLM_SUBCHUNKS_PER_PIXEL
 		 * - 每个像素需要4个任务完成才能得到最终结果
 		 * - 用于聚合4个子块的部分和
 		 */
@@ -196,10 +196,10 @@ class LLMMAC
 		int send;
 		int NI_id;
 
-		// LLM-specific data structures
-		deque<float> query_data;     // Query vectors (acts like CNN inputs)
-		deque<float> key_data;       // Key vectors (acts like CNN weights)
-		deque<float> value_data;     // Value vectors
+		// LLM-specific data structures - 只有Input和Query
+		deque<float> input_data;     // Input vectors (输入数据)
+		deque<float> query_data;     // Query weight vectors (Query权重)
+		// Key已移除，只使用Input和Query
 		deque<float> input_buffer;   // Input buffer for received data
 
 		// LLM attention parameters
@@ -211,12 +211,11 @@ class LLMMAC
 		float attention_output;          // Computed attention output
 		
 		// Partial sum aggregation for pixels
-		std::map<int, std::vector<float>> pixel_partial_sums;    // pixel_id -> [4 partial sums]
-		std::map<int, int> pixel_subchunks_received;             // pixel_id -> count of received subchunks
+		std::map<int, std::vector<float>> pixel_partial_sums;    // pixel_id -> [LLM_SUBCHUNKS_PER_PIXEL partial sums]
 		int current_pixel_id;                          // Current pixel being processed
 		int current_subchunk_id;                       // Current subchunk being processed
 
-		deque<int> llmtasktable;
+		deque<int> llmPEtasktable;
 
 		LLMMAC* nextLLMMAC;
 		
@@ -254,14 +253,16 @@ class LLMMAC
 		TaskTiming current_task_timing;
 
 		// Core functions
-		bool llmInject(int type, int d_id, int data_length, float t_output, NI* t_NI, int p_id, int mac_src);
-		void llmReceive(Message* re_msg);
+		bool llmPEInject(int type, int d_id, int data_length, float t_output, NI* t_NI, int p_id, int mac_src, int task_id);
+		bool llmMemNodeInject(int type, int d_id, int data_length, float t_output, NI* t_NI, int p_id, int mac_src, int task_id);
+
+
+		void llmNonMemMACReceiveResp(Message* re_msg);
 		void llmRunOneStep();
 
 		// LLM-specific attention computation
 		void llmComputeAttention();
 		void llmComputeQueryKeyDot();
-		void llmApplySoftmax();
 		void llmComputeValueWeightedSum();
 
 		// State management

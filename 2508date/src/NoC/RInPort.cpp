@@ -519,7 +519,8 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 	}
 
 
-	  if ( oneTimeFlipping >150) {
+	 // if ( oneTimeFlipping >150)
+		  if (cycles<1){
 	      cout << " thisisline416 current flitpayloadfront "
 	              << "current: " << currentFlitInLink->yzFlitPayload[0] <<" "<< currentFlitInLink->yzFlitPayload[1] <<" "<<
 	  currentFlitInLink->yzFlitPayload[2] <<" "<< currentFlitInLink->yzFlitPayload[3] <<" "<< currentFlitInLink->yzFlitPayload[4] <<" "<<
@@ -560,25 +561,30 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 	      cout << "                      AllMsgPayloadBitCounts(128floats): " << endl;
 
 
-	      int payload_size = std::min(128, (int)t_yztempFlit->packet->message.yzMSGPayload.size());
-	      for (int i = 0; i < payload_size; i++) {
-	          int bits_current = countOnesInIEEE754(t_yztempFlit->packet->message.yzMSGPayload[i]);
-	          float float_value = t_yztempFlit->packet->message.yzMSGPayload[i];
-	          cout << bits_current << "(" << std::fixed << std::setprecision(2) << float_value << ")";
-	          
-	          // Add separator every 8 elements within a line
-	          if ((i + 1) % 8 == 0 && (i + 1) % 16 != 0) {
-	              cout << " | ";
-	          } else if (i < payload_size - 1 && (i + 1) % 16 != 0) {
-	              cout << " ";
-	          }
-	          
-	          // Add newline every 16 elements (flit boundary)
-	          if ((i + 1) % 16 == 0) {
-	              cout << endl;
-	          }
-	      }
-	      if (payload_size % 16 != 0) cout << endl; // Final newline if not complete flit
+		  int payload_size = std::min(200, (int)t_yztempFlit->packet->message.yzMSGPayload.size());
+		 {
+			  cout<<"            565 cycles "<<cycles<<"   " <<t_yztempFlit->packet->message.msgtype<<"            "  <<endl;
+			  for (int i = 0; i < payload_size; i++) {
+
+
+				  int bits_current = countOnesInIEEE754(t_yztempFlit->packet->message.yzMSGPayload[i]);
+				  float float_value = t_yztempFlit->packet->message.yzMSGPayload[i];
+				  cout<< bits_current << "(" << std::fixed << std::setprecision(2) << float_value << ")";
+
+				  // Add separator every 8 elements within a line
+				  if ((i + 1) % 8 == 0 && (i + 1) % 16 != 0) {
+					  cout << " | ";
+				  } else if (i < payload_size - 1 && (i + 1) % 16 != 0) {
+					  cout << " ";
+				  }
+
+				  // Add newline every 16 elements (flit boundary)
+				  if ((i + 1) % 16 == 0) {
+					  cout << endl;
+				  }
+			  }
+			  if (payload_size % 16 != 0) cout << endl; // Final newline if not complete flit
+		  }
 	  }
 
 

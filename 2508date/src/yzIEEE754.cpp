@@ -7,13 +7,9 @@
 
 #include "yzIEEE754.hpp"
 
-// ==================================================
-// Step 5 辅助函数: IEEE 754浮点数转换
-// 功能：支持LLM排序优化中的bit分析
-// ==================================================
-// 将浮点数转换为IEEE 754二进制表示（用于Step 5排序算法）
+// Function to convert float to IEEE 754 representation
 std::string float_to_ieee754(float float_num) {
-	// 检查浮点数是否为负数
+	// Check if the float is negative
 	bool negative = float_num < 0;
 
 	// Handle special cases for positive zero and negative zero
@@ -25,8 +21,7 @@ std::string float_to_ieee754(float float_num) {
 		}
 	}
 
-	// 从IEEE 754格式中提取符号位、指数和尾数
-	// 用于LLM Step 5中分析数据的bit模式
+	// Extract sign, exponent, and mantissa from IEEE 754 format
 	union {
 		float input;
 		int output;
@@ -35,24 +30,29 @@ std::string float_to_ieee754(float float_num) {
 	data.input = float_num;
 	std::bitset<32> bits(data.output);
 
-	// 分离IEEE 754的三个组成部分
-	std::string sign_bit = bits[31] ? "1" : "0";      // 符号位（1位）
-	std::string exponent = bits.to_string().substr(1, 8);  // 指数位（8位）
-	std::string mantissa = bits.to_string().substr(9, 23); // 尾数位（23位）
+	// Separate the components
+	std::string sign_bit = bits[31] ? "1" : "0";
+	std::string exponent = bits.to_string().substr(1, 8);
+	std::string mantissa = bits.to_string().substr(9, 23);
 
-	// 构造完整的IEEE 754二进制表示
+	// Construct IEEE 754 representation
 	std::string ieee754_representation = sign_bit + exponent + mantissa;
-
 	return ieee754_representation;
+
+
+//debug
+	/*
+	 std::string result;
+	    for (int i = 0; i < 32; i++) {
+	        result += (rand() % 2) ? '1' : '0';  // 每个位独立随机
+	    }
+	    return result;
+	    */
+	    //return std::string(32, '0');  // 生成 32 个 '0'
 }
 
-// ==================================================
-// Step 5 核心函数: 计算IEEE 754表示中的1-bit数量
-// 功能：用于LLM排序优化，统计bit翻转的关键指标
-// 应用：Step 5.1分离排序和Step 5.2关联排序都使用此函数
-// ==================================================
+// Function to count the number of 1 bits in IEEE 754 representation
 int countOnesInIEEE754(float float_num) {
-	// 使用union将float的bit模式转换为unsigned int
 	union {
 		float f;
 		unsigned int i;
@@ -60,51 +60,19 @@ int countOnesInIEEE754(float float_num) {
 	u.f = float_num;
 	unsigned int ieee754 = u.i;
 
-	// 统计二进制表示中1的个数
-	// 这是LLM排序的核心指标：1-bit数量越接近的数据相邻传输时bit翻转越少
 	int count = 0;
 	while (ieee754 > 0) {
-		count += ieee754 & 1;  // 检查最低位是否为1
-		ieee754 >>= 1;          // 右移一位
+		count += ieee754 & 1;
+		ieee754 >>= 1;
 	}
 	return count;
 }
 
-// ==================================================
-// Step 5 排序比较器: 基于IEEE 754中1-bit数量
-// 功能：用于LLM Step 5.1分离排序和Step 5.2关联排序
-// 目的：将bit数相近的数据排列在一起，减少NoC传输时的bit翻转
-// ==================================================
+// Comparator function for sorting based on number of 1 bits in IEEE 754 representation
 bool compareFloatsByOnes(const float &a, const float &b) {
-	// 降序排列：1-bit数多的在前
-	// 在LLM排序中会被重组为列主序，使每列内bit数递增
 	return countOnesInIEEE754(a) > countOnesInIEEE754(b);
 }
 
-// ==================================================
-// Step 5 备选方案: 定点数表示的1-bit计数
-// 功能：当启用FIXED_POINT_SORTING时，使用定点数代替浮点数
-// 应用：可通过宏FIXED_POINT_SORTING切换排序策略
-// ==================================================
-int countOnesInFixed17(float float_num) {
-	std::string fixed17_str = singleFloat_to_fixed17(float_num);
-	int count = 0;
-	for (char c : fixed17_str) {
-		if (c == '1') count++;
-	}
-	return count;
-}
-
-// 定点数排序比较器（LLM Step 5备选方案）
-bool compareFloatsByFixed17Ones(const float &a, const float &b) {
-	return countOnesInFixed17(a) > countOnesInFixed17(b);
-}
-
-// ==================================================
-// Step 6: CNN风格半半重组（也用于LLM）
-// 功能：将线性数据重组为矩阵并按行组合
-// 应用：LLM中通过LLM_CNN_HALFHALF_RESHAPE宏启用
-// ==================================================
 void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 		int t_weightCount, int inputcolnum_per_row, int weightcolnum_per_row,
 		int totalcolnum_per_row, int rownum_per_col) { //weightcout is the kernel size, 25 for 5x5 kernel //for example , one row 8elements =  inputcolnum_per_row=4 input+  weightcolnum_per_row=4 input
@@ -172,17 +140,21 @@ void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 #endif
 
 
-	// Step 5 应用: 根据配置选择排序方式
+	//0 bits count based
 #ifdef YZSeperatedOrdering_reArrangeInput
-	// 分离排序：input和weight独立按列排序（对应LLM Step 5.1）
+								//below two should be enabled at the same time
 	 sortMatrix_CNNSeparated(inputData, inputcolnum_per_row, rownum_per_col);
 	 sortMatrix_CNNSeparated(weightData, weightcolnum_per_row, rownum_per_col);
 #endif
-#ifndef YZSeperatedOrdering_reArrangeInput
-	 // 关联排序：input跟随weight的bit数排序（对应LLM Step 5.2）  
+#ifdef YzAffiliatedOrdering
+	//this is old and for debug
+	 //sortMatrix_CNNSeparated(weightData, weightcolnum_per_row, rownum_per_col); // rearrange weights, and rearrange input accrodingly
+	 // this is current version
 	 sortMatrix_CNNAffiliated(inputData, weightData,  weightcolnum_per_row, rownum_per_col);
-#endif
 
+#endif
+	// algorithm based
+	// rearrangeByAlgorithm(weightData,  weightcolnum_per_row,rownum_per_col);
 
 	std::vector<std::deque<float>> input_rows(rownum_per_col); // one row contains "colnum_per_row" elements //for example， overall 40 = 5row *8 elements。 Inside one row， the left 4 elements are inputs the right 4 elements are weights
 	std::vector<std::deque<float>> weight_rows(rownum_per_col); // one row contains "colnum_per_row" elements
@@ -217,16 +189,14 @@ void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 			//	std::cout << " inputcolnum_per_row " << inputcolnum_per_row << " col_index " << col_index	<< " ieee754line99 combined rows ok " << col_index << std::endl;
 		}
 	}
-	// Step 6.1: 按行组合input和weight数据
-	// 每行格式：[input第i行] + [weight第i行]
-	// 这与LLM中的Query+Key组合方式相同
+	// Combine rows
 	std::vector<std::deque<float>> combined_rows(rownum_per_col);
 
-	for (int i = 0; i < rownum_per_col; ++i) { // 遍历每一行
-		// 先添加input行的元素
+	for (int i = 0; i < rownum_per_col; ++i) { // row
+
+		//std::cout << combined_rows.size() << "  combined_rows.size()line144 " 	<< combined_rows[i].size() << " " << input_rows[i].size() << " "	<< weight_rows[i].size() << std::endl;
 		combined_rows[i].insert(combined_rows[i].end(), input_rows[i].begin(),
 				input_rows[i].end());
-		// 再添加weight行的元素
 		combined_rows[i].insert(combined_rows[i].end(), weight_rows[i].begin(),
 				weight_rows[i].end());
 		//std::cout << combined_rows.size() << " " << combined_rows[i].size() 	<< "  combined_rows.size()lineafterinsert" << std::endl;
@@ -259,12 +229,11 @@ void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 			}
 			std::cout << std::endl;
 #endif
-	// Step 6.2: 将重组后的数据写回原始容器
-	// 这些数据将通过NoC传输（Step 7）
-	dq.clear(); // 清空原始数据
+	//write back to dq
+	dq.clear(); // reset
 	for (const auto &row : combined_rows) {
 		for (const auto &element : row) {
-			dq.push_back(element);  // 按行展开存储
+			dq.push_back(element);
 		}
 	}
 
@@ -351,29 +320,18 @@ void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 #endif
 
 }
-// ==================================================
-// CNN版本的Step 5.1: 分离排序实现
-// 功能：对单个矩阵按列独立排序，减少列内bit翻转
-// 原理：将bit数相近的元素放在同一列，传输时减少翻转
-// 示例： row0: 0000 1111 1110 0011
-//       row1: 1000 1000 1110 0011
-// 排序后：按列重组，使bit数递增
-// ==================================================
+// task/packet  level all few-zero bits are left, all middel 0-bits are in the center, all many-zero bits are right.
+//for example: two rows,  row0:  0000 1111 1110 0011  row1:  1000 1000 1110 0011 should be:  0000 1000    1000 0011   0011 0011     1110  1111
+//then convert to two rows: row0  0000 1000 0011  1110   row 1:  1000    0011  0011  1111
 void sortMatrix_CNNSeparated(std::deque<float> &dq, int colnum_per_row,
 		int rownum_per_col) { // 25: 8 value in one flit colnumperrow= 8   4flits->rownumpercol= 4
 
-	// CNN Step 5.1.1: 对整个数据按bit数排序
-	// 这个步骤与LLM Step 5.1.1完全相同
-#ifdef FIXED_POINT_SORTING
-	std::sort(dq.begin(), dq.end(), compareFloatsByFixed17Ones);  // 定点数排序
-#else
-	std::sort(dq.begin(), dq.end(), compareFloatsByOnes);         // 浮点数按bit数排序
-#endif
-	// CNN Step 5.1.2: 将排序后的数据按列主序填充
-	// 每个flit对应一行，确保同列元素bit数相近
+	// Sort each row independently based on IEEE 754 bit counts //sort inside weights
+	std::sort(dq.begin(), dq.end(), compareFloatsByOnes);
+// put the sorted number back to one row. Make sure the order is col-major
+//
 	std::vector<std::deque<float>> rows(rownum_per_col); //rownum_per_col = the number of flits
-	// CNN Step 5.1.3: 按列填充矩阵
-	// 外循环：遍历列，内循环：填充每列的元素
+	// Fill rows with elements from dq
 	int row_index = 0;
 	int col_index = 0;
 	for (float num : dq) {
@@ -383,12 +341,10 @@ void sortMatrix_CNNSeparated(std::deque<float> &dq, int colnum_per_row,
 			row_index++;
 			col_index = 0;
 		}
-		if (row_index == rownum_per_col) { // 达到最大行数，重置
+		if (row_index == rownum_per_col) { // reach max row number,reset
 			row_index = 0;
 		}
 	}
-	// CNN Step 5.1.4: 按行序写回数据
-	// 虽然按列填充，但存储仍是行主序
 	dq.clear();
 	for (const auto &row : rows) {
 		for (const auto &element : row) {
@@ -398,12 +354,7 @@ void sortMatrix_CNNSeparated(std::deque<float> &dq, int colnum_per_row,
 
 }
 
-// ==================================================
-// CNN版本的Step 5.2: 关联排序实现
-// 功能：weight按bit数排序，input保持与weight的对应关系
-// 目的：保持input-weight对的相关性，同时优化bit翻转
-// 这与LLM中的Query-Key关联排序思想相同
-// ==================================================
+// Function to rearrange the deque and an associated weights deque
 void sortMatrix_CNNAffiliated(std::deque<float> &inputData,
 		std::deque<float> &weightData, int weightcolnum_per_row,
 		int weightrownum_per_col) {
@@ -412,32 +363,24 @@ void sortMatrix_CNNAffiliated(std::deque<float> &inputData,
 	std::cout << " weightData.size() " << weightData.size()
 			<< weightcolnum_per_row << " weightcolnum_per_row, "
 			<< weightrownum_per_col << std::endl;
-	 */
+*/
 
-	// CNN Step 5.2.1: 创建索引数组，用于跟踪元素原始位置
-	// 这个方法与LLM Step 5.2.1完全相同
+	// Create a vector of indices and sort it according to the weights
 	std::vector<int> indices(weightData.size());
 	for (int i = 0; i < indices.size(); ++i) {
-		indices[i] = i;  // 初始化索引
+		indices[i] = i;
 	}
 
-	// CNN Step 5.2.2: 根据weight的bit数对索引排序
-	// 不直接移动数据，而是排序索引，这样input可以跟随相同顺序
 	std::sort(indices.begin(), indices.end(), [&](int i, int j) {
-#ifdef FIXED_POINT_SORTING
-		return compareFloatsByFixed17Ones(weightData[i], weightData[j]);  // 定点数比较
-#else
-		return compareFloatsByOnes(weightData[i], weightData[j]);         // 浮点数bit数比较
-#endif
+		return compareFloatsByOnes(weightData[i], weightData[j]);
 	});
 
-	// CNN Step 5.2.3: 根据排序后的索引重新排列input和weight
-	// input和weight保持配对关系，都按weight的bit数顺序排列
+	// Rearrange weightData and inputData based on sorted indices
 	std::deque<float> sortedWeights;
 	std::deque<float> sortedInput;
 	for (int idx : indices) {
-		sortedWeights.push_back(weightData[idx]);  // weight按bit数排序
-		sortedInput.push_back(inputData[idx]);     // input跟随weight的顺序
+		sortedWeights.push_back(weightData[idx]);
+		sortedInput.push_back(inputData[idx]);
 
 		// below for check whether this func works properly
 		//sortedWeights.push_back( idx );
@@ -447,24 +390,17 @@ void sortMatrix_CNNAffiliated(std::deque<float> &inputData,
 
 	}
 
-	// CNN Step 5.2.4: 将排序后的数据写回原容器
-	// 这些数据将在Step 6中进行半半重组
+	// Assign sorted data back to the original deques
 	inputData = sortedInput;
 	weightData = sortedWeights;
 
 
 }
 
-// ==================================================
-// Step 7 辅助函数: 计算bit翻转数量
-// 功能：计算两个浮点数在NoC传输时的bit翻转数
-// 应用：用于评估LLM排序优化的效果
-// ==================================================
+// 计算两个浮点数的位差
 int calculate32BitDiff(float a, float b) {
-	// 将浮点数的bit模式转换为无符号整数
 	uint32_t a_bits = *reinterpret_cast<uint32_t*>(&a);
 	uint32_t b_bits = *reinterpret_cast<uint32_t*>(&b);
-	// 使用XOR计算不同的bit位，然后统计1的数量
 	return std::bitset<32>(a_bits ^ b_bits).count();
 }
 
@@ -518,52 +454,122 @@ void printMatrix(const std::vector<std::vector<float>> &matrix,
 	}
 }
 
+// 优化矩阵
+void optimizeMatrix(std::deque<float> &dq, int m, int n) {
+	// 将 deque 转换为矩阵
+	std::vector<std::vector<float>> matrix(m, std::vector<float>(n));
+	int index = 0;
+	for (int i = 0; i < m; ++i) {
+		for (int j = 0; j < n; ++j) {
+			matrix[i][j] = dq[index++];
+		}
+	}
+
+	// 扁平化矩阵
+	std::vector<float> flatMatrix(dq.begin(), dq.end());
+	int totalElements = m * n;
+	std::vector<int> indices(totalElements);
+	std::iota(indices.begin(), indices.end(), 0);
+
+	// 初始化模拟退火参数
+	double temperature = 1000.0;
+	double coolingRate = 0.995;
+	int iterationCount = 0;
+	int minSum = calculateTotalBitDiffSum(matrix);
+	std::vector<std::vector<float>> bestMatrix = matrix;
+	std::cout << "initial bitdiffSum: " << minSum << std::endl;
+	// 模拟退火过程
+	while (temperature > 1e-6) {
+		// 生成新解
+		std::vector<int> newIndices(indices);
+		std::random_shuffle(newIndices.begin(), newIndices.end());
+		std::vector<std::vector<float>> newMatrix(m, std::vector<float>(n));
+		for (int i = 0; i < m; ++i) {
+			for (int j = 0; j < n; ++j) {
+				newMatrix[i][j] = flatMatrix[newIndices[i * n + j]];
+			}
+		}
+
+		int newSum = calculateTotalBitDiffSum(newMatrix);
+		int delta = newSum - minSum;
+		if (delta < 0
+				|| (std::exp(-delta / temperature)
+						> static_cast<double>(rand()) / RAND_MAX)) {
+			minSum = newSum;
+			bestMatrix = newMatrix;
+			indices = newIndices;
+		}
+
+		// 降低温度
+		temperature *= coolingRate;
+		iterationCount++;
+		if (iterationCount % 100 == 0) {
+			//std::cout << "Iteration: " << iterationCount << ", Temperature: " << temperature << std::endl;
+		}
+	}
+
+	// 打印优化后的矩阵
+	std::cout << "Optimized matrix:" << std::endl;
+	printMatrix(bestMatrix, "finalmatrix");
+	std::cout << "Optimized bitdiffSum: " << minSum << std::endl;
+
+	//wrote  back to dq
+	dq.clear(); // 清空 deque 以避免旧数据
+
+	for (const auto &row : bestMatrix) {
+		for (float value : row) {
+			dq.push_back(value); // 将每个矩阵元素添加到 deque 中
+		}
+	}
+}
+
+void rearrangeByAlgorithm(std::deque<float> &dq, int colnum_per_row,
+		int rownum_per_col) { // example 25 elemets : 8 value in one flit colnumperrow= 8   4flits->rownumpercol= 4 other 7 element are padding zeros
+
+	// 计算两个整数之间的位差
+	float a = 0, b = 1;
+	// 将浮点数转换为二进制表示
+	uint32_t a_bits = *reinterpret_cast<uint32_t*>(&a);
+	uint32_t b_bits = *reinterpret_cast<uint32_t*>(&b);
+	// 计算异或结果
+	uint32_t diff_bits = a_bits ^ b_bits;
+
+	std::bitset<32> binaryReps_a(a_bits);
+	std::bitset<32> binaryReps_b(b_bits);
+	std::bitset<32> binaryReps_diff(diff_bits);
+
+	std::cout << binaryReps_a << " " << binaryReps_b << " diff_bits "
+			<< binaryReps_diff << " diff_bitsCount "
+			<< std::bitset<32>(diff_bits).count() << std::endl;
+
+	optimizeMatrix(dq, rownum_per_col, colnum_per_row);
+}
+;
+;
+;
+;
 
 // Function to convert float to fixed-point-8 binary (Q3.5 format)
 std::string singleFloat_to_fixed17(float float_num) {
 	 // Define the range limits based on the Q1.7 format
-	    float min_value = -1.0; // -2^0 (including sign)
-	    float max_value = 0.9921875; // 2^0 - 2^(-7)
+		    float min_value = -1.0; // -2^0 (including sign)
+		    float max_value = 0.9921875; // 2^0 - 2^(-7)
 
-	    // Clamp the input float to the representable range
-	    float clamped = std::max(min_value, std::min(float_num, max_value));
+		    // Clamp the input float to the representable range
+		    float clamped = std::max(min_value, std::min(float_num, max_value));
 
-	    // Convert to an integer representation of Q1.7
-	    int fixed_point = static_cast<int>(round(clamped * 128)); // Multiply by 128 to shift decimal seven places
+		    // Convert to an integer representation of Q1.7
+		    int fixed_point = static_cast<int>(round(clamped * 128)); // Multiply by 128 to shift decimal seven places
 
-	    // Handle negative numbers with two's complement if necessary
-	    if (fixed_point < 0) {
-	        fixed_point = (1 << 8) + fixed_point; // 1 << 8 is 256, which is 2^8, the bit count for Q1.7
-	    }
+		    // Handle negative numbers with two's complement if necessary
+		    if (fixed_point < 0) {
+		        fixed_point = (1 << 8) + fixed_point; // 1 << 8 is 256, which is 2^8, the bit count for Q1.7
+		    }
 
-	    // Convert to binary string
-	    std::bitset<8> bits(static_cast<unsigned long>(fixed_point));
-	    return bits.to_string();
+		    // Convert to binary string
+		    std::bitset<8> bits(static_cast<unsigned long>(fixed_point));
+		    return bits.to_string();
 }
-
-/* backup
- std::string singleFloat_to_fixed35(float float_num) {
-	// Define the range limits based on the Q3.5 format
-	float min_value = -8.0; // -2^3
-	float max_value = 7.96875; // 2^3 - 2^(-5)
-
-	// Clamp the input float to the representable range
-	float clamped = std::max(min_value, std::min(float_num, max_value));
-
-	// Convert to an integer representation of Q3.5
-	int fixed_point = static_cast<int>(round(clamped * 32)); // Multiply by 32 to shift decimal five places
-
-	// Handle negative numbers with two's complement if necessary
-	if (fixed_point < 0) {
-		fixed_point = (1 << 8) + fixed_point; // 1 << 8 is 256, which is 2^8, the bit count for Q3.5
-	}
-
-	// Convert to binary string
-	std::bitset<8> bits(static_cast<unsigned long>(fixed_point));
-	return bits.to_string();
-}
- *
- */
 // Function to process a deque of floats and print their binary formats
 void print_FlitPayload(const std::deque<float> &floatDeque) {
 	for (const auto &num : floatDeque) {
@@ -575,5 +581,3 @@ void print_FlitPayload(const std::deque<float> &floatDeque) {
 	}
 	std::cout << " " << std::endl;
 }
-
-

@@ -28,7 +28,7 @@
  *   State 3 (COMPUTE): 执行计算
  * 
  * 状态转换逻辑：
- *   IDLE → REQUEST:    当llmPEtasktable非空时 [行336-342]
+ *   IDLE → REQUEST:    当llmPEExpectedtasktable非空时 [行336-342]
  *   REQUEST → WAIT:    发送请求后立即转换 [行373]
  *   WAIT → COMPUTE:    由processCNNPacket()设置 [行520]
  *   COMPUTE → IDLE:    计算完成后回到空闲 [行476]
@@ -192,7 +192,7 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	current_subchunk_id = -1;
 	pixel_partial_sums.clear();
 	
-	time_slice = 0;
+	curTimeSliceID = 0;
 
 	// Find destination memory ID
 	int xid = NI_id / X_NUM;
@@ -253,7 +253,7 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	}
 #endif
 
-	llmPEtasktable.clear();
+	llmPEExpectedtasktable.clear();
 }
 
 bool LLMMAC::llmMemNodeInject(int type, int d_id, int  tllm_eleNum, float t_output, NI* t_NI, int p_id, int mac_src,int task_id) {
@@ -329,8 +329,10 @@ bool LLMMAC::llmPEInject(int type, int d_id, int  tllm_eleNum, float t_output, N
 	if ( type == 3) { //type == 2 不发result。
 		// 对于结果消息（type 2中间结果 或 type 3最终结果），获取正确的像素坐标
 		// 从current_pixel_id计算坐标
-		int pixel_x = current_pixel_id % net->matrixOutputPixels_size;
-		int pixel_y = current_pixel_id / net->matrixOutputPixels_size;
+		// 输出矩阵是 8×128 (8行×128列)
+		// pixel_id范围: 0-1023 (总共8*128=1024个像素)
+		int pixel_x = current_pixel_id % net->matrixOutputPixels_queryoutputdim;  // 列坐标 (0-127)
+		int pixel_y = current_pixel_id / net->matrixOutputPixels_queryoutputdim;  // 行坐标 (0-7)
 
 		msg.data.assign(1, t_output);
 		msg.data.push_back((float)pixel_x);
@@ -338,8 +340,8 @@ bool LLMMAC::llmPEInject(int type, int d_id, int  tllm_eleNum, float t_output, N
 		msg.data.push_back((float)current_subchunk_id);  // Use subchunk_id instead of ts
 
 	} else if (type == 0) {
-		msg.data.assign(1, t_output);  // 创建data向量，初始值为t_output（即任务ID）
-		msg.data.push_back(time_slice);      // data[1] - 时间片
+		msg.data.assign(1, task_id);  // 创建data向量，初始值为t_output（即任务ID）
+		msg.data.push_back(curTimeSliceID);      // data[1] - 时间片
 	} else {
 		assert(false && "ERROR:PE LLM2不发，1则应该是Mem");
 	}
@@ -387,7 +389,7 @@ void LLMMAC::llmRunOneStep() {
 	if ((int)pecycle < (int)cycles) {
 		// State 0: IDLE
 		if (selfstatus == 0) {
-			if (llmPEtasktable.size() == 0) {
+			if (llmPEExpectedtasktable.size() == 0) {
 				selfstatus = 0;
 				pecycle = cycles;
 			} else {
@@ -399,9 +401,9 @@ void LLMMAC::llmRunOneStep() {
 		// - Purpose: Send a request (Type 0) to the memory controller for the current task's data.
 		// - Duration: 1 cycle. This state is transitional.
 		else if (selfstatus == 1) {
-			current_processing_task_id = llmPEtasktable.front();  // 从队列取出任务ID
+			current_processing_task_id = llmPEExpectedtasktable.front();  // 从队列取出任务ID
 			saved_task_id_for_result = current_processing_task_id;  // 保存用于后续结果发送
-			llmPEtasktable.pop_front();
+			llmPEExpectedtasktable.pop_front();
 			
 			// Start timing for new task
 			current_task_timing = TaskTiming();
@@ -569,7 +571,7 @@ void LLMMAC::llmRunOneStep() {
 			#endif
 
 			this->send = 0;
-			if (this->llmPEtasktable.size() == 0) {
+			if (this->llmPEExpectedtasktable.size() == 0) {
 				// State 5: FINISHED
 				// - Purpose: A final, static state indicating this MAC has completed all its tasks.
 				// - Duration: Stays in this state until the simulation ends.

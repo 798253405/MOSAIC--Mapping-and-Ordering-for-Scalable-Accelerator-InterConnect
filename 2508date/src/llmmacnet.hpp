@@ -41,14 +41,12 @@ public:
 	vector<vector<float>> Q_resOutput_matrix;   // 输出结果矩阵 (8×128)
 
 	// Task mapping and scheduling
-	deque<deque<int>> mapping_table;  // Keep for base class compatibility
 	deque<deque<int>> llmOutputPixelMappingTable;  // LLM-specific: maps output pixels to MAC units
 	                                               // llmOutputPixelMappingTable[MAC_ID] = {pixel_ids...}
 	deque<deque<int>> llmTaskMappingTable;         // LLM-specific: maps tasks to MAC units
 	                                               // llmTaskMappingTable[MAC_ID] = {task_ids...}
 	void llmXMapping(int total_pixels);
 
-	void llmLoadBalanceMapping(int total_pixels);
 	int llmSAMOSTaskMapping(int pixel_count, int start_pixel_id = 0);  // SAMOS mapping function
 
 	// LLM attention layer management
@@ -72,9 +70,6 @@ public:
 	int pe_y;
 	int current_layer;
 	int total_layers;
-
-	// Matrix dimensions
-	int matrixOutputPixels_size;  // Size of output pixel matrix (e.g., 128x128)
 
 	// New dimensions for 8×4096 input and 128×4096 Query
 	int input_sequence_length;    // 输入序列长度 (8)
@@ -116,7 +111,6 @@ public:
 		// 数据范围信息
 		int input_offset;         // input数据起始偏移
 		int query_offset;         // query数据起始偏移
-		float partial_sum;        // 该子块的计算结果
 	};
 
 	vector<LLMTask> all_tasks;

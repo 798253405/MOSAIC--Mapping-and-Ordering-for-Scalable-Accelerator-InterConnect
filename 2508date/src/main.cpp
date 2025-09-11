@@ -404,7 +404,6 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "  Output matrix size: " << llmMacnet->input_sequence_length << "x" << llmMacnet->query_output_dim << endl;
 	cout << "  Time slices: " << llmMacnet->time_slices << endl;
 	cout << "  Total tasks (quicktest): " << llmMacnet->total_task_slicedPixels << endl;
-	cout << "  Full task count: " << llmMacnet->matrixOutputPixels_size * llmMacnet->matrixOutputPixels_size * LLM_SUBCHUNKS_PER_PIXEL << endl;
 
 	// Simulation parameters
 	cycles = 0;
@@ -484,17 +483,6 @@ int main(int arg_num, char *arg_vet[]) {
 
 	cout << "\n=== LLM Attention Simulation Results ===" << endl;
 
-	// Print sample attention outputs (only if debug level >= 2)
-	if (LLM_DEBUG_LEVEL >= 2) {
-		cout << "Sample attention output matrix (first 10x10):" << endl;
-		for (int i = 0; i < min(10, llmMacnet->matrixOutputPixels_size); i++) {
-			for (int j = 0; j < min(10, llmMacnet->matrixOutputPixels_size); j++) {
-				cout << fixed << setprecision(4) << llmMacnet->Q_resOutput_matrix[i][j] << " ";
-			}
-			cout << endl;
-		}
-	}
-
 	cout << "\n=== PERFORMANCE METRICS ===" << endl;
 	cout << "Configuration:" << endl;
 	#ifdef rowmapping
@@ -513,7 +501,6 @@ int main(int arg_num, char *arg_vet[]) {
 	
 	cout << "  NoC Size: " << X_NUM << "x" << Y_NUM << " (" << TOT_NUM << " nodes)" << endl;
 	cout << "  Test Case: " << LLM_TEST_CASE << endl;
-	cout << "  Matrix Size: " << llmMacnet->matrixOutputPixels_size << "x" << llmMacnet->matrixOutputPixels_size << endl;
 	cout << "  Time Slices: " << llmMacnet->time_slices << endl;
 	
 	cout << "\nExecution Metrics:" << endl;

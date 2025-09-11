@@ -199,13 +199,11 @@ class LLMMAC
 		// LLM-specific data structures - 只有Input和Query
 		deque<float> input_data;     // Input vectors (输入数据)
 		deque<float> query_data;     // Query weight vectors (Query权重)
-		// Key已移除，只使用Input和Query
 		deque<float> input_buffer;   // Input buffer for received data
 
 		// LLM attention parameters
-		int tile_x_start, tile_y_start;  // Starting position of this tile
-		int tile_Pixels_size;            // Size of tile (4x4)
-		int time_slice;                  // Current time slice (0-1)
+
+		int curTimeSliceID;                  // Current time slice (0-1)
 		int dest_mem_id;                 // Memory node ID
 
 		float attention_output;          // Computed attention output
@@ -215,7 +213,7 @@ class LLMMAC
 		int current_pixel_id;                          // Current pixel being processed
 		int current_subchunk_id;                       // Current subchunk being processed
 
-		deque<int> llmPEtasktable;
+		deque<int> llmPEExpectedtasktable;
 
 		LLMMAC* nextLLMMAC;
 		

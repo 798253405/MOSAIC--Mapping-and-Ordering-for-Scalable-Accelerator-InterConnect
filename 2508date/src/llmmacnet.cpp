@@ -670,17 +670,6 @@ void LLMMACnet::llmNetRunStep() {
 							std::cout << "  Verification: " << Q_resOutput_matrix[pixel_y][pixel_x] << std::endl;
 							std::cout << "  Tasks completed: " << executed_tasks << "/" << total_task_slicedPixels << std::endl;
 
-							// 统计非零元素
-							int non_zero_count = 0;
-							for (int i = 0; i < matrixOutputPixels_size; i++) {
-								for (int j = 0; j < matrixOutputPixels_size; j++) {
-									if (Q_resOutput_matrix[i][j] != 0.0) {
-										non_zero_count++;
-									}
-								}
-							}
-							std::cout << "  Total non-zero elements in table: " << non_zero_count
-							          << "/" << (matrixOutputPixels_size * matrixOutputPixels_size) << std::endl;
 						} else {
 							std::cout << "[ERROR] Invalid pixel coordinates: ("
 							          << pixel_x << "," << pixel_y << ")" << std::endl;
@@ -732,7 +721,7 @@ void LLMMACnet::llmNetRunStep() {
 bool LLMMACnet::llmLoadRealMatrices(const std::string& input_dir) {
 	try {
 		// Step 1.1: 初始化矩阵尺寸为512x512
-		const int matrix_size = matrixOutputPixels_size;  // 512
+		const int matrix_size =  512;  // 512
 		
 		// Step 1.2: 分配矩阵存储空间
 		input_matrix.resize(matrix_size);
@@ -1219,7 +1208,6 @@ void LLMMACnet::llmGenerateAllTasks() {
 					}
 					std::cout << std::endl;
 				}
-				task.partial_sum = 0.0f;  // Initialize
 				all_tasks.push_back(task);
 			}
 		}
@@ -1284,18 +1272,10 @@ bool LLMMACnet::llmIsMemoryNode(int node_id) {
 
 void LLMMACnet::llmXMapping(int total_pixels) {
 	// 计算总任务数（像素数 * N）
-	int total_tasks = total_pixels * this->tasks_per_pixel;
-	
-	LLM_DEBUG("Starting pixel-to-task mapping for " << total_pixels << " pixels (" << total_tasks << " tasks)...");
-
 	this->llmOutputPixelMappingTable.clear();
 	this->llmOutputPixelMappingTable.resize(macNum);
 	this->llmTaskMappingTable.clear();
 	this->llmTaskMappingTable.resize(macNum);
-	// Also sync with base class mapping_table for compatibility
-	this->mapping_table.clear();
-	this->mapping_table.resize(macNum);
-
 	vector<int> available_macs;
 	for (int i = 0; i < macNum; i++) {
 		int ni_id = i % TOT_NUM;
@@ -1303,14 +1283,11 @@ void LLMMACnet::llmXMapping(int total_pixels) {
 			available_macs.push_back(i);
 		}
 	}
-
 	// 像素级轮询分配，每个像素的N个task分配到同一节点
 	for (int pixel_id = 0; pixel_id < total_pixels; pixel_id++) {
 		int mac_id = available_macs[pixel_id % available_macs.size()];
-		
 		// 记录像素分配
 		this->llmOutputPixelMappingTable[mac_id].push_back(pixel_id);
-		
 		// 该像素的N个task(subchunk)都分配给同一个节点（便于聚合）
 		for (int subchunk_id = 0; subchunk_id < this->tasks_per_pixel; subchunk_id++) {
 			int task_id = pixel_id * this->tasks_per_pixel + subchunk_id;  // Fixed mapping formula
@@ -1318,12 +1295,6 @@ void LLMMACnet::llmXMapping(int total_pixels) {
 		}
 	}
 }
-
-void LLMMACnet::llmLoadBalanceMapping(int total_pixels) {
-	llmXMapping(total_pixels);  //
-}
-
-
 void LLMMACnet::llmCheckStatus() {
 	static int status_check_count = 0;
 	status_check_count++;
@@ -1411,7 +1382,7 @@ void LLMMACnet::llmCheckStatus() {
 				this->LLMMAC_list[i]->send = 3;
 			} else {
 				// 分配task IDs而不是pixel IDs
-				this->LLMMAC_list[i]->llmPEtasktable.assign(
+				this->LLMMAC_list[i]->llmPEExpectedtasktable.assign(
 					llmTaskMappingTable[i].begin(), llmTaskMappingTable[i].end());
 				active_macs++;
 			}
@@ -1435,9 +1406,6 @@ void LLMMACnet::llmCheckStatus() {
 			}
 		}
 	}
-
-
-
 	// Complete when no MACs are active (all have finished their tasks)
 	// Add a delay to ensure messages are delivered through the network
 	static int completion_wait_cycles = 0;
@@ -1502,10 +1470,6 @@ int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
 	this->llmOutputPixelMappingTable.resize(macNum);
 	this->llmTaskMappingTable.clear();
 	this->llmTaskMappingTable.resize(macNum);
-	// Also sync with base class mapping_table for compatibility
-	this->mapping_table.clear();
-	this->mapping_table.resize(macNum);
-
 	// 1) Collect compute nodes (exclude memory nodes)
 	std::vector<int> pe_ids;
 	pe_ids.reserve(macNum);
@@ -1602,7 +1566,7 @@ int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
 			// 记录像素分配
 			this->llmOutputPixelMappingTable[n.id].push_back(current_pixel_id);
 
-			// 每个像素生成4个任务，都分配给同一个节点（便于聚合）
+			// 每个像素生成4/64/,,,个任务，都分配给同一个节点（便于聚合）
 			for (int chunk_id = 0; chunk_id < this->tasks_per_pixel; chunk_id++) {
 				int task_id = current_pixel_id * this->tasks_per_pixel + chunk_id;
 				this->llmTaskMappingTable[n.id].push_back(task_id);

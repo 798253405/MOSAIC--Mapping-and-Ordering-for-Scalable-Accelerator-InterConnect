@@ -20,7 +20,7 @@
 //#define MemNode4_32X32
 
 // Test Case Configuration - Choose one
-// #define case1_default
+#define case1_default
 //#define case2_samos
 //#define case3_affiliatedordering
  #define case4_seperratedordering
@@ -40,17 +40,12 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
 #define LLM_TEST_CASE 2
 #define LLM_DEBUG_LEVEL 1
 #define LLM_RANDOM_SEED 0
-#define LLM_SUBCHUNKS_PER_PIXEL 4  // Number of subchunks per pixel for task decomposition (4096/4=1024 per chunk)
+#define LLM_SUBCHUNKS_PER_PIXEL 64  // Number of subchunks per pixel for task decomposition (4096/64=64 per chunk)
 
 // LLM Data Mode - Toggle between weight-based and input-based
 // #define LLM_INPUT_BASED  // Comment this out for weight-based mode
 
-// Random Data Replacement Test - Replace packet data with random values for testing
-// #define LLM_RANDOM_DATA_REPLACE_TEST
 
-// LLM Matrix Data Source - Choose one
-#define LLM_USE_RANDOM_MATRICES    // Use randomly generated matrices
-// #define LLM_USE_REAL_MATRICES   // Use real LLaMA matrices from files
 
 
 // Test Case Logic

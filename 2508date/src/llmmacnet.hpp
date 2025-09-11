@@ -38,7 +38,8 @@ public:
 	vector<vector<float>> input_matrix;         // 输入矩阵 (8×4096)
 	vector<vector<float>> query_weight_matrix;  // Query权重矩阵 (128×4096)
 	// Key已移除
-	vector<vector<float>> Q_resOutput_matrix;   // 输出结果矩阵 (8×128)
+	vector<vector<float>> Q_resOutput_matrix;   // 输出结果矩阵 (8×128) - 作为参考保留
+	vector<vector<float>> attention_output_table;   // Attention实际输出表 (8×128)
 
 	// Task mapping and scheduling
 	deque<deque<int>> llmOutputPixelMappingTable;  // LLM-specific: maps output pixels to MAC units
@@ -168,10 +169,6 @@ public:
 	 */
 	void llmGenerateAllTasks();
 	void llmDistributeTasks();
-	
-	// Set external input matrices for real data processing
-	void setInputMatrices(const vector<vector<float>>& X_input, 
-	                     const vector<vector<float>>& Wq);
 
 	// Helper functions
 	bool llmIsMemoryNode(int node_id);

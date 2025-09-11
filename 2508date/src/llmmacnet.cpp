@@ -71,12 +71,12 @@
  * ========================
  * msg.msgtype = 0;  // 请求类型
  * msg.data字段更新（llmmac.cpp行126-129）：
- *   msg.data[0] = current_processing_task_id;  // 任务ID（原名request）
+ *   msg.data[0] = currentRequestedTaskIDd;  // 任务ID（原名request）
  *   msg.data[1] = tile_x_start;  // tile起始X坐标
  *   msg.data[2] = tile_y_start;  // tile起始Y坐标  
  *   msg.data[3] = time_slice;     // 时间片(=subchunk_id)
  * 
- * current_processing_task_id说明：
+ * currentRequestedTaskIDd说明：
  * - 变量原名：request
  * - 取值范围：0 到 1,048,575 (262,144像素 × 4个子块)
  * - 编码规则：pixel_id * 4 + subchunk_id
@@ -198,7 +198,6 @@
  * ---------------------------------
  * 函数：LLMMAC::llmComputeAttention() [llmmac.cpp 行795-868]
  * 关键代码：
- *   llmComputeQueryKeyDot();  // Q*K^T计算 行809
  *   llmComputeValueWeightedSum();  // 与Value相乘 行815
  *   attention_output = result;  // 保存结果 行853
  * 功能：
@@ -303,7 +302,6 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	// Test Case 1: Small matrix test
 	
 	#elif LLM_TEST_CASE == 2
-	#define LLM_SUBCHUNKS_PER_PIXEL 64
 	// Test Case 2: Real matrix 8×128 output
 	// Set actual dimensions for the real matrices
 	// X_input (8×4096) @ Wq^T (4096×128) = Q (8×128)
@@ -351,47 +349,10 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 void LLMMACnet::llmNetRunStep() {
 	static int run_step_count = 0;
 	run_step_count++;
-
 	for (int i = 0; i < macNum; i++) {
 		LLMMAC_list[i]->llmRunOneStep();
 	}
 
-
-
-	/**
-	 * @brief 内存节点包处理循环 - LLM模式的核心数据交换
-	 *
-	 * 包类型处理详解：
-	 * ================
-	 *
-	 * Type 0 (数据请求包)：
-	 * --------------------
-	 * - 来源：MAC单元在State 1发送
-	 * - 内容：包含任务ID (task_id)
-	 * - 处理：内存节点查找对应数据并返回Type 1响应
-	 * - 流程：MAC→Memory
-	 *
-	 * Type 1 (数据响应包)：
-	 * --------------------
-	 * - 来源：内存节点响应Type 0请求
-	 * - 内容：132个float (4个header + 64个Query + 64个Key)
-	 * - 处理：MAC接收后进入计算状态
-	 * - 流程：Memory→MAC
-	 *
-	 * Type 2 (中间结果包)：
-	 * --------------------
-	 * - 来源：MAC计算的部分结果（调试用）
-	 * - 内容：[result_value, pixel_x, pixel_y, time_slice]
-	 * - 处理：仅记录日志，不影响最终输出
-	 * - 流程：MAC→Memory
-	 *
-	 * Type 3 (最终结果包)：
-	 * --------------------
-	 * - 来源：MAC聚合4个子块后的最终结果
-	 * - 内容：[final_value, pixel_x, pixel_y, time_slice]
-	 * - 处理：更新Q_resOutput_matrix矩阵
-	 * - 流程：MAC→Memory
-	 */
 
 	// Memory operations handling
 	int pbuffer_size;
@@ -408,96 +369,49 @@ void LLMMACnet::llmNetRunStep() {
 		// Process ALL message types in buffer[0]
 		pbuffer_size = tmpNI->packet_buffer_out[0].size();
 
-		// 检查缓冲区中的每个包
+		// Debug: Check for Type 3 packets in buffer
+		// if (pbuffer_size > 0) {
+		// 	for (int k = 0; k < pbuffer_size; k++) {
+		// 		Packet* debugPkt = tmpNI->packet_buffer_out[0][k];
+		// 		if (debugPkt && debugPkt->message.msgtype == 3) {
+		// 			std::cout << "[DEBUG-BUFFER] Type 3 packet found in Memory " << mem_id 
+		// 			          << " buffer at position " << k 
+		// 			          << " (buffer size=" << pbuffer_size << ")" << std::endl;
+		// 		}
+		// 	}
+		// }
+		// Process packets in buffer[0] (Type 0 requests)
 		for (int j = 0; j < pbuffer_size; j++) {
 			tmpPacket = tmpNI->packet_buffer_out[0].front();
-
-			// ===== Type 0: 处理数据请求包 =====
-			// MC 收到MAC发送的请求 0 ，内存需要返回对应的Query-Key数据，就是MC 收0 发1
+			
+			// Process Type 0: Data request packets from MAC to MEM
 			if (tmpPacket->message.msgtype == 0) {
 				if (tmpPacket->message.out_cycle >= cycles) {
 					tmpNI->packet_buffer_out[0].pop_front();
 					tmpNI->packet_buffer_out[0].push_back(tmpPacket);
-					continue;  //跳过后续对当前包，而是检查下一个包。
+					continue;
 				}
 
-				// 提取请求包的源信息
-				pid_signal_id = tmpPacket->message.signal_id; // 包的信号ID
-				src = tmpPacket->message.source_id;          // 源节点ID
-				src_mac = tmpPacket->message.mac_id;         // 发送请求的MAC ID
+				// Extract request information
+				pid_signal_id = tmpPacket->message.signal_id;
+				src = tmpPacket->message.source_id;
+				src_mac = tmpPacket->message.mac_id;
+				tmpLLMMAC = LLMMAC_list[src_mac];
 
-
-
-				tmpLLMMAC = LLMMAC_list[src_mac];            // 获取对应的MAC对象，可以给这mac直接提供运算数据，而packet传输是单独的。
-
-				// 验证MAC确实在等待数据（State 2: WAITING）
+				// Verify MAC is waiting for data (State 2: WAITING)
 				if (tmpLLMMAC->selfstatus == 2) {
-					/**
-					 * @brief 内存节点处理Type 0请求 - 详细流程
-					 *
-					 * Step 3.1: 提取任务ID
-					 * =====================
-					 * Type 0包结构：
-					 * - msgtype: 0 (请求类型)
-					 * - source_id: 发送MAC的节点ID
-					 * - mac_id: 发送MAC的编号
-					 * - data[0]: task_id (核心数据)
-					 *
-					 * 任务ID编码规则：
-					 * - task_id = pixel_id * 4 + subchunk_id
-					 * - 范围: 0 到 1,048,575 (262,144像素 × 4子块)
-					 *
-					 * 示例：
-					 * - task_id = 1025
-					 * - pixel_id = 1025 / 4 = 256
-					 * - subchunk_id = 1025 % 4 = 1
-					 */
-					int task_id = tmpPacket->message.data[0];  // 从Type 0请求包的data[0]字段提取任务ID
+					int task_id = tmpPacket->message.data[0];  // Extract task ID from request
+					
+					// std::cout << "[LLM-TYPE0] Memory " << mem_id << " received request from MAC " 
+					//           << src_mac << " for task " << task_id << std::endl;
 
-					// 记录请求到达内存的时间（用于性能分析）
+					// Record timing for performance analysis
 					tmpLLMMAC->current_task_timing.request_arrive_cycle = cycles;
 
-					/**
-					 * Step 3.2: 查找任务数据
-					 * ======================
-					 * 数据查找过程：
-					 * 1. 验证task_id合法性（0 <= task_id < all_tasks.size()）
-					 * 2. 从all_tasks向量中索引对应任务
-					 * 3. all_tasks在llmGenerateAllTasks()中预先生成
-					 * 4. 每个LLMTask包含：
-					 *    - query_data: 64个float（从512×512矩阵提取）
-					 *    - key_data: 64个float（从512×512矩阵提取）
-					 *    - 元信息: pixel坐标、子块ID等
-					 */
+
 					if (task_id >= 0 && task_id < all_tasks.size()) {
 						LLMTask& task = all_tasks[task_id];  // 直接索引访问，O(1)时间复杂度
 
-						/**
-						 * Step 3.3: 准备数据容器（input_buffer）
-						 * =======================================
-						 *
-						 * 数据容器位置：tmpLLMMAC->input_buffer
-						 * - 这是MAC对象的临时缓冲区
-						 * - 用于组装Type 1响应包的payload
-						 *
-						 * 容器结构（总计132个float）：
-						 * ┌────────────────────────────────┐
-						 * │ Header (4 floats)              │
-						 * ├────────────────────────────────┤
-						 * │ [0]: 1.0 (LLM模式标志)          │
-						 * │ [1]: 64 (数据块大小)            │
-						 * │ [2]: subchunk_id (0-3)         │
-						 * │ [3]: pixel_id (像素标识)        │
-						 * ├────────────────────────────────┤
-						 * │ Query Data (64 floats)         │
-						 * ├────────────────────────────────┤
-						 * │ [4-67]: Query向量元素           │
-						 * ├────────────────────────────────┤
-						 * │ Key Data (64 floats)           │
-						 * ├────────────────────────────────┤
-						 * │ [68-131]: Key向量元素           │
-						 * └────────────────────────────────┘
-						 */
 
 						// 清空缓冲区，准备新数据
 						tmpLLMMAC->input_buffer.clear();
@@ -508,30 +422,7 @@ void LLMMACnet::llmNetRunStep() {
 						tmpLLMMAC->input_buffer.push_back(task.subchunk_id);  // [2] 子块ID(0-3)
 						tmpLLMMAC->input_buffer.push_back(task.pixel_id);     // [3] 像素ID(用于结果聚合)
 
-						/**
-						 * Step 3.4: 数据排序处理
-						 * ======================
-						 *
-						 * 排序位置和时机：
-						 * 1. 原始数据生成时（llmGenerateAllTasks）：
-						 *    - 从512×512矩阵提取64个元素到task.query_data/key_data
-						 *    - 此时数据保持原始顺序
-						 *
-						 * 2. 当前位置（内存节点响应）：
-						 *    - 可选择在此处应用排序优化
-						 *    - 通过YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix()
-						 *    - 根据宏定义选择排序策略：
-						 *      * YZSeperatedOrdering_reArrangeInput: 分离排序
-						 *      * YzAffiliatedOrdering: 关联排序
-						 *      * 无定义: 不排序
-						 *
-						 * 3. MAC接收端（llmNonMemMACReceiveResp）：
-						 *    - 接收已排序/未排序的数据
-						 *    - 直接用于Attention计算
-						 *
-						 * 注意：当前实现中，排序主要在数据传输时通过
-						 * llmReshapeFlatToQueryKeyMatrix应用到payload
-						 */
+
 
 						// 复制任务数据（保持原始数据不变）
 						std::deque<float> query_data_copy(task.query_data.begin(), task.query_data.end());
@@ -547,31 +438,6 @@ void LLMMACnet::llmNetRunStep() {
 							key_data_copy.begin(), key_data_copy.end());
 
 
-
-						/**
-						 * Step 6: 创建Type 1响应包并注入NoC
-						 * =====================================
-						 *
-						 * 传输机制：
-						 * - 数据被切分为多个flit，每个flit 512位(16个float)
-						 * - 128个float需要 128/16 = 8个flit
-						 * - 使用虚拟通道(VC)避免死锁
-						 *
-						 * 延迟计算：
-						 * - 内存访问延迟 = (数据量 * MEM_read_delay) + CACHE_DELAY
-						 * - 网络传输延迟取决于路由距离和网络拥塞
-						 */
-
-
-						//下面才是和真是网络相关
-						/* CNN 参考代码  收0发 1
-					MAC_list[mem_id]->inbuffer.clear();
-					MAC_list[mem_id]->inbuffer = MAC_list[src_mac]->inbuffer;
-					MAC_list[mem_id]->inject(1, src, tmpMAC->inbuffer.size(),
-							o_fnReluOrPool, vcNetwork->NI_list[mem_id],
-							pidSignalID, src_mac);
-						 */
-						// 计算内存访问延迟
 						int mem_delay = static_cast<int>(ceil((task.query_data.size() * 2 + 1) * MEM_read_delay)) + CACHE_DELAY;
 						LLMMAC_list[mem_id]->pecycle = cycles + mem_delay;
 
@@ -588,109 +454,21 @@ void LLMMACnet::llmNetRunStep() {
 						// Pass task_id (not payload size) as third parameter for type 1 messages
 						LLMMAC_list[mem_id]->llmMemNodeInject(1, src, actual_payload_size,
 							1.0f, vcNetwork->NI_list[mem_id], pid_signal_id, src_mac, task_id); //传递task_id
-						// 注入Type 1响应包到NoC网络
-						// 参数说明：
-						// - 1: msgtype (Type 1 = 数据响应)
-						// - src: 目标MAC的节点ID
-						// - actual_payload_size: 实际payload大小(128个float)
-						// - 1.0f: 数据值（此处未使用）
-						// - mem_id: 发送方内存节点的网络接口
-						// - pid_signal_id: 包ID（用于匹配请求-响应）
-						// - src_mac: 目标MAC的ID
-
 					}
 					tmpNI->packet_buffer_out[0].pop_front();
 				}
 			}
-			// ===== Type 2 & 3: 处理结果包 =====
-			else if (tmpPacket->message.msgtype == 2 || tmpPacket->message.msgtype == 3) {
-				// 检查包是否应该在当前周期处理
-				if (tmpPacket->message.out_cycle >= cycles) {
-					tmpNI->packet_buffer_out[0].pop_front();
-					tmpNI->packet_buffer_out[0].push_back(tmpPacket);
-					continue;
-				}
 
-				/**
-				 * Type 2/3包数据格式：
-				 * - data[0]: result_value (计算结果)
-				 * - data[1]: pixel_x (像素X坐标)
-				 * - data[2]: pixel_y (像素Y坐标)
-				 * - data[3]: time_slice (时间片/子块ID)
-				 */
-				int msg_type = tmpPacket->message.msgtype;
-				src = tmpPacket->message.source_id;
-				src_mac = tmpPacket->message.mac_id;
-				tmpLLMMAC = LLMMAC_list[src_mac];
-
-				// 验证数据完整性
-				if (tmpPacket->message.data.size() >= 4) {
-					float result_value = tmpPacket->message.data[0];  // Attention计算结果
-					int pixel_x = tmpPacket->message.data[1];         // 输出矩阵X坐标
-					int pixel_y = tmpPacket->message.data[2];         // 输出矩阵Y坐标
-					int time_slice = tmpPacket->message.data[3];      // 子块ID (0-3)
-
-					if (msg_type == 2) {
-						/**
-						 * Type 2: 中间结果包（调试用）
-						 * - 每个子块的部分结果
-						 * - 不影响最终输出
-						 * - 用于验证计算过程
-						 */
-
-					}
-					else if (msg_type == 3) {
-						/**
-						 * Type 3: 最终结果包
-						 * - 4个子块聚合后的最终Attention值
-						 * - 更新Q_resOutput_matrix矩阵
-						 * - 标记任务完成
-						 */
-						std::cout << "[FINAL-UPDATE] Memory " << mem_id
-						          << " received FINAL result from MAC " << src_mac << std::endl;
-						std::cout << "  Pixel: (" << pixel_x << "," << pixel_y << ")" << std::endl;
-						std::cout << "  Final value: " << std::fixed << std::setprecision(10) << result_value << std::endl;
-
-						if (pixel_x >= 0 && pixel_x < query_output_dim &&
-						    pixel_y >= 0 && pixel_y < input_sequence_length) {
-
-							// 保存旧值用于比较
-							float old_value = Q_resOutput_matrix[pixel_y][pixel_x];
-
-							// 更新输出矩阵
-							Q_resOutput_matrix[pixel_y][pixel_x] = result_value;
-
-							// 增加已执行任务计数
-							executed_tasks++;
-
-							std::cout << "[TABLE-UPDATE] Updated output table:" << std::endl;
-							std::cout << "  Position [" << pixel_y << "][" << pixel_x << "]" << std::endl;
-							std::cout << "  Old value: " << std::fixed << std::setprecision(10) << old_value << std::endl;
-							std::cout << "  New value: " << std::fixed << std::setprecision(10) << result_value << std::endl;
-							std::cout << "  Verification: " << Q_resOutput_matrix[pixel_y][pixel_x] << std::endl;
-							std::cout << "  Tasks completed: " << executed_tasks << "/" << total_task_slicedPixels << std::endl;
-
-						} else {
-							std::cout << "[ERROR] Invalid pixel coordinates: ("
-							          << pixel_x << "," << pixel_y << ")" << std::endl;
-						}
-					}
-				}
-
-				if (tmpLLMMAC->selfstatus == 5) {
-					tmpLLMMAC->send = 3;
-				}
-				tmpNI->packet_buffer_out[0].pop_front();
-			}
 			else {
-				// Other message types - just cycle them
+				// Other message types - just cycle them in buffer[0]
 				tmpNI->packet_buffer_out[0].pop_front();
 				tmpNI->packet_buffer_out[0].push_back(tmpPacket);
 			}
 		}
 	}
 
-	//NonMemMAC  Handle responses (type 1 messages)
+	// Process Type 1 messages from MEM to MAC (data responses)
+	// Non-memory nodes receive Type 1 responses in buffer[0]
 	for (int i = 0; i < TOT_NUM; i++) {
 		if (llmIsMemoryNode(i)) continue;
 
@@ -707,238 +485,76 @@ void LLMMACnet::llmNetRunStep() {
 
 			src_mac = tmpPacket->message.mac_id;
 			tmpLLMMAC = LLMMAC_list[src_mac];
-			tmpLLMMAC->llmNonMemMACReceiveResp(&tmpPacket->message);
+			
+			// Debug output for Type 1 reception
+			// std::cout << "[LLM-TYPE1] MAC " << src_mac << " receiving data response" << std::endl;
+			
+			tmpLLMMAC->llmPEReceiveResp(&tmpPacket->message);
 			tmpNI->packet_buffer_out[0].pop_front();
 		}
 	}
-}
 
 
-// ==================================================
-// Step 1: 数据生成与加载
-// 功能：从文件加载真实LLaMA矩阵或生成随机数据
-// ==================================================
-bool LLMMACnet::llmLoadRealMatrices(const std::string& input_dir) {
-	try {
-		// Step 1.1: 初始化矩阵尺寸为512x512
-		const int matrix_size =  512;  // 512
+	// Process Type 3 messages from MAC to MEM (final aggregated results)
+	// Similar to CNN's Type 2 handling in buffer[1]
+	for (int memidx = 0; memidx < MEM_NODES; memidx++) {
+		mem_id = dest_list[memidx];
+		tmpNI = this->vcNetwork->NI_list[mem_id];
+		pbuffer_size = tmpNI->packet_buffer_out[1].size();
 		
-		// Step 1.2: 分配矩阵存储空间
-		input_matrix.resize(matrix_size);
-		query_weight_matrix.resize(matrix_size);     // Query矩阵
-		Q_resOutput_matrix.resize(matrix_size); //q 输出矩阵
-		// Step 1.3: 尝试打开LLaMA数据文件
-		std::ifstream query_file(input_dir + "llama_query_8x4096.txt");
-		if (!query_file.is_open()) {
-			// Try 2048x128 version
-			query_file.open(input_dir + "llama_query_2048x128.txt");
-			if (!query_file.is_open()) {
-				std::cerr << "Failed to open query file from " << input_dir << std::endl;
-				return false;
-			}
-		}
-		
-		// Step 1.4: 读取文件维度信息（第一行）
-		int file_rows, file_cols;
-		query_file >> file_rows >> file_cols;  // 读取行数和列数
-		std::cerr << "Loading Query matrix: " << file_rows << "x" << file_cols << std::endl;
-		
-		// 跳过第一行剩余内容
-		std::string dummy;
-		std::getline(query_file, dummy);
-		
-		/**
-		 * @brief 维度不匹配时的循环填充机制
-		 * 
-		 * 问题背景：
-		 * ==========
-		 * - 目标矩阵：512×512 (NoC仿真需要)
-		 * - 输入文件：可能是 128×128, 512×128, 2048×128 等不同维度
-		 * - 需求：将任意维度扩展到512×512，保持数据分布特性
-		 * 
-		 * 循环填充策略：
-		 * ==============
-		 * 
-		 * 1. 列维度填充（当file_cols < 512）：
-		 * ------------------------------------
-		 * 示例：file_cols = 128, matrix_size = 512
-		 * 
-		 * 原始数据：[A0, A1, A2, ..., A127]
-		 * 填充后：  [A0, A1, ..., A127, A0, A1, ..., A127, A0, A1, ..., A127, A0, A1, ..., A127]
-		 *           |<--- 原始128 --->|<--- 复制128 --->|<--- 复制128 --->|<--- 复制128 --->|
-		 * 
-		 * 实现方式：input_matrix[i][j] = input_matrix[i][j % file_cols]
-		 * - j=128时: 128 % 128 = 0, 复制A0
-		 * - j=129时: 129 % 128 = 1, 复制A1
-		 * - j=255时: 255 % 128 = 127, 复制A127
-		 * - j=256时: 256 % 128 = 0, 再次复制A0
-		 * 
-		 * 2. 行维度填充（当file_rows < 512）：
-		 * ------------------------------------
-		 * 示例：file_rows = 128, matrix_size = 512
-		 * 
-		 * 原始数据：Row[0] 到 Row[127]
-		 * 填充后：  Row[0-127], Row[0-127], Row[0-127], Row[0-127]
-		 *           共4次完整复制，形成512行
-		 * 
-		 * 实现方式：input_matrix[i][j] = input_matrix[i % file_rows][j]
-		 * - i=128时: 128 % 128 = 0, 复制Row[0]
-		 * - i=255时: 255 % 128 = 127, 复制Row[127]
-		 * - i=256时: 256 % 128 = 0, 再次复制Row[0]
-		 * 
-		 * 3. 组合效果：
-		 * ------------
-		 * 128×128 → 512×512：数据被复制16次(4×4)
-		 * 512×128 → 512×512：列方向复制4次
-		 * 2048×128 → 512×512：行截断到512，列复制4次
-		 * 
-		 * 优点：
-		 * ------
-		 * - 保持数据分布：循环复制不改变数值范围和统计特性
-		 * - 空间局部性：相邻数据保持相关性
-		 * - 计算简单：模运算效率高
-		 * - 避免零填充：不会稀释数据密度
-		 */
-		
-		// Step 1.5: 逐行读取矩阵数据并存储
-		for (int i = 0; i < matrix_size && i < file_rows; i++) {
-			input_matrix[i].resize(matrix_size);
-			std::string line;
-			if (!std::getline(query_file, line)) break;
+		for (int j = 0; j < pbuffer_size; j++) {
+			tmpPacket = tmpNI->packet_buffer_out[1].front();
 			
-			std::istringstream iss(line);
-			for (int j = 0; j < matrix_size; j++) {
-				float value;
-				if (j < file_cols && (iss >> value)) {
-					// 情况1：在文件列范围内，直接读取实际数据
-					input_matrix[i][j] = value;
-				} else if (file_cols > 0) {
-					// 情况2：超出文件列范围，循环复制已有列数据
-					// 使用模运算实现循环：j=256时复制j=0的数据(256%128=0)
-					input_matrix[i][j] = input_matrix[i][j % file_cols];
-				} else {
-					// 情况3：文件列数为0（异常情况），填充0
-					input_matrix[i][j] = 0.0f;
-				}
+			// Skip non-Type 3 messages
+			if (tmpPacket->message.msgtype != 3) {
+				tmpNI->packet_buffer_out[1].pop_front();
+				tmpNI->packet_buffer_out[1].push_back(tmpPacket);
+				continue;
 			}
-		}
-		
-		// Step 1.6: 如果行数不足512，循环复制已有行
-		for (int i = file_rows; i < matrix_size; i++) {
-			input_matrix[i].resize(matrix_size);
-			for (int j = 0; j < matrix_size; j++) {
-				if (file_rows > 0) {
-					// 循环复制：第128行复制第0行，第256行再次复制第0行
-					// 保证数据分布的周期性重复
-					input_matrix[i][j] = input_matrix[i % file_rows][j];
-				} else {
-					// 异常情况：无有效行数据
-					input_matrix[i][j] = 0.0f;
-				}
-			}
-		}
-		query_file.close();
-		
-		// Step 1.7: 加载Key矩阵（流程与Query相同）
-		std::ifstream key_file(input_dir + "llama_key_128x4096.txt");
-		if (!key_file.is_open()) {
-			// 如果128x4096文件不存在，尝试2048x128版本
-			key_file.open(input_dir + "llama_key_2048x128.txt");
-			if (!key_file.is_open()) {
-				std::cerr << "Failed to open key file from " << input_dir << std::endl;
-				return false;
-			}
-		}
-		
-		// Read dimensions from first line
-		key_file >> file_rows >> file_cols;
-		std::cerr << "Loading Key matrix: " << file_rows << "x" << file_cols << std::endl;
-		
-		// Skip rest of first line
-		std::getline(key_file, dummy);
-		
-		/**
-		 * Key矩阵循环填充
-		 * ==================
-		 * 与Query矩阵采用相同的循环填充策略
-		 * 保证Query-Key对应位置的数据扩展方式一致
-		 * 这对Attention计算的正确性至关重要
-		 */
-		for (int i = 0; i < matrix_size && i < file_rows; i++) {
-			query_weight_matrix[i].resize(matrix_size);
-			std::string line;
-			if (!std::getline(key_file, line)) break;
 			
-			std::istringstream iss(line);
-			for (int j = 0; j < matrix_size; j++) {
-				float value;
-				if (j < file_cols && (iss >> value)) {
-					// 直接存储文件中的原始数据
-					query_weight_matrix[i][j] = value;
-				} else if (file_cols > 0) {
-					// 列循环填充：第j列 = 第(j % file_cols)列
-					// 保持Key与Query的对齐关系
-					query_weight_matrix[i][j] = query_weight_matrix[i][j % file_cols];
-				} else {
-					query_weight_matrix[i][j] = 0.0f;
-				}
+			// Extract source information
+			src = tmpPacket->message.source_id;
+			src_mac = tmpPacket->message.mac_id;
+			tmpLLMMAC = LLMMAC_list[src_mac];
+			
+			// Extract result data from packet
+			float result_value = tmpPacket->message.data[0];  // Attention computation result
+			int pixel_x = tmpPacket->message.data[1];         // Output matrix X coordinate
+			int pixel_y = tmpPacket->message.data[2];         // Output matrix Y coordinate
+			int time_slice = tmpPacket->message.data[3];      // Subchunk ID (for debugging)
+			
+			// Validate coordinates and update output tables
+			if (pixel_x >= 0 && pixel_x < query_output_dim &&
+			    pixel_y >= 0 && pixel_y < input_sequence_length) {
+				
+				// Update both output matrices
+				Q_resOutput_matrix[pixel_y][pixel_x] = result_value;      // Reference matrix
+				attention_output_table[pixel_y][pixel_x] = result_value;  // Actual output table
+				
+				// Increment completed task counter
+				executed_tasks++;
+				
+				// Debug output
+				// std::cout << "[LLM-TYPE3] Received final result from MAC " << src_mac 
+				//           << ": pixel[" << pixel_y << "][" << pixel_x << "] = " 
+				//           << std::fixed << std::setprecision(6) << result_value
+				//           << " (tasks: " << executed_tasks << "/" << total_task_slicedPixels << ")" << std::endl;
+			} else {
+				// std::cout << "[ERROR] Invalid pixel coordinates: (" 
+				//           << pixel_x << "," << pixel_y << ")" << std::endl;
 			}
-		}
-		
-		// 行循环填充：确保512行完整数据
-		for (int i = file_rows; i < matrix_size; i++) {
-			query_weight_matrix[i].resize(matrix_size);
-			for (int j = 0; j < matrix_size; j++) {
-				if (file_rows > 0) {
-					query_weight_matrix[i][j] = query_weight_matrix[i % file_rows][j];
-				} else {
-					query_weight_matrix[i][j] = 0.0f;
-				}
+			
+			// Update MAC status if finished
+			if (tmpLLMMAC->selfstatus == 5) {
+				tmpLLMMAC->send = 3;
 			}
+			
+			// Remove processed packet from buffer
+			tmpNI->packet_buffer_out[1].pop_front();
 		}
-		key_file.close();
-		
-		// Initialize value and output tables to zero
-		for (int i = 0; i < matrix_size; i++) {
-			Q_resOutput_matrix[i].resize(matrix_size, 0.0f);
-			Q_resOutput_matrix[i].resize(matrix_size, 0.0f);
-		}
-		
-		std::cerr << "Successfully loaded real LLaMA matrices!" << std::endl;
-		return true;
-		
-	} catch (const std::exception& e) {
-		std::cerr << "Error loading LLaMA matrices: " << e.what() << std::endl;
-		return false;
 	}
 }
-void LLMMACnet::setInputMatrices(const vector<vector<float>>& X_input, 
-                                const vector<vector<float>>& Wq) {
-	// 直接设置输入矩阵
-	input_matrix = X_input;           // 8×4096
-	query_weight_matrix = Wq;         // 128×4096
-	
-	// 计算Q矩阵作为输出: Q = X @ Wq^T (8×128)
-	Q_resOutput_matrix.resize(input_sequence_length);
-	for (int i = 0; i < input_sequence_length; i++) {
-		Q_resOutput_matrix[i].resize(query_output_dim, 0.0f);
-		for (int j = 0; j < query_output_dim; j++) {
-			float sum = 0.0f;
-			for (int k = 0; k < input_hidden_dim; k++) {
-				sum += input_matrix[i][k] * query_weight_matrix[j][k];
-			}
-			Q_resOutput_matrix[i][j] = sum;
-		}
-	}
-	
-	std::cout << "[LLMMACnet] Input matrices set: X_input(" << input_matrix.size() 
-	          << "x" << (input_matrix.empty() ? 0 : input_matrix[0].size()) 
-	          << "), Wq(" << query_weight_matrix.size() 
-	          << "x" << (query_weight_matrix.empty() ? 0 : query_weight_matrix[0].size()) 
-	          << "), Q_output(" << Q_resOutput_matrix.size()
-	          << "x" << (Q_resOutput_matrix.empty() ? 0 : Q_resOutput_matrix[0].size()) 
-	          << ")" << std::endl;
-}
+
 
 bool LLMMACnet::llmReadSavedMatrix() {
 
@@ -962,8 +578,6 @@ bool LLMMACnet::llmReadSavedMatrix() {
 	if (test_x.is_open() && test_wq.is_open()) {
 		test_x.close();
 		test_wq.close();
-		
-		
 		// Load X_input (8x4096)
 		input_matrix.resize(input_sequence_length); //变成8行
 		std::ifstream x_file(x_input_file);
@@ -1018,8 +632,11 @@ bool LLMMACnet::llmReadSavedMatrix() {
 		
 		// Compute Q = X @ Wq^T
 		Q_resOutput_matrix.resize(input_sequence_length);
+		attention_output_table.resize(input_sequence_length);  // 初始化attention_output_table
 		for (int i = 0; i < input_sequence_length; i++) {
 			Q_resOutput_matrix[i].resize(query_output_dim, 0.0f);
+			attention_output_table[i].resize(query_output_dim, 0.0f);  // 初始化为0
+			/*
 			for (int j = 0; j < query_output_dim; j++) {
 				float sum = 0.0f;
 				for (int k = 0; k < input_hidden_dim; k++) {
@@ -1027,6 +644,7 @@ bool LLMMACnet::llmReadSavedMatrix() {
 				}
 				Q_resOutput_matrix[i][j] = sum;
 			}
+			*///这里只是debug，通过运算结果看看文件io正确。
 		}
 		
 		// Print verification values
@@ -1108,8 +726,8 @@ void LLMMACnet::llmGenerateAllTasks() {
 				 * ==============
 				 * 
 				 * 1. 源矩阵（input_matrix/query_weight_matrix）：
-				 *    - 维度：512×512
-				 *    - 总元素：262,144
+				 *    - 维度：
+				 *    - 总元素
 				 *    - 索引：[row][col]，范围 [0-511][0-511]
 				 * 
 				 * 2. 目标向量（task.query_data/task.query_data）：
@@ -1137,7 +755,7 @@ void LLMMACnet::llmGenerateAllTasks() {
 				 * 
 				 * 循环i从0到63：
 				 * i=0时：
-				 *   weight_query_idx = (10 + 64 + 0) % 512 = 74
+				 *   weight_query_idx = (10 + 64 + 0)  = 74
 				 *   weight_key_idx = (10 + 0 + 0) % 512 = 10
 				 *   task.query_data[0] = input_matrix[20][74]
 				 *   task.query_data[0] = query_weight_matrix[20][10]
@@ -1222,6 +840,7 @@ void LLMMACnet::llmInitializeRandomMatrices() {
 	input_matrix.resize(input_sequence_length);
 	query_weight_matrix.resize(query_output_dim);
 	Q_resOutput_matrix.resize(input_sequence_length);
+	attention_output_table.resize(input_sequence_length);  // 初始化attention_output_table
 
 	// Initialize input matrix with random values
 	for (int i = 0; i < input_sequence_length; i++) {
@@ -1230,6 +849,7 @@ void LLMMACnet::llmInitializeRandomMatrices() {
 			input_matrix[i][j] = static_cast<float>(rand()) / RAND_MAX - 0.5f;
 		}
 		Q_resOutput_matrix[i].resize(query_output_dim, 0.0f);
+		attention_output_table[i].resize(query_output_dim, 0.0f);  // 初始化为0
 	}
 
 	// Initialize query weight matrix with random values
@@ -1289,8 +909,8 @@ void LLMMACnet::llmXMapping(int total_pixels) {
 		// 记录像素分配
 		this->llmOutputPixelMappingTable[mac_id].push_back(pixel_id);
 		// 该像素的N个task(subchunk)都分配给同一个节点（便于聚合）
-		for (int subchunk_id = 0; subchunk_id < this->tasks_per_pixel; subchunk_id++) {
-			int task_id = pixel_id * this->tasks_per_pixel + subchunk_id;  // Fixed mapping formula
+		for (int subchunk_id = 0; subchunk_id < LLM_SUBCHUNKS_PER_PIXEL; subchunk_id++) {
+			int task_id = pixel_id * LLM_SUBCHUNKS_PER_PIXEL + subchunk_id;  // Fixed mapping formula
 			this->llmTaskMappingTable[mac_id].push_back(task_id);
 		}
 	}
@@ -1459,7 +1079,6 @@ void LLMMACnet::llmCheckStatus() {
 		last_layer_packet_id = packet_id;
 		return;
 	}
-
 	ready_flag = 1;
 }
 

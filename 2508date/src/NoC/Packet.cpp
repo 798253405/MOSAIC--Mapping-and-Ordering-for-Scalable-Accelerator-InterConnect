@@ -29,7 +29,7 @@ Packet::Packet(Message t_message, int router_num_x, int* NI_num){
             break;
     case 3: lengthInBits =  bitsPerElement;// final aggregated result (for LLM)
             type = 1;
-            vnet = 0;  // Use same vnet as type 2 since they're both results
+            vnet = 0;  // Only one vnet available, use vnet 0
             break;
 
   }

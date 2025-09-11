@@ -150,7 +150,7 @@ class LLMMAC
 		 * 
 		 * 1. 任务ID的来源 (State 1: REQUEST)
 		 * ------------------------------------
-		 * - 从llmtasktable队列中取出: current_processing_task_id = llmtasktable.front()
+		 * - 从llmtasktable队列中取出: currentRequestedTaskIDd = llmtasktable.front()
 		 * - 任务ID范围: 0 到 1,048,575 (总共262,144像素 × 4个子块)
 		 * - 任务ID编码: pixel_id * LLM_SUBCHUNKS_PER_PIXEL + subchunk_id
 		 *   例如: 任务ID 1025 = 像素256的第1个子块 (256*4+1)
@@ -158,7 +158,7 @@ class LLMMAC
 		 * 2. 发送数据请求 (State 1: REQUEST)
 		 * ------------------------------------
 		 * - 将任务ID作为请求包发送到内存节点
-		 * - llmInject(type=0, ..., current_processing_task_id, ...)
+		 * - llmInject(type=0, ..., currentRequestedTaskIDd, ...)
 		 * - 内存节点收到后，根据ID查找对应数据
 		 * 
 		 * 3. 内存节点处理 (Memory Node)
@@ -171,9 +171,8 @@ class LLMMAC
 		 * 
 		 * 4. 接收响应数据 (State 2: WAIT)
 		 * ---------------------------------
-		 * - 收到type 1响应后，设置current_processing_task_id = -1
+		 * - 收到type 1响应后，设置currentRequestedTaskIDd = -1
 		 * - 表示数据已到达，进入计算阶段
-		 * - saved_task_id_for_result保存原始ID用于后续
 		 * 
 		 * 5. 任务ID的编解码
 		 * -----------------
@@ -181,18 +180,15 @@ class LLMMAC
 		 * - 每个像素需要4个任务完成才能得到最终结果
 		 * - 用于聚合4个子块的部分和
 		 */
-		int current_processing_task_id;  // 当前正在处理的任务ID，-1表示空闲
-		
+		int currentRequestedTaskIDd;  // 当前正在处理的任务ID，-1表示空闲
+		int inPETaskIDFromResp;  // 当前正在处理的任务ID，-1表示空闲
 		/**
 		 * @brief 保存的任务ID，用于发送结果（原名tmp_requestID）
 		 * 
 		 * 作用：
-		 * - 在State 1保存任务ID: saved_task_id_for_result = current_processing_task_id
 		 * - 在State 3/4使用此ID发送结果和更新输出表
 		 * - 保持任务ID贯穿整个处理流程
 		 */
-		int saved_task_id_for_result;    // 保存的任务ID，用于发送结果时使用
-
 		int send;
 		int NI_id;
 
@@ -203,15 +199,12 @@ class LLMMAC
 
 		// LLM attention parameters
 
-		int curTimeSliceID;                  // Current time slice (0-1)
+		int current_subchunk_id;                  // Current time slice  == Current subchunk being processed
 		int dest_mem_id;                 // Memory node ID
-
-		float attention_output;          // Computed attention output
 		
 		// Partial sum aggregation for pixels
 		std::map<int, std::vector<float>> pixel_partial_sums;    // pixel_id -> [LLM_SUBCHUNKS_PER_PIXEL partial sums]
 		int current_pixel_id;                          // Current pixel being processed
-		int current_subchunk_id;                       // Current subchunk being processed
 
 		deque<int> llmPEExpectedtasktable;
 
@@ -255,13 +248,9 @@ class LLMMAC
 		bool llmMemNodeInject(int type, int d_id, int data_length, float t_output, NI* t_NI, int p_id, int mac_src, int task_id);
 
 
-		void llmNonMemMACReceiveResp(Message* re_msg);
+		void llmPEReceiveResp(Message* re_msg);
 		void llmRunOneStep();
 
-		// LLM-specific attention computation
-		void llmComputeAttention();
-		void llmComputeQueryKeyDot();
-		void llmComputeValueWeightedSum();
 
 		// State management
 		bool llmIsWaitingForData();

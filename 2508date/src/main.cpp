@@ -748,6 +748,92 @@ int main(int arg_num, char *arg_vet[]) {
 
 	cout << "\n!!LLM ATTENTION SIMULATION END!!" << endl;
 
+	// Print output matrix (attention_output_table)
+	cout << "\n==================== ATTENTION OUTPUT TABLE ====================" << endl;
+	cout << "Matrix dimensions: " << llmMacnet->input_sequence_length << " x " << llmMacnet->query_output_dim << endl;
+	cout << "\nFirst 5x5 elements of attention_output_table:" << endl;
+	cout << "-----------------------------------------------" << endl;
+	
+	int rows_to_print = min(5, llmMacnet->input_sequence_length);
+	int cols_to_print = min(5, llmMacnet->query_output_dim);
+	
+	// Print column headers
+	cout << "      ";
+	for (int j = 0; j < cols_to_print; j++) {
+		cout << "    [" << j << "]     ";
+	}
+	cout << endl;
+	
+	// Print matrix values
+	for (int i = 0; i < rows_to_print; i++) {
+		cout << "[" << i << "]  ";
+		for (int j = 0; j < cols_to_print; j++) {
+			cout << fixed << setprecision(6) << setw(12) << llmMacnet->attention_output_table[i][j] << " ";
+		}
+		if (llmMacnet->query_output_dim > 5) {
+			cout << "  ...";
+		}
+		cout << endl;
+	}
+	
+	if (llmMacnet->input_sequence_length > 5) {
+		cout << "...   (showing first 5 of " << llmMacnet->input_sequence_length << " rows)" << endl;
+	}
+	
+	// Print last 5x5 elements (bottom-right corner)
+	cout << "\nLast 5x5 elements of attention_output_table:" << endl;
+	cout << "-----------------------------------------------" << endl;
+	
+	int start_row = max(0, llmMacnet->input_sequence_length - 5);
+	int start_col = max(0, llmMacnet->query_output_dim - 5);
+	int end_row = llmMacnet->input_sequence_length;
+	int end_col = llmMacnet->query_output_dim;
+	
+	// Print column headers for last columns
+	cout << "      ";
+	for (int j = start_col; j < end_col; j++) {
+		cout << "   [" << j << "]    ";
+	}
+	cout << endl;
+	
+	// Print matrix values for bottom-right corner
+	for (int i = start_row; i < end_row; i++) {
+		cout << "[" << i << "]  ";
+		if (i < 10) cout << " ";  // Extra space for single digit row numbers
+		for (int j = start_col; j < end_col; j++) {
+			cout << fixed << setprecision(6) << setw(12) << llmMacnet->attention_output_table[i][j] << " ";
+		}
+		cout << endl;
+	}
+	
+	// Calculate and print some statistics about the output matrix
+	cout << "\nOutput Matrix Statistics:" << endl;
+	cout << "-------------------------" << endl;
+	
+	float min_val = 1e9, max_val = -1e9, sum = 0;
+	int zero_count = 0;
+	
+	for (int i = 0; i < llmMacnet->input_sequence_length; i++) {
+		for (int j = 0; j < llmMacnet->query_output_dim; j++) {
+			float val = llmMacnet->attention_output_table[i][j];
+			min_val = min(min_val, val);
+			max_val = max(max_val, val);
+			sum += val;
+			if (abs(val) < 1e-6) zero_count++;
+		}
+	}
+	
+	int total_elements = llmMacnet->input_sequence_length * llmMacnet->query_output_dim;
+	float avg = sum / total_elements;
+	
+	cout << "  Min value: " << fixed << setprecision(6) << min_val << endl;
+	cout << "  Max value: " << fixed << setprecision(6) << max_val << endl;
+	cout << "  Average value: " << fixed << setprecision(6) << avg << endl;
+	cout << "  Zero elements: " << zero_count << " / " << total_elements 
+	     << " (" << fixed << setprecision(2) << (100.0 * zero_count / total_elements) << "%)" << endl;
+	
+	cout << "==================== END OUTPUT MATRIX ====================" << endl;
+
 	// Calculate and display execution time
 	end = clock();
 	double elapsed_time = double(end - start) / CLOCKS_PER_SEC;

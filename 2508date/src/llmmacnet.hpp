@@ -115,58 +115,7 @@ public:
 	};
 
 	vector<LLMTask> all_tasks;
-	
-	/**
-	 * @brief LLM状态管理与包处理流程
-	 * 
-	 * 状态转换与包交互：
-	 * ==================
-	 * 
-	 * MAC状态机循环：
-	 * ----------------
-	 * State 0 (IDLE) → State 1 (REQUEST)
-	 *   触发：llmtasktable有待处理任务
-	 *   动作：取出task_id，准备发送请求
-	 * 
-	 * State 1 (REQUEST) → State 2 (WAIT)
-	 *   触发：发送Type 0请求包
-	 *   包格式：msgtype=0, data[0]=task_id
-	 *   目标：内存节点
-	 * 
-	 * State 2 (WAIT) → State 3 (COMPUTE)
-	 *   触发：收到Type 1响应包
-	 *   包格式：msgtype=1, payload=[header(4)+query(64)+key(64)]
-	 *   来源：内存节点
-	 * 
-	 * State 3 (COMPUTE) → State 4 (COMPLETE)
-	 *   触发：Attention计算完成
-	 *   动作：发送结果包(Type 2或3)
-	 * 
-	 * State 4 (COMPLETE) → State 0/5
-	 *   分支：有任务→State 0，无任务→State 5(FINISHED)
-	 * 
-	 * 包类型详解：
-	 * -----------
-	 * Type 0 (REQUEST): MAC请求数据
-	 *   - 方向：MAC → Memory
-	 *   - 内容：task_id
-	 *   - 处理：Memory查找all_tasks[task_id]
-	 * 
-	 * Type 1 (RESPONSE): Memory返回数据
-	 *   - 方向：Memory → MAC
-	 *   - 内容：132个float (header+payload)
-	 *   - 处理：MAC开始计算
-	 * 
-	 * Type 2 (INTERMEDIATE): 中间结果
-	 *   - 方向：MAC → Memory
-	 *   - 内容：[value, x, y, slice]
-	 *   - 用途：调试验证
-	 * 
-	 * Type 3 (FINAL): 最终结果
-	 *   - 方向：MAC → Memory
-	 *   - 内容：[value, x, y, slice]
-	 *   - 处理：更新output_table
-	 */
+
 	void llmGenerateAllTasks();
 	void llmDistributeTasks();
 

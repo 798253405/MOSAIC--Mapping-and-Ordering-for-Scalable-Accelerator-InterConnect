@@ -534,11 +534,17 @@ void LLMMACnet::llmNetRunStep() {
 				// Increment completed task counter
 				executed_tasks++;
 				
-				// Debug output
-				// std::cout << "[LLM-TYPE3] Received final result from MAC " << src_mac 
-				//           << ": pixel[" << pixel_y << "][" << pixel_x << "] = " 
-				//           << std::fixed << std::setprecision(6) << result_value
-				//           << " (tasks: " << executed_tasks << "/" << total_task_slicedPixels << ")" << std::endl;
+				// Debug output for first few pixels
+				if (pixel_y == 0 && pixel_x <= 2) {
+					float expected = 0.0f;
+					if (pixel_x == 0) expected = 0.01544952f;
+					else if (pixel_x == 1) expected = -0.01119441f;
+					else if (pixel_x == 2) expected = 0.00336472f;
+					
+					std::cout << "[DEBUG-RECEIVED] Memory node received pixel[" << pixel_y << "][" << pixel_x << "] = " 
+					          << std::fixed << std::setprecision(8) << result_value 
+					          << " (expected: " << expected << ", diff: " << (result_value - expected) << ")" << std::endl;
+				}
 			} else {
 				// std::cout << "[ERROR] Invalid pixel coordinates: (" 
 				//           << pixel_x << "," << pixel_y << ")" << std::endl;

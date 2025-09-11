@@ -310,7 +310,8 @@ bool LLMMAC::llmMemNodeInject(int type, int d_id, int  tllm_eleNum, float t_outp
 
 		// 应用排序优化（如果启用了排序宏）
 		// 注意：数据现在来自all_tasks而非随机，排序会产生实际的bit flip优化效果
-		YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix(msg.yzMSGPayload);
+		// DISABLED: 排序会改变数据顺序，导致计算错误
+		// YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix(msg.yzMSGPayload);
 	}
 
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);
@@ -389,9 +390,10 @@ bool LLMMAC::llmPEInject(int type, int d_id, int  tllm_eleNum, float t_output, N
 	// 应用排序优化（如果启用了排序宏）
 	// 注意：数据现在来自all_tasks而非随机，排序会产生实际的bit flip优化效果
 	// Type 3 messages only have 1 element, don't reshape them
-	if (msg.msgtype != 3) {
-		YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix(msg.yzMSGPayload);
-	}
+	// DISABLED: 排序会改变数据顺序，导致计算错误
+	// if (msg.msgtype != 3) {
+	// 	YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix(msg.yzMSGPayload);
+	// }
 
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);
 	packet->send_out_time = pecycle;
@@ -490,11 +492,41 @@ void LLMMAC::llmRunOneStep() {
 				// Aggregate all partial sums
 				float total_sum = 0.0f;
 				int valid_count = 0;
+				
+				// Debug: Print all partial sums for pixel[0][0]
+				// if (current_pixel_id == 0) {
+				// std::cout << "[DEBUG-PIXEL0-AGGREGATION] Aggregating pixel[0][0]:" << std::endl;
+				// }
+				
 				for (int i = 0; i < LLM_SUBCHUNKS_PER_PIXEL; i++) {
 					if (pixel_partial_sums[current_pixel_id].size() > i) {
-						total_sum += pixel_partial_sums[current_pixel_id][i];
+						float partial = pixel_partial_sums[current_pixel_id][i];
+						total_sum += partial;
 						valid_count++;
+						
+						// Debug: Print each partial sum for pixel[0][0]
+						if (current_pixel_id == 0) {
+							std::cout << "  Subchunk " << i << ": " << std::fixed << std::setprecision(8) << partial 
+							          << " (running total: " << total_sum << ")" << std::endl;
+						}
 					}
+				}
+				
+				// Debug: Print final result for first few pixels
+				if (current_pixel_id <= 2) {
+					int px = current_pixel_id % net->query_output_dim;
+					int py = current_pixel_id / net->query_output_dim;
+					
+					// Get expected value from Q_resOutput_matrix if available
+					float expected = 0.0f;
+					if (py == 0 && px == 0) expected = 0.01544952f;
+					else if (py == 0 && px == 1) expected = -0.01119441f;
+					else if (py == 0 && px == 2) expected = 0.00336472f;
+					
+					std::cout << "[DEBUG-FINAL] MAC " << selfMACid 
+					          << " final result for pixel[" << py << "][" << px << "]: " 
+					          << std::fixed << std::setprecision(8) << total_sum 
+					          << " (expected: " << expected << ", diff: " << (total_sum - expected) << ")" << std::endl;
 				}
 				
 				// Calculate pixel coordinates for debug output
@@ -573,17 +605,24 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 		input_data.clear();
 		query_data.clear();
 		
-		// Payload格式: [4个header] + [64个input数据] + [64个query数据]
+		// Memory直接发送数据，没有header！
+		// Payload格式: [64个input数据] + [64个query数据]
 		int data_size = 64;  // 每个subchunk包含64个元素
-		int header_size = 4;  // 前4个是元数据
 		
-		// 提取 Input 数据 (索引 4-67)
-		for (int i = header_size; i < header_size + data_size && i < re_msg->yzMSGPayload.size(); i++) {
+		// Debug: Print payload size for verification
+		if (current_pixel_id <= 2) {
+			std::cout << "[DEBUG-PAYLOAD] Pixel " << current_pixel_id 
+			          << " subchunk " << current_subchunk_id 
+			          << " payload size: " << re_msg->yzMSGPayload.size() << std::endl;
+		}
+		
+		// 提取 Input 数据 (索引 0-63)
+		for (int i = 0; i < data_size && i < re_msg->yzMSGPayload.size(); i++) {
 			input_data.push_back(re_msg->yzMSGPayload[i]);
 		}
 		
-		// 提取 Query 数据 (索引 68-131)
-		for (int i = header_size + data_size; i < header_size + 2*data_size && i < re_msg->yzMSGPayload.size(); i++) {
+		// 提取 Query 数据 (索引 64-127)
+		for (int i = data_size; i < 2*data_size && i < re_msg->yzMSGPayload.size(); i++) {
 			query_data.push_back(re_msg->yzMSGPayload[i]);
 		}
 		
@@ -593,16 +632,46 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 			partial_sum += input_data[i] * query_data[i];
 		}
 		
+		// Debug: Print computation details for first few pixels
+		if (current_pixel_id <= 2) {  // Print for pixel[0][0], [0][1], [0][2]
+			int px = current_pixel_id % net->query_output_dim;
+			int py = current_pixel_id / net->query_output_dim;
+			
+			std::cout << "[DEBUG-PIXEL] MAC " << selfMACid 
+			          << " computing pixel[" << py << "][" << px << "] (id=" << current_pixel_id << ")"
+			          << " subchunk " << current_subchunk_id 
+			          << " partial_sum=" << std::fixed << std::setprecision(8) << partial_sum 
+			          << " (data_size=" << input_data.size() << ")" << std::endl;
+			
+			// Print first few elements for each pixel's first subchunk
+			if (current_subchunk_id == 0) {
+				std::cout << "[DEBUG-DATA] Pixel[" << py << "][" << px << "] subchunk 0:" << std::endl;
+				std::cout << "  First 10 input values: ";
+				for (int i = 0; i < 10 && i < input_data.size(); i++) {
+					std::cout << std::fixed << std::setprecision(6) << input_data[i] << " ";
+				}
+				std::cout << std::endl;
+				std::cout << "  First 10 query values: ";
+				for (int i = 0; i < 10 && i < query_data.size(); i++) {
+					std::cout << std::fixed << std::setprecision(6) << query_data[i] << " ";
+				}
+				std::cout << std::endl;
+				
+				// Manual calculation of first few products
+				std::cout << "  First 5 products: ";
+				for (int i = 0; i < 5 && i < input_data.size() && i < query_data.size(); i++) {
+					float product = input_data[i] * query_data[i];
+					std::cout << "(" << input_data[i] << "*" << query_data[i] << "=" << product << ") ";
+				}
+				std::cout << std::endl;
+			}
+		}
+		
 		// 存储 partial sum 用于聚合
 		if (pixel_partial_sums[current_pixel_id].size() < LLM_SUBCHUNKS_PER_PIXEL) {
 			pixel_partial_sums[current_pixel_id].resize(LLM_SUBCHUNKS_PER_PIXEL, 0.0f);
 		}
 		pixel_partial_sums[current_pixel_id][current_subchunk_id] = partial_sum;
-		
-		// std::cout << "[LLM-PARTIAL] MAC " << selfMACid 
-		//           << " stored partial sum for pixel " << current_pixel_id 
-		//           << " subchunk " << current_subchunk_id 
-		//           << " value=" << partial_sum << std::endl;
 		
 		currentRequestedTaskIDd = -1;  // 清空当前任务ID，回到空闲状态//准确的说应该是currentrequestedtask到了
 	}

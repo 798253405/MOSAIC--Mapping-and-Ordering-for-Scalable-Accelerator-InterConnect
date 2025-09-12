@@ -22,7 +22,8 @@
 
 // Test Case Configuration - Choose one
 //#define case1_default
-#define case2_samos
+//#define case2_samos
+#define case3_affiliatedordering
 
 //#define case3_affiliatedordering
 //#define case4_seperratedordering

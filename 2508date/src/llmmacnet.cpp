@@ -996,7 +996,7 @@ void LLMMACnet::llmCheckStatus() {
 		}
 		#endif
 		// Normal mapping without SAMOS
-		#ifdef rowmapping
+		#if defined(rowmapping) || defined(samos)
 		int total_pixels = total_task_slicedPixels / this->tasks_per_pixel;  // Convert tasks to pixels
 		this->llmXMapping(total_pixels);  // Pass pixel count, not task count
 		#endif

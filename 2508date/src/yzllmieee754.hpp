@@ -89,7 +89,6 @@ void sortAffiliated(std::deque<float>& query_data,
  * @param cols 矩阵列数
  * @param rows 矩阵行数
  */
-void sortMatrixByColumns(std::deque<float>& data, int cols, int rows);
 
 /**
  * @brief 打印LLM数据详细信息（调试用）

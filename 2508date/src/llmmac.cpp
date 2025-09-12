@@ -619,7 +619,6 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 	if (re_msg->msgtype == 1) {
 		// Track when response actually arrives at MAC
 		current_task_timing.response_arrive_cycle = cycles;
-
 		// Calculate response hops (same as request typically in symmetric routing)
 		current_task_timing.response_hops = current_task_timing.request_hops;
 		inPETaskIDFromResp =  re_msg->signal_id;
@@ -632,23 +631,16 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 		// Memory直接发送数据，没有header！
 		// Payload格式: [64个input数据] + [64个query数据]
 		int data_size = 64;  // 每个subchunk包含64个元素
-		
-		/*
-		// Debug: Print payload size for verification
-		if (current_pixel_id <= 2) {
-			std::cout << "[DEBUG-PAYLOAD] Pixel " << current_pixel_id 
-			          << " subchunk " << current_subchunk_id 
-			          << " payload size: " << re_msg->yzMSGPayload.size() << std::endl;
-		}
-		*/
-		// 提取 Input 数据 (索引 0-63)
-		for (int i = 0; i < data_size && i < re_msg->yzMSGPayload.size(); i++) {
-			input_data.push_back(re_msg->yzMSGPayload[i]);
-		}
-		
-		// 提取 Query 数据 (索引 64-127)
-		for (int i = data_size; i < 2*data_size && i < re_msg->yzMSGPayload.size(); i++) {
-			query_data.push_back(re_msg->yzMSGPayload[i]);
+		int indexPayload=0;
+		for(int i = 0; i < 8;i++ ){
+			for(int j = 0; j < 8; j++ ){
+				input_data.push_back(re_msg->yzMSGPayload[indexPayload]);
+				indexPayload ++;
+			}
+			for(int j = 0; j < 8; j++ ){
+				query_data.push_back(re_msg->yzMSGPayload[indexPayload]);
+				indexPayload ++;
+			}
 		}
 		
 		// 直接在这里计算 partial sum
@@ -661,14 +653,6 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 		if (current_pixel_id <= 2) {  // Print for pixel[0][0], [0][1], [0][2]
 			int px = current_pixel_id % net->query_output_dim;
 			int py = current_pixel_id / net->query_output_dim;
-			
-			/*
-			std::cout << "[DEBUG-PIXEL] MAC " << selfMACid 
-			          << " computing pixel[" << py << "][" << px << "] (id=" << current_pixel_id << ")"
-			          << " subchunk " << current_subchunk_id 
-			          << " partial_sum=" << std::fixed << std::setprecision(8) << partial_sum 
-			          << " (data_size=" << input_data.size() << ")" << std::endl;
-			*/
 			// Print first few elements for each pixel's first subchunk
 			if (current_subchunk_id == 0) {
 				std::cout << "[DEBUG-DATA] Pixel[" << py << "][" << px << "] subchunk 0:" << std::endl;
@@ -698,7 +682,6 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 			pixel_partial_sums[current_pixel_id].resize(LLM_SUBCHUNKS_PER_PIXEL, 0.0f);
 		}
 		pixel_partial_sums[current_pixel_id][current_subchunk_id] = partial_sum;
-		
 		currentRequestedTaskIDd = -1;  // 清空当前任务ID，回到空闲状态//准确的说应该是currentrequestedtask到了
 	}
 	else {

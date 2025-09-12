@@ -70,7 +70,7 @@ int countOnesInIEEE754(float float_num) {
 
 // Comparator function for sorting based on number of 1 bits in IEEE 754 representation
 bool compareFloatsByOnes(const float &a, const float &b) {
-	return countOnesInIEEE754(a) < countOnesInIEEE754(b);  // Changed to ascending order for column-major organization
+	return countOnesInIEEE754(a) > countOnesInIEEE754(b);  // Changed to ascending order for column-major organization
 }
 
 void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,

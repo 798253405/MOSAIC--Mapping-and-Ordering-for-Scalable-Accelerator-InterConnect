@@ -23,10 +23,9 @@
 // Test Case Configuration - Choose one
 //#define case1_default
 //#define case2_samos
-#define case3_affiliatedordering
 
 //#define case3_affiliatedordering
-//#define case4_seperratedordering
+#define case4_seperratedordering
 //#define case5_MOSAIC1
 //#define case6_MOSAIC2
 
@@ -36,10 +35,6 @@
 #define YZLLMSwitchON
 //#define LLMPADDING_RANDOM
 #define LLM_OPTIMIZED_TYPE03_HANDLING  // Enable optimized Type 0/3 handling (16 elements only)
-constexpr int DIM_MODEL = 4096; 
-constexpr int NUM_HEAD = 32; 
-constexpr int SEQUENCE_LENGTH = 512; 
-constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
 #define LLM_OUTPUT_PATH "src/output/"
 #define LLM_TEST_CASE 2
 #define LLM_DEBUG_LEVEL 1

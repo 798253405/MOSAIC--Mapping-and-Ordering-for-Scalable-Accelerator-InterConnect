@@ -519,8 +519,9 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 	}
 
 
-	 // if ( oneTimeFlipping >150)
-		  if (cycles<1){
+	  if ( oneTimeFlipping >150)
+		//  if (cycles<10)
+		  {
 	      cout << " thisisline416 current flitpayloadfront "
 	              << "current: " << currentFlitInLink->yzFlitPayload[0] <<" "<< currentFlitInLink->yzFlitPayload[1] <<" "<<
 	  currentFlitInLink->yzFlitPayload[2] <<" "<< currentFlitInLink->yzFlitPayload[3] <<" "<< currentFlitInLink->yzFlitPayload[4] <<" "<<

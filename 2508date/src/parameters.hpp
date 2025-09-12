@@ -20,10 +20,11 @@
 //#define MemNode4_32X32
 
 // Test Case Configuration - Choose one
-#define case1_default
+//#define case1_default
 //#define case2_samos
-//#define case3_affiliatedordering
- //#define case4_seperratedordering
+
+#define case3_affiliatedordering
+//#define case4_seperratedordering
 //#define case5_MOSAIC1
 //#define case6_MOSAIC2
 

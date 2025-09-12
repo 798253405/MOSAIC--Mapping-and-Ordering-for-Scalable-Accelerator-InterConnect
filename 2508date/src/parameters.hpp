@@ -13,19 +13,19 @@
 
 
 // NoC Configuration - Choose one
-//#define MemNode2_4X4
+#define MemNode2_4X4
 //#define MemNode4_4X4
 //#define MemNode4_8X8
 //#define MemNode4_16X16
 
-#define MemNode4_32X32
+//#define MemNode4_32X32
 
 // Test Case Configuration - Choose one
 //#define case1_default
-//#define case2_samos
+#define case2_samos
 
 //#define case3_affiliatedordering
-#define case4_seperratedordering
+//#define case4_seperratedordering
 //#define case5_MOSAIC1
 //#define case6_MOSAIC2
 
@@ -55,7 +55,7 @@
 #if defined(case1_default)
     #define rowmapping
 #elif defined(case2_samos)
-    #define samos
+    #define YZSAMOSSampleMapping
 #elif defined(case3_affiliatedordering)
     #define rowmapping
     #define YzAffiliatedOrdering
@@ -64,10 +64,10 @@
     #define YzAffiliatedOrdering
     #define YZSeperatedOrdering_reArrangeInput
 #elif defined(case5_MOSAIC1)
-    #define samos
+    #define YZSAMOSSampleMapping
     #define YzAffiliatedOrdering
 #elif defined(case6_MOSAIC2)
-    #define samos
+    #define YZSAMOSSampleMapping
     #define YzAffiliatedOrdering
     #define YZSeperatedOrdering_reArrangeInput
 #else
@@ -75,7 +75,7 @@
 #endif
 
 
-#define samplingWindowLength 100
+#define samplingWindowLength 10
 //#define FIXED_POINT_SORTING
 
 #define only3type

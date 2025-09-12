@@ -140,7 +140,7 @@ void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
 
                         if (! query_weights.empty()) {
                             query_matrix[row][col] =  query_weights.front();
-                            v.pop_front();
+                            query_weights.pop_front();
                         } else {
                             query_matrix[row][col] = 0.0f;
                         }

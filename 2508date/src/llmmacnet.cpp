@@ -933,23 +933,15 @@ void LLMMACnet::llmCheckStatus() {
 		#ifdef YZSAMOSSampleMapping
 		// Calculate how many pixels per MAC for sampling window
 		int available_macs = macNum - MEM_NODES;  // Exclude memory nodes
-		int total_pixels = total_task_slicedPixels / this->tasks_per_pixel;  // Convert tasks to pixels (4 tasks per pixel)
+		int total_pixels = 	matrixOutputPixels_inputsequencelength *  matrixOutputPixels_queryoutputdim  ;
 		
 		if (total_pixels / available_macs < samplingWindowLength) {
 			// If pixels are fewer than sampling window, use normal row mapping
-			LLM_DEBUG("[SAMOS] Layer has fewer pixels than sampling window!");
-			LLM_DEBUG("  Total pixels: " << total_pixels << ", Available MACs: " << available_macs);
-			LLM_DEBUG("  Pixels per MAC: " << (total_pixels / available_macs) << " < " << samplingWindowLength);
-			LLM_DEBUG("  Using row mapping instead of SAMOS");
 			this->llmXMapping(total_pixels);
 		} else {
 			if (mapping_again == 0) {
 				// First phase: run sampling window (pixel-based)
 				int sampling_pixels = available_macs * samplingWindowLength;
-				LLM_DEBUG("[SAMOS] Starting sampling phase");
-				LLM_DEBUG("  Sampling pixels: " << sampling_pixels << " (" << available_macs 
-				          << " MACs * " << samplingWindowLength << " window)");
-				LLM_DEBUG("  This generates " << (sampling_pixels * this->tasks_per_pixel) << " tasks");
 				
 				// Reset sampling statistics
 				std::fill_n(samplingWindowDelay, TOT_NUM, 0);
@@ -963,40 +955,23 @@ void LLMMACnet::llmCheckStatus() {
 				int sampling_pixels = available_macs * samplingWindowLength;
 				int remaining_pixels = total_pixels - sampling_pixels;
 				int remaining_tasks = remaining_pixels * this->tasks_per_pixel;
-				
-				std::cout << "[SAMOS DEBUG] Phase 2 mapping:" << std::endl;
-				std::cout << "  Total pixels: " << total_pixels << std::endl;
-				std::cout << "  Available MACs: " << available_macs << std::endl;
-				std::cout << "  Sampling window: " << samplingWindowLength << std::endl;
-				std::cout << "  Sampling pixels: " << sampling_pixels << std::endl;
-				std::cout << "  Remaining pixels: " << remaining_pixels << std::endl;
-				std::cout << "  Remaining tasks: " << remaining_tasks << std::endl;
-				std::cout << "  Current packet_id: " << packet_id << std::endl;
-				
+
 				// Update packet_id based on sampling phase tasks
 				packet_id = packet_id + sampling_pixels * this->tasks_per_pixel;
 				
-				LLM_DEBUG("[SAMOS] Applying SAMOS mapping for remaining pixels");
-				LLM_DEBUG("  Remaining pixels: " << remaining_pixels);
-				
+
 				// Use SAMOS mapping based on latency measurements
 				int start_pixel_id = sampling_pixels;
-				std::cout << "[SAMOS DEBUG] Pixel IDs will range from " << start_pixel_id 
-				          << " to " << (start_pixel_id + remaining_pixels - 1) << std::endl;
-				std::cout << "[SAMOS DEBUG] Task IDs will range from " << (start_pixel_id * this->tasks_per_pixel) 
-				          << " to " << ((start_pixel_id + remaining_pixels) * this->tasks_per_pixel - 1) << std::endl;
-				
+
 				this->llmSAMOSTaskMapping(remaining_pixels, start_pixel_id);
-				
-				LLM_DEBUG("[SAMOS] Second phase mapping complete");
+
 				mapping_again = 0;  // Reset for next layer
 			} else {
-				LLM_INFO("[SAMOS] ERROR: Invalid mapping_again state: " << mapping_again);
 			}
 		}
 		#endif
 		// Normal mapping without SAMOS
-		#if defined(rowmapping) || defined(samos)
+		#if defined(rowmapping)
 		int total_pixels = total_task_slicedPixels / this->tasks_per_pixel;  // Convert tasks to pixels
 		this->llmXMapping(total_pixels);  // Pass pixel count, not task count
 		#endif
@@ -1013,6 +988,9 @@ void LLMMACnet::llmCheckStatus() {
 				active_macs++;
 			}
 		}
+		cout<<"cyclesdebug" <<cycles <<" "<<this->LLMMAC_list[0]->llmPEExpectedtasktable.size() <<endl;
+		//assert( false && "debug ");
+
 		ready_flag = 1;
 		return;
 	}
@@ -1049,9 +1027,7 @@ void LLMMACnet::llmCheckStatus() {
 		// Check if we just completed sampling phase
 		if (mapping_again == 1) {
 			// Sampling phase complete, now do SAMOS mapping for remaining tasks
-			std::cout << "[LLM-SAMOS] Sampling phase complete at cycle " << cycles << std::endl;
-			std::cout << "  Collected latency data, now applying SAMOS mapping" << std::endl;
-			
+
 			// Reset for second phase
 			completion_wait_cycles = 0;
 			ready_flag = 0;
@@ -1070,7 +1046,7 @@ void LLMMACnet::llmCheckStatus() {
 		// Adjust packet_id for next layer based on actual tasks processed
 		#ifdef YZSAMOSSampleMapping
 		int available_macs = macNum - MEM_NODES;
-		int total_pixels = total_task_slicedPixels;
+		int total_pixels = 	matrixOutputPixels_inputsequencelength *  matrixOutputPixels_queryoutputdim  ;
 		if (total_pixels / available_macs < samplingWindowLength) {
 			// Used normal mapping, add all tasks (pixels * 4)
 			packet_id = packet_id + total_pixels * 4;

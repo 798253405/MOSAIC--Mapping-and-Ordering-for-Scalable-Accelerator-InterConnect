@@ -998,7 +998,7 @@ void LLMMACnet::llmCheckStatus() {
 				this->LLMMAC_list[i]->llmPEExpectedtasktable.assign(
 					llmTaskMappingTable[i].begin(), llmTaskMappingTable[i].end());
 				active_macs++;
-				cout << "MAC " << i << " assigned " << llmTaskMappingTable[i].size() << " tasks" << endl;
+				//cout << "MAC " << i << " assigned " << llmTaskMappingTable[i].size() << " tasks" << endl;
 			}
 		}
 		cout<<"cyclesdebug" <<cycles <<" "<<this->LLMMAC_list[0]->llmPEExpectedtasktable.size() <<endl;
@@ -1056,6 +1056,31 @@ void LLMMACnet::llmCheckStatus() {
 		#endif
 		
 
+		// Print MAC completion times
+		cout << "\n=== MAC Completion Times ===" << endl;
+		int min_complete = INT_MAX, max_complete = 0;
+		int min_mac = -1, max_mac = -1;
+		for (int i = 0; i < macNum; i++) {
+			if (LLMMAC_list[i]->task_timings.size() > 0) {
+				// Get the last task's completion time for this MAC
+				int last_complete = LLMMAC_list[i]->task_timings.back().compute_end_cycle;
+				cout << "MAC " << i << ": completed at cycle " << last_complete 
+				     << " (processed " << LLMMAC_list[i]->task_timings.size() << " tasks)" << endl;
+				if (last_complete < min_complete) {
+					min_complete = last_complete;
+					min_mac = i;
+				}
+				if (last_complete > max_complete) {
+					max_complete = last_complete;
+					max_mac = i;
+				}
+			}
+		}
+		cout << "Earliest finish: MAC " << min_mac << " at cycle " << min_complete << endl;
+		cout << "Latest finish: MAC " << max_mac << " at cycle " << max_complete << endl;
+		cout << "Load balance ratio: " << (float)(max_complete - min_complete) / min_complete * 100 << "%" << endl;
+		cout << "=== End MAC Completion Times ===" << endl;
+		
 		// Print timing statistics
 		llmPrintTimingStatistics();
 

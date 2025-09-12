@@ -468,10 +468,10 @@ void LLMMAC::llmRunOneStep() {
 		else if (selfstatus == 1) {
 			currentRequestedTaskIDd = llmPEExpectedtasktable.front();  // 从队列取出任务ID
 			llmPEExpectedtasktable.pop_front();
-			if (selfMACid == 0 && currentRequestedTaskIDd < 100) {
-				cout << "Line471: MAC 0 processing task_id=" << currentRequestedTaskIDd 
-				     << " at cycle=" << cycles << endl;
-			}
+			//if (selfMACid == 0 && currentRequestedTaskIDd < 100) {
+			//	cout << "Line471: MAC 0 processing task_id=" << currentRequestedTaskIDd 
+			//	     << " at cycle=" << cycles << endl;
+			//}
 			
 			// 从 task_id 计算 pixel_id 和 subchunk_id
 			current_pixel_id = currentRequestedTaskIDd / LLM_SUBCHUNKS_PER_PIXEL;
@@ -589,10 +589,10 @@ void LLMMAC::llmRunOneStep() {
 			if (net && net->mapping_again == 1) {  // Only during sampling phase
 				// Calculate total latency for this task
 				int total_latency = current_task_timing.compute_end_cycle - current_task_timing.request_send_cycle;
-				if (selfMACid == 0 && samplingWindowDelay[0] > 300000) {
-					cout << "Line588: MAC 0 large delay! Before=" << samplingWindowDelay[0] 
-					     << " adding=" << total_latency << " task_id=" << current_task_timing.task_id << endl;
-				}
+				//if (selfMACid == 0 && samplingWindowDelay[0] > 300000) {
+				//	cout << "Line588: MAC 0 large delay! Before=" << samplingWindowDelay[0] 
+				//	     << " adding=" << total_latency << " task_id=" << current_task_timing.task_id << endl;
+				//}
 				samplingWindowDelay[selfMACid] += total_latency;
 			}
 			#endif

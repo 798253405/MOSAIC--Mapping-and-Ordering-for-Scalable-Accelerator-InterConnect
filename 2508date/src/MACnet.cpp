@@ -14,6 +14,8 @@
  * 1. **数据初始化阶段** (cycles == 1)
  *    - 调用 preparelayer() 准备当前层数据
  *    - 初始化 input_table、weight_table、output_table
+ *    again
+ *
  *    - 根据层类型（conv/pool/FC）配置参数
  * 
  * 2. **MAC分配阶段** (mapping)

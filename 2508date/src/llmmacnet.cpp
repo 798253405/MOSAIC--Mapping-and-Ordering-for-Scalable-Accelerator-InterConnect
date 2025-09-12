@@ -957,12 +957,24 @@ void LLMMACnet::llmCheckStatus() {
 				int remaining_tasks = remaining_pixels * this->tasks_per_pixel;
 
 				// Update packet_id based on sampling phase tasks
-				packet_id = packet_id + sampling_pixels * this->tasks_per_pixel;
+				//cout << "Line960: Before update packet_id=" << packet_id << " sampling_pixels=" << sampling_pixels << " tasks_per_pixel=" << this->tasks_per_pixel << endl;
+				//packet_id = packet_id + sampling_pixels * this->tasks_per_pixel;
+				//cout << "Line962: After update packet_id=" << packet_id << endl;
 				
-
+				// Print sampling delay measurements
+				cout << "\n=== Sampling Window Delay Measurements ===" << endl;
+				for (int i = 0; i < macNum; i++) {
+					if (!llmIsMemoryNode(i)) {
+						cout << "MAC " << i << ": samplingWindowDelay=" << samplingWindowDelay[i] 
+						     << " (avg=" << (double)samplingWindowDelay[i]/samplingWindowLength << ")" << endl;
+					}
+				}
+				cout << "samplingWindowLength=" << samplingWindowLength << endl;
+				cout << "=== End Sampling Measurements ===" << endl;
+				
 				// Use SAMOS mapping based on latency measurements
 				int start_pixel_id = sampling_pixels;
-
+				//cout << "Line964: start_pixel_id=" << start_pixel_id << " remaining_pixels=" << remaining_pixels << endl;
 				this->llmSAMOSTaskMapping(remaining_pixels, start_pixel_id);
 
 				mapping_again = 0;  // Reset for next layer
@@ -986,6 +998,7 @@ void LLMMACnet::llmCheckStatus() {
 				this->LLMMAC_list[i]->llmPEExpectedtasktable.assign(
 					llmTaskMappingTable[i].begin(), llmTaskMappingTable[i].end());
 				active_macs++;
+				cout << "MAC " << i << " assigned " << llmTaskMappingTable[i].size() << " tasks" << endl;
 			}
 		}
 		cout<<"cyclesdebug" <<cycles <<" "<<this->LLMMAC_list[0]->llmPEExpectedtasktable.size() <<endl;
@@ -1032,6 +1045,12 @@ void LLMMACnet::llmCheckStatus() {
 			completion_wait_cycles = 0;
 			ready_flag = 0;
 			mapping_again = 2;  // Move to SAMOS mapping phase
+
+			// Reset MAC status like CNN does
+			for (int i = 0; i < macNum; i++) {
+				LLMMAC_list[i]->selfstatus = 0;
+				// Also reset the current task ID to avoid assertion failure
+			}
 			return;
 		}
 		#endif
@@ -1071,6 +1090,7 @@ int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
 	this->llmOutputPixelMappingTable.resize(macNum);
 	this->llmTaskMappingTable.clear();
 	this->llmTaskMappingTable.resize(macNum);
+
 	// 1) Collect compute nodes (exclude memory nodes)
 	std::vector<int> pe_ids;
 	pe_ids.reserve(macNum);
@@ -1170,12 +1190,24 @@ int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
 			// 每个像素生成4/64/,,,个任务，都分配给同一个节点（便于聚合）
 			for (int chunk_id = 0; chunk_id < this->tasks_per_pixel; chunk_id++) {
 				int task_id = current_pixel_id * this->tasks_per_pixel + chunk_id;
+				//if (task_id == 34880 || task_id == 43840) {
+				//	cout << "Line1181: Creating task_id=" << task_id << " for MAC " << n.id << " (current_pixel_id=" << current_pixel_id << ")" << endl;
+				//}
 				this->llmTaskMappingTable[n.id].push_back(task_id);
 			}
 			current_pixel_id++;
 		}
 	}
-
+	
+	// Print SAMOS task distribution
+	cout << "\n=== SAMOS Task Distribution (Phase 2) ===" << endl;
+	for (auto &n : nodes) {
+		int task_count = n.alloc * this->tasks_per_pixel;
+		double avgLat = double(samplingWindowDelay[n.id]) / std::max(1, samplingWindowLength);
+		cout << "MAC " << n.id << ": " << task_count << " tasks (pixels=" << n.alloc 
+		     << ", avgLat=" << avgLat << ", weight=" << n.w << ")" << endl;
+	}
+	cout << "=== End SAMOS Distribution ===" << endl;
 
 	return 0;
 }

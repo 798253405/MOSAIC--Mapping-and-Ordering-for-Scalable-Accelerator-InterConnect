@@ -288,15 +288,7 @@ bool LLMMAC::llmMemNodeInject(int type, int d_id, int  tllm_eleNum, float t_outp
 									task.query_data.begin(), 
 									task.query_data.end());
 		} else {
-			// 如果task_id无效，报错并退出
-			std::cerr << "\n[ERROR] Invalid task_id in LLMMAC::llmInject!" << std::endl;
-			std::cerr << "  Task ID trying to access: " << task_id << std::endl;
-			std::cerr << "  t_output parameter: " << t_output << std::endl;
-			std::cerr << "  Valid range: 0 to " << (net->all_tasks.size() - 1) << std::endl;
-			std::cerr << "  Total tasks: " << net->all_tasks.size() << std::endl;
-			std::cerr << "  Current cycle: " << cycles << std::endl;
-			std::cerr << "  MAC ID: " << selfMACid << std::endl;
-			std::cerr << "  Message type: " << type << std::endl;
+
 			assert(false && "ERROR: Invalid task_id - task not found in all_tasks!");
 		}
 
@@ -476,6 +468,10 @@ void LLMMAC::llmRunOneStep() {
 		else if (selfstatus == 1) {
 			currentRequestedTaskIDd = llmPEExpectedtasktable.front();  // 从队列取出任务ID
 			llmPEExpectedtasktable.pop_front();
+			if (selfMACid == 0 && currentRequestedTaskIDd < 100) {
+				cout << "Line471: MAC 0 processing task_id=" << currentRequestedTaskIDd 
+				     << " at cycle=" << cycles << endl;
+			}
 			
 			// 从 task_id 计算 pixel_id 和 subchunk_id
 			current_pixel_id = currentRequestedTaskIDd / LLM_SUBCHUNKS_PER_PIXEL;
@@ -485,8 +481,13 @@ void LLMMAC::llmRunOneStep() {
 			current_task_timing = TaskTiming();
 			current_task_timing.task_id = currentRequestedTaskIDd;
 			current_task_timing.request_send_cycle = cycles;
+			int signal_id_to_send = packet_id + currentRequestedTaskIDd;
+			//if (currentRequestedTaskIDd == 34880 || currentRequestedTaskIDd == 43840) {
+			//	cout << "Line481: MAC " << selfMACid << " sending request: currentRequestedTaskIDd=" << currentRequestedTaskIDd 
+			//	     << " packet_id=" << packet_id << " signal_id=" << signal_id_to_send << endl;
+			//}
 			llmPEInject(0, dest_mem_id, 1, 0/*output is 0*/, net->vcNetwork->NI_list[NI_id],
-					  packet_id + currentRequestedTaskIDd, selfMACid, currentRequestedTaskIDd);
+					  signal_id_to_send, selfMACid, currentRequestedTaskIDd);
 			//bool LLMMAC::llmPEInject(int type, int d_id, int  tllm_eleNum, float t_output, NI* t_NI, int p_id, int mac_src,int task_id)
 			// Calculate expected hops for request (Manhattan distance in mesh)
 			int src_x = NI_id % X_NUM;
@@ -588,12 +589,11 @@ void LLMMAC::llmRunOneStep() {
 			if (net && net->mapping_again == 1) {  // Only during sampling phase
 				// Calculate total latency for this task
 				int total_latency = current_task_timing.compute_end_cycle - current_task_timing.request_send_cycle;
-				samplingWindowDelay[selfMACid] += total_latency;
-				
-				if (selfMACid < 10) {
-					LLM_DEBUG("[SAMOS] MAC " << selfMACid << " task latency: " << total_latency 
-					          << ", accumulated: " << samplingWindowDelay[selfMACid]);
+				if (selfMACid == 0 && samplingWindowDelay[0] > 300000) {
+					cout << "Line588: MAC 0 large delay! Before=" << samplingWindowDelay[0] 
+					     << " adding=" << total_latency << " task_id=" << current_task_timing.task_id << endl;
 				}
+				samplingWindowDelay[selfMACid] += total_latency;
 			}
 			#endif
 
@@ -622,6 +622,7 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 		// Calculate response hops (same as request typically in symmetric routing)
 		current_task_timing.response_hops = current_task_timing.request_hops;
 		inPETaskIDFromResp =  re_msg->signal_id;
+		//cout<<"  currentRequestedTaskIDd "<<currentRequestedTaskIDd <<" inPETaskIDFromResp "<<inPETaskIDFromResp<<endl;
 		assert(inPETaskIDFromResp ==currentRequestedTaskIDd && "currentRequestedTaskIDd shouldsame inPETaskIDFromRespSigID");
 		
 		// 从响应消息中提取 input 和 query 数据

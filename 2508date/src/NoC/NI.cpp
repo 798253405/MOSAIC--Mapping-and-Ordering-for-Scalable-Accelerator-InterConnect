@@ -590,17 +590,21 @@ void NI::inputCheck() {
 					//0 and 1 is in samping window
 					if (flit->packet->message.msgtype == 0) { //request  for req/response/ack
 						samplingAccumlatedCounter += 1;
+						#ifndef YZLLMSwitchON  // Don't accumulate in LLM mode
 						samplingWindowDelay[(DNN_latency[flit->signalid * 3][2])] +=   // this nodes' overall latency (in this samping window)
 								DNN_latency[flit->signalid * 3][6]
 										- DNN_latency[flit->signalid* 3][5];
+						#endif
 
 					} else if (flit->packet->message.msgtype == 1) { //response  for req/response/ack
+						#ifndef YZLLMSwitchON  // Don't accumulate in LLM mode
 						samplingWindowDelay[(DNN_latency[flit->signalid * 3
 								+ flit->packet->message.msgtype][2])] +=
 								DNN_latency[flit->signalid * 3
 										+ flit->packet->message.msgtype][6]
 										- DNN_latency[flit->signalid * 3
 												+ flit->packet->message.msgtype][5];
+						#endif
 						samplingAccumlatedCounter += 1;
 
 					}

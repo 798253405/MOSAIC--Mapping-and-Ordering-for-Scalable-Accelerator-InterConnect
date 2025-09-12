@@ -128,6 +128,17 @@ void analyzeBitStatistics(const std::deque<float>& query_data,
 int calculateBitFlips(const std::deque<float>& data);
 
 /**
+ * @brief LLM请求/结果消息重排序 - Type 0和Type 3专用
+ * 
+ * 对Type 0（请求）和Type 3（结果）消息进行重排序。
+ * 这些消息只包含16个元素，第0位是有效数据，其余为padding。
+ * 
+ * @param payload 包含16个float的消息payload
+ * @param value 要设置在第0位的值（Type 0通常为task_id，Type 3为结果值）
+ */
+void llmReqRestReorderingFunc(std::deque<float>& payload, float value = 0.0f);
+
+/**
  * @brief 验证排序优化效果
  * 
  * 比较排序前后的bit翻转减少率。

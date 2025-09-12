@@ -733,17 +733,10 @@ int main(int arg_num, char *arg_vet[]) {
 
 	// Performance metrics
 	if (cycles > 0) {
-		double throughput = (double)packet_id / cycles;
 		double efficiency = (double)finished_macs / llmMacnet->macNum * 100.0;
 
 		cout << "\nPerformance Metrics:" << endl;
-		cout << "Throughput: " << fixed << setprecision(4) << throughput << " packets/cycle" << endl;
 		cout << "MAC Efficiency: " << fixed << setprecision(2) << efficiency << "%" << endl;
-
-		if (llmMacnet->ready_flag == 2) {
-			double tasks_per_cycle = (double)llmMacnet->total_task_slicedPixels / cycles;
-			cout << "Task completion rate: " << fixed << setprecision(4) << tasks_per_cycle << " tasks/cycle" << endl;
-		}
 	}
 
 	cout << "\n!!LLM ATTENTION SIMULATION END!!" << endl;

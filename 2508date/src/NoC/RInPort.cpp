@@ -519,7 +519,7 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 	}
 
 
-	  if ( oneTimeFlipping >150)
+	  if ( oneTimeFlipping<0 )
 		//  if (cycles<10)
 		  {
 	      cout << " thisisline416 current flitpayloadfront "

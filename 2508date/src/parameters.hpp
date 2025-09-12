@@ -13,17 +13,18 @@
 
 
 // NoC Configuration - Choose one
-#define MemNode2_4X4
-///#define MemNode4_4X4
+//#define MemNode2_4X4
+//#define MemNode4_4X4
 //#define MemNode4_8X8
 //#define MemNode4_16X16
-//#define MemNode4_32X32
+
+#define MemNode4_32X32
 
 // Test Case Configuration - Choose one
 //#define case1_default
-//#define case2_samos
+#define case2_samos
 
-#define case3_affiliatedordering
+//#define case3_affiliatedordering
 //#define case4_seperratedordering
 //#define case5_MOSAIC1
 //#define case6_MOSAIC2
@@ -33,6 +34,7 @@
 
 #define YZLLMSwitchON
 //#define LLMPADDING_RANDOM
+#define LLM_OPTIMIZED_TYPE03_HANDLING  // Enable optimized Type 0/3 handling (16 elements only)
 constexpr int DIM_MODEL = 4096; 
 constexpr int NUM_HEAD = 32; 
 constexpr int SEQUENCE_LENGTH = 512; 
@@ -45,6 +47,10 @@ constexpr int D_HEAD = DIM_MODEL / NUM_HEAD;
 
 // LLM Data Mode - Toggle between weight-based and input-based
 // #define LLM_INPUT_BASED  // Comment this out for weight-based mode
+
+// LLM Type 0/3 Message Handling - Toggle between original and optimized versions
+
+                                       // Comment out to use original version (incorrectly applies 128-element sorting)
 
 
 

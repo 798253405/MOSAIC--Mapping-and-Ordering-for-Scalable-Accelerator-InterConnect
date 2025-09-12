@@ -393,19 +393,42 @@ bool LLMMAC::llmPEInject(int type, int d_id, int  tllm_eleNum, float t_output, N
 	msg.source_id = NI_id;
 	msg.msgtype = type;
 	msg.yzMSGPayload.clear();
+	
+#ifdef LLM_OPTIMIZED_TYPE03_HANDLING
+	// 优化版本：Type 0/3 消息正确处理为16个元素
+	if (msg.msgtype == 0) { // Request
+		// Request message: 16个元素，第0位是task_id（但这里不设置，由调用者处理）
+		msg.yzMSGPayload.assign(payloadElementNum, 0);
+		// 使用专门的Type 0/3处理函数
+		YzLLMIEEE754::llmReqRestReorderingFunc(msg.yzMSGPayload, 0.0f);
+	} else if (msg.msgtype == 3) { // Result (type 2 intermediate不发, type 3 final)
+		// Result message: 16个元素，第0位是结果值
+		msg.yzMSGPayload.assign(payloadElementNum, 0);
+		// 使用专门的Type 0/3处理函数，设置结果值
+		YzLLMIEEE754::llmReqRestReorderingFunc(msg.yzMSGPayload, t_output);
+		// std::cout << "[LLM-INJECT-TYPE3] Injecting Type 3 to NI " << NI_id 
+		//           << " dest=" << d_id << " value=" << t_output << std::endl;
+	}
+	else {
+		assert(false && "ERROR:PE LLM2不发，1则应该是Mem");
+	}
+	// Type 0和Type 3消息已经是正确大小（16个元素），无需额外padding
+	
+#else
+	// 原版本：错误地对所有消息类型应用128元素排序
 	if (msg.msgtype == 0) { // Request
 		// Request message padding
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
-	} else if (  msg.msgtype == 3) { // Result (type 2 intermediate不发, type 3 final)
+	} else if (msg.msgtype == 3) { // Result (type 2 intermediate不发, type 3 final)
 		msg.yzMSGPayload.assign(payloadElementNum, 0);
 		msg.yzMSGPayload[0] = t_output;
 		// std::cout << "[LLM-INJECT-TYPE3] Injecting Type 3 to NI " << NI_id 
 		//           << " dest=" << d_id << " value=" << t_output << std::endl;
 	}
 	else {
-			assert(false && "ERROR:PE LLM2不发，1则应该是Mem");
+		assert(false && "ERROR:PE LLM2不发，1则应该是Mem");
 	}
-
+	
 	// 计算flit数量并添加padding以对齐flit边界
 	int flitNumSinglePacket = (msg.yzMSGPayload.size() - 1 + payloadElementNum) / payloadElementNum;
 	// 添加padding对齐到flit边界（与CNN相同的方法）
@@ -416,6 +439,7 @@ bool LLMMAC::llmPEInject(int type, int d_id, int  tllm_eleNum, float t_output, N
 	// 对所有类型消息进行排序，保持代码通用性
 	// Type 3 messages only have 1 element, but sorting won't hurt
 	YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix(msg.yzMSGPayload);
+#endif
 
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);
 	packet->send_out_time = pecycle;
@@ -525,32 +549,10 @@ void LLMMAC::llmRunOneStep() {
 						float partial = pixel_partial_sums[current_pixel_id][i];
 						total_sum += partial;
 						valid_count++;
-						
-						// Debug: Print each partial sum for pixel[0][0]
-						if (current_pixel_id == 0) {
-							std::cout << "  Subchunk " << i << ": " << std::fixed << std::setprecision(8) << partial 
-							          << " (running total: " << total_sum << ")" << std::endl;
-						}
 					}
 				}
 				
-				// Debug: Print final result for first few pixels
-				if (current_pixel_id <= 2) {
-					int px = current_pixel_id % net->query_output_dim;
-					int py = current_pixel_id / net->query_output_dim;
-					
-					// Get expected value from Q_resOutput_matrix if available
-					float expected = 0.0f;
-					if (py == 0 && px == 0) expected = 0.01544952f;
-					else if (py == 0 && px == 1) expected = -0.01119441f;
-					else if (py == 0 && px == 2) expected = 0.00336472f;
-					
-					std::cout << "[DEBUG-FINAL] MAC " << selfMACid 
-					          << " final result for pixel[" << py << "][" << px << "]: " 
-					          << std::fixed << std::setprecision(8) << total_sum 
-					          << " (expected: " << expected << ", diff: " << (total_sum - expected) << ")" << std::endl;
-				}
-				
+
 				// Calculate pixel coordinates for debug output
 				int pixel_x = current_pixel_id % net->query_output_dim;
 				int pixel_y = current_pixel_id / net->query_output_dim;
@@ -631,13 +633,14 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 		// Payload格式: [64个input数据] + [64个query数据]
 		int data_size = 64;  // 每个subchunk包含64个元素
 		
+		/*
 		// Debug: Print payload size for verification
 		if (current_pixel_id <= 2) {
 			std::cout << "[DEBUG-PAYLOAD] Pixel " << current_pixel_id 
 			          << " subchunk " << current_subchunk_id 
 			          << " payload size: " << re_msg->yzMSGPayload.size() << std::endl;
 		}
-		
+		*/
 		// 提取 Input 数据 (索引 0-63)
 		for (int i = 0; i < data_size && i < re_msg->yzMSGPayload.size(); i++) {
 			input_data.push_back(re_msg->yzMSGPayload[i]);
@@ -659,12 +662,13 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 			int px = current_pixel_id % net->query_output_dim;
 			int py = current_pixel_id / net->query_output_dim;
 			
+			/*
 			std::cout << "[DEBUG-PIXEL] MAC " << selfMACid 
 			          << " computing pixel[" << py << "][" << px << "] (id=" << current_pixel_id << ")"
 			          << " subchunk " << current_subchunk_id 
 			          << " partial_sum=" << std::fixed << std::setprecision(8) << partial_sum 
 			          << " (data_size=" << input_data.size() << ")" << std::endl;
-			
+			*/
 			// Print first few elements for each pixel's first subchunk
 			if (current_subchunk_id == 0) {
 				std::cout << "[DEBUG-DATA] Pixel[" << py << "][" << px << "] subchunk 0:" << std::endl;

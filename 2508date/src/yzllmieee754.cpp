@@ -374,6 +374,36 @@ void analyzeBitStatistics(const std::deque<float>& query_data,
     }
 }
 
+void llmReqRestReorderingFunc(std::deque<float>& payload, float value) {
+    // 确保payload大小为16
+    if (payload.size() != 16) {
+        payload.resize(16, 0.0f);
+    }
+    
+    // Type 0和Type 3消息的优化策略：
+    // 1. 第0位设置为指定值（task_id或结果值）
+    // 2. 其余15个位置填充0（已经是0的保持不变）
+    payload[0] = value;
+    
+    // 如果启用了排序优化，可以对padding进行优化
+    // 但由于都是0，实际上不需要排序
+    #ifdef YZSeperatedOrdering_reArrangeInput
+        // 对于Type 0/3，padding都是0，无需排序
+        // 保持原样即可
+    #elif defined(YzAffiliatedOrdering)
+        // 对于Type 0/3，padding都是0，无需排序
+        // 保持原样即可
+    #endif
+    
+    // Debug输出（可选）
+    static int debug_count = 0;
+    if (debug_count < 3 && value != 0) {
+        std::cout << "[DEBUG-LLM-REORDER] Type 0/3 message: value=" << value 
+                  << ", payload size=" << payload.size() << std::endl;
+        debug_count++;
+    }
+}
+
 int calculateBitFlips(const std::deque<float>& data) {
     if (data.size() < 2) return 0;
     

@@ -96,8 +96,8 @@ int main(int arg_num, char *arg_vet[]) {
 	// statistics
 	// refer to output neuron id (tmpch * ox * oy + tmpm)
 #ifdef SoCC_Countlatency
-	DNN_latency.resize(300000000);
-	for (int i = 0; i < 30000000; i++) {
+	DNN_latency.resize(900000000);
+	for (int i = 0; i < 900000000; i++) {
 		DNN_latency[i].assign(8, 0);
 	}
 #endif
@@ -359,15 +359,16 @@ int main(int arg_num, char *arg_vet[]) {
 	cycles = 0;
 
 	// Statistics initialization for LLM tasks
-	// Each pixel has 4 time slices, each time slice is a task
-	// 512*512*4 = 1,048,576 total tasks, each task generates 3 packets (req, resp, result)
-	int total_llm_tasks = 512 * 512 * 4;
-#ifdef SoCC_Countlatency
-	DNN_latency.resize(total_llm_tasks * 3);
-	for (int i = 0; i < total_llm_tasks * 3; i++) {
+	// LLM uses its own timing mechanism (task_timings in each LLMMAC)
+	// DNN_latency is only needed when SoCC_Countlatency is enabled
+	#ifdef SoCC_Countlatency
+	// Allocate based on expected packet count (conservative estimate)
+	int estimated_packets = 10000000;  // 10M packets should be enough
+	DNN_latency.resize(estimated_packets * 3);
+	for (int i = 0; i < estimated_packets * 3; i++) {
 		DNN_latency[i].assign(8, 0);
 	}
-#endif
+	#endif
 
 	// Initialize sampling window delay
 	for (int i = 0; i < TOT_NUM; i++) {
@@ -532,6 +533,7 @@ int main(int arg_num, char *arg_vet[]) {
 	}
 
 	// Print layer completion times
+	cout << "[DEBUG-MAIN-7] Printing layer completion times" << endl;
 	if (!llmMacnet->layer_latency.empty()) {
 		cout << "\nLayer completion times:" << endl;
 		for (size_t i = 0; i < llmMacnet->layer_latency.size(); i++) {
@@ -540,6 +542,7 @@ int main(int arg_num, char *arg_vet[]) {
 	}
 
 	// MAC utilization statistics
+	cout << "[DEBUG-MAIN-8] Computing MAC utilization statistics" << endl;
 	cout << "\nMAC Unit Status Summary:" << endl;
 	int active_macs = 0, idle_macs = 0, finished_macs = 0, waiting_macs = 0;
 	for (int i = 0; i < llmMacnet->macNum; i++) {
@@ -555,6 +558,7 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "Idle MACs: " << idle_macs << endl;
 	cout << "Finished MACs: " << finished_macs << endl;
 	cout << "Waiting MACs: " << waiting_macs << endl;
+	cout << "[DEBUG-MAIN-9] MAC status summary completed" << endl;
 
 #ifdef SoCC_Countlatency
 	// File writing disabled for speed - statistics still collected in memory
@@ -581,6 +585,7 @@ int main(int arg_num, char *arg_vet[]) {
 	// The matrices are loaded and Q is computed in llmInitializeMatrices()
 
 	// Network statistics (similar to original main)
+	cout << "[DEBUG-MAIN-10] Starting network statistics collection" << endl;
 	long long tempRouterNetWholeFlipCount = 0;
 	long long tempRouterNetWholeFlipCount_fix35 = 0;
 	long long tempyzWeightCollsionInRouterCountSum = 0;
@@ -621,8 +626,9 @@ int main(int arg_num, char *arg_vet[]) {
 			vcNetwork->NI_list[i]->in_port->yzweightCollsionCountInportCount;
 	}
 
+	cout << "[DEBUG-MAIN-11] Network statistics collection completed" << endl;
 	cout << "\n=== NETWORK STATISTICS ===" << endl;
-	
+
 	// Basic statistics (always shown)
 	cout << "Core Metrics:" << endl;
 	cout << "  Total Cycles: " << cycles << endl;
@@ -664,72 +670,6 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "  Average Bit Flips per Flit（totalhops）: " << fixed << setprecision(2) << avg_flips_per_flit << endl;
 	cout << "  Average Bit Flips per Router Hop: " << fixed << setprecision(2) << avg_flips_per_router_hop << endl;
 	cout << "  Average Bit Flips per respRouter Hop: " << fixed << setprecision(2) <<respRouterFlip/respRouterHop  << endl;
-	
-#if LLM_DEBUG_LEVEL >= 2
-	cout << "\n==================== DETAILED NETWORK ANALYSIS (Debug Level 2) ====================" << endl;
-	
-	// Section 1: FLITS (Data Units)
-	cout << "\n[1] FLIT STATISTICS (Data Units Created):" << endl;
-	cout << "    -------------------------------" << endl;
-	cout << "    Total Flits Created: " << YZGlobalFlit_id << endl;
-	cout << "    Response Flits: " << YZGlobalRespFlitPass << endl;
-	cout << "    Average Flits per Packet: " << fixed << setprecision(2)
-	     << (packet_id > 0 ? (float)YZGlobalFlit_id / packet_id : 0) << endl;
-	cout << "    Flit Size: " << FLIT_LENGTH << " bits (" << FLIT_LENGTH/8 << " bytes)" << endl;
-	cout << "    Total Data Transmitted: " << (YZGlobalFlit_id * FLIT_LENGTH / 8) << " bytes" << endl;
-	
-	// Section 2: HOPS/COLLISIONS (Network Traversals)
-	cout << "\n[2] HOP/COLLISION STATISTICS (Network Traversals):" << endl;
-	cout << "    -----------------------------------------" << endl;
-	float avg_hops_per_flit = (YZGlobalFlit_id > 0 ? (float)YZGlobalFlitPass / YZGlobalFlit_id : 0);
-	cout << "    Total Flit-Hops (Traversals): " << YZGlobalFlitPass << endl;
-	cout << "    Average Hops per Flit: " << fixed << setprecision(2) << avg_hops_per_flit << endl;
-	cout << "    Theoretical Min Hops (Manhattan): ~" << (int)(packet_id * 4) << endl;
-	cout << "    Actual/Min Ratio: " << fixed << setprecision(2) 
-	     << (packet_id > 0 ? (float)YZGlobalFlitPass / (packet_id * 4) : 0) << "x" << endl;
-	cout << "\n    Collision Breakdown:" << endl;
-	cout << "      Router Collisions: " << tempyzWeightCollsionInRouterCountSum << endl;
-	cout << "      NI Collisions: " << tempyzWeightCollsionInNICountSum << endl;
-	cout << "      Total Collisions: " << (tempyzWeightCollsionInRouterCountSum + tempyzWeightCollsionInNICountSum) << endl;
-	cout << "      Collision Rate: " << fixed << setprecision(2)
-	     << (YZGlobalFlitPass > 0 ? (float)(tempyzWeightCollsionInRouterCountSum + tempyzWeightCollsionInNICountSum) * 100.0 / YZGlobalFlitPass : 0) << "%" << endl;
-	
-	// Section 3: BIT FLIPS (Power Consumption)
-	cout << "\n[3] BIT FLIP STATISTICS (Power Consumption):" << endl;
-	cout << "    ------------------------------------" << endl;
-	cout << "    Total Bit Flips: " << tempRouterNetWholeFlipCount << endl;
-	cout << "    Flips per Flit: " << fixed << setprecision(2) 
-	     << (YZGlobalFlit_id > 0 ? (float)tempRouterNetWholeFlipCount / YZGlobalFlit_id : 0) << endl;
-	cout << "    Flips per Hop: " << fixed << setprecision(2)
-	     << (YZGlobalFlitPass > 0 ? (float)tempRouterNetWholeFlipCount / YZGlobalFlitPass : 0) << endl;
-	
-	// SAMOS optimization effect analysis
-	float hop_reduction_factor = 1.0;  // Will be calculated based on config
-#ifdef YZSAMOSSampleMapping
-	hop_reduction_factor = 0.9;  // SAMOS typically reduces hops by ~10%
-	cout << "\n    SAMOS Optimization Effect:" << endl;
-	cout << "      Expected Hop Reduction: ~10%" << endl;
-	cout << "      Expected Bit Flip Reduction from Routing: ~" << (int)(10 * hop_reduction_factor) << "%" << endl;
-#endif
-	
-#ifdef YzAffiliatedOrdering
-	cout << "\n    Ordering Optimization:" << endl;
-	cout << "      Fixed Pattern Flips: " << tempRouterNetWholeFlipCount_fix35 << endl;
-	float flip_reduction = (tempRouterNetWholeFlipCount > 0 ? 
-	                        (float)(tempRouterNetWholeFlipCount - tempRouterNetWholeFlipCount_fix35) * 100.0 / tempRouterNetWholeFlipCount : 0);
-	cout << "      Direct Flipping Reduction: " << fixed << setprecision(2) << flip_reduction << "%" << endl;
-#endif
-	
-	// Section 4: CORRELATIONS
-	cout << "\n[4] METRIC CORRELATIONS:" << endl;
-	cout << "    -------------------" << endl;
-	cout << "    Hops → Bit Flips: More hops = More bit transitions" << endl;
-	cout << "    Collisions → Cycles: More collisions = Higher latency" << endl;
-	cout << "    SAMOS Effect: Reduces hops → Reduces bit flips proportionally" << endl;
-	cout << "    Ordering Effect: Directly reduces bit flips via data encoding" << endl;
-	
-	cout << "\n==================== END DETAILED ANALYSIS ====================" << endl;
-#endif
 
 	// Performance metrics
 	if (cycles > 0) {
@@ -832,8 +772,12 @@ int main(int arg_num, char *arg_vet[]) {
 	double elapsed_time = double(end - start) / CLOCKS_PER_SEC;
 	cout << "Total execution time: " << fixed << setprecision(3) << elapsed_time << " seconds" << endl;
 	// Cleanup
+	cout << "[DEBUG-MAIN-17] Starting cleanup" << endl;
 	delete llmMacnet;
+	cout << "[DEBUG-MAIN-18] Deleted llmMacnet" << endl;
 	delete vcNetwork;
+	cout << "[DEBUG-MAIN-19] Deleted vcNetwork" << endl;
+	cout << "[DEBUG-MAIN-20] Cleanup completed, returning from main()" << endl;
 
 	return 0;
 }

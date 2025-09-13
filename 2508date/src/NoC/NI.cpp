@@ -590,6 +590,7 @@ void NI::inputCheck() {
 					     << " at cycle " << cycles << endl;
 				}
 				//statistics for tail flit arrived at NI in all types
+				#ifdef SoCC_Countlatency
 				// Debug pooling
 				if (flit->signalid >= 4704 && flit->signalid <= 4850 && flit->packet->message.msgtype == 0) {
 					cout << "[DEBUG] Checking DNN_latency for pooling request:" << endl;
@@ -648,6 +649,9 @@ void NI::inputCheck() {
 
 					}
 				}
+				#else  // !SoCC_Countlatency
+				// No statistics collection when SoCC_Countlatency is disabled
+				#endif  // SoCC_Countlatency
 			}
 #endif
 			/// normal check

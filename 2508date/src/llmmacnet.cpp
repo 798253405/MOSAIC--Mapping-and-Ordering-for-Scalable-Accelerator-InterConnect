@@ -765,8 +765,9 @@ void LLMMACnet::llmCheckStatus() {
 	// Complete when no MACs are active (all have finished their tasks)
 	// Add a delay to ensure messages are delivered through the network
 	static int completion_wait_cycles = 0;
-	
+
 	if (assigned_macs > 0 && active_count == 0) {
+		cout << "[DEBUG-COMPLETION] All MACs inactive. Wait cycle: " << completion_wait_cycles << "/100" << endl;
 		completion_wait_cycles++;
 		
 		// Wait for 100 cycles after all MACs finish to ensure messages are delivered
@@ -796,6 +797,7 @@ void LLMMACnet::llmCheckStatus() {
 		
 
 		// Print MAC completion times
+		cout << "[DEBUG-STATS-1] Starting MAC completion time analysis" << endl;
 		cout << "\n=== MAC Completion Times ===" << endl;
 		int min_complete = INT_MAX, max_complete = 0;
 		int min_mac = -1, max_mac = -1;
@@ -815,33 +817,47 @@ void LLMMACnet::llmCheckStatus() {
 				}
 			}
 		}
+		cout << "[DEBUG-STATS-2] min_complete=" << min_complete << ", max_complete=" << max_complete << endl;
 		cout << "Earliest finish: MAC " << min_mac << " at cycle " << min_complete << endl;
 		cout << "Latest finish: MAC " << max_mac << " at cycle " << max_complete << endl;
-		cout << "Load balance ratio: " << (float)(max_complete - min_complete) / min_complete * 100 << "%" << endl;
+		if (min_complete > 0 && min_complete != INT_MAX) {
+			cout << "Load balance ratio: " << (float)(max_complete - min_complete) / min_complete * 100 << "%" << endl;
+		} else {
+			cout << "[WARNING] Cannot calculate load balance ratio: min_complete=" << min_complete << endl;
+		}
 		cout << "=== End MAC Completion Times ===" << endl;
 		
 		// Print timing statistics
+		cout << "[DEBUG-STATS-3] Calling llmPrintTimingStatistics()" << endl;
 		llmPrintTimingStatistics();
+		cout << "[DEBUG-STATS-4] llmPrintTimingStatistics() completed" << endl;
 
 		layer_latency.push_back(cycles);
+		cout << "[DEBUG-STATS-5] Setting ready_flag=2 to signal completion" << endl;
 		ready_flag = 2;
 		
 		// Adjust packet_id for next layer based on actual tasks processed
+		cout << "[DEBUG-STATS-6] Adjusting packet_id. Current: " << packet_id << endl;
 		#ifdef YZSAMOSSampleMapping
 		int available_macs = macNum - MEM_NODES;
 		int total_pixels = 	matrixOutputPixels_inputsequencelength *  matrixOutputPixels_queryoutputdim  ;
+		cout << "[DEBUG-STATS-7] SAMOS mode: total_pixels=" << total_pixels << ", available_macs=" << available_macs << endl;
 		if (total_pixels / available_macs < samplingTasksPerMAC) {
 			// Used normal mapping, add all tasks (pixels * 4)
 			packet_id = packet_id + total_pixels * 4;
+			cout << "[DEBUG-STATS-8] Normal mapping path. New packet_id=" << packet_id << endl;
 		} else {
 			// Used SAMOS mapping, already adjusted during mapping
 			// No need to adjust here as it was done incrementally
+			cout << "[DEBUG-STATS-8] SAMOS mapping path. packet_id unchanged=" << packet_id << endl;
 		}
 		#else
 		// Normal mapping: total_task_slicedPixels now represents pixels, so multiply by 4 for actual tasks
 		packet_id = packet_id + total_task_slicedPixels;
+		cout << "[DEBUG-STATS-8] Non-SAMOS mode. Added " << total_task_slicedPixels << ", new packet_id=" << packet_id << endl;
 		#endif
 		last_layer_packet_id = packet_id;
+		cout << "[DEBUG-STATS-9] Returning from llmCheckStatus() with ready_flag=2" << endl;
 		return;
 	}
 	ready_flag = 1;
@@ -978,9 +994,11 @@ int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
 
 
 void LLMMACnet::llmPrintTimingStatistics() {
+	std::cout << "[DEBUG-TIMING-1] Entering llmPrintTimingStatistics()" << std::endl;
 	std::cout << "\n=== Task Timing Statistics ===" << std::endl;
-	
+
 	// Collect timing data from all MACs
+	std::cout << "[DEBUG-TIMING-2] Collecting timing data from all MACs" << std::endl;
 	std::vector<int> all_request_travel_times;
 	std::vector<int> all_response_travel_times;
 	std::vector<int> all_compute_times;
@@ -991,8 +1009,9 @@ void LLMMACnet::llmPrintTimingStatistics() {
 	std::vector<int> all_result_hops;
 	
 	// Per-MAC statistics with tracking of maximum
+	std::cout << "[DEBUG-TIMING-3] Starting per-MAC statistics" << std::endl;
 	std::cout << "\n--- Per-MAC Timing Statistics ---" << std::endl;
-	
+
 	// Variables to track the MAC with maximum average total time
 	int max_avg_mac_id = -1;
 	float max_avg_total_time = 0;
@@ -1007,6 +1026,7 @@ void LLMMACnet::llmPrintTimingStatistics() {
 	
 	for (int i = 0; i < macNum; i++) {
 		if (LLMMAC_list[i]->task_timings.size() == 0) continue;
+		std::cout << "[DEBUG-TIMING-4] Processing MAC " << i << " with " << LLMMAC_list[i]->task_timings.size() << " tasks" << std::endl;
 		
 		int mac_req_travel = 0, mac_resp_travel = 0, mac_comp_total = 0;
 		int mac_req_hops = 0, mac_resp_hops = 0, mac_res_hops = 0;
@@ -1069,6 +1089,7 @@ void LLMMACnet::llmPrintTimingStatistics() {
 	}
 	
 	// Print MAC with maximum average total time
+	std::cout << "[DEBUG-TIMING-5] Printing MAC with maximum average total time" << std::endl;
 	if (max_avg_mac_id != -1) {
 		std::cout << "\n*** MAC WITH MAXIMUM AVERAGE TOTAL TIME ***" << std::endl;
 		std::cout << "MAC ID: " << max_avg_mac_id << " (NI_id=" << max_avg_ni_id << ")" << std::endl;
@@ -1088,9 +1109,11 @@ void LLMMACnet::llmPrintTimingStatistics() {
 	}
 	
 	// Network-wide statistics
+	std::cout << "[DEBUG-TIMING-6] Starting network-wide statistics" << std::endl;
 	std::cout << "\n--- Network-wide Timing Statistics ---" << std::endl;
-	
+
 	if (all_request_travel_times.size() > 0) {
+		std::cout << "[DEBUG-TIMING-7] Processing " << all_request_travel_times.size() << " total tasks" << std::endl;
 		int total_req_travel = 0, total_resp_travel = 0, total_comp = 0, total_all = 0;
 		int total_req_hops = 0, total_resp_hops = 0, total_res_hops = 0;
 		int min_req = INT_MAX, min_resp = INT_MAX, min_comp = INT_MAX, min_total = INT_MAX;
@@ -1158,8 +1181,9 @@ void LLMMACnet::llmPrintTimingStatistics() {
 	} else {
 		std::cout << "No timing data available!" << std::endl;
 	}
-	
+
 	std::cout << "\n=== End of Timing Statistics ===" << std::endl;
+	std::cout << "[DEBUG-TIMING-8] Exiting llmPrintTimingStatistics()" << std::endl;
 }
 
 // Destructor

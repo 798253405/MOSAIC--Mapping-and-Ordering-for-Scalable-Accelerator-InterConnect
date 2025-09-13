@@ -4,8 +4,8 @@
 #define DEFAULT_NNINPUT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/input2.txt"
 #define DEFAULT_NNMODEL_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/newnet2.txt"
 
-//#define randomeval
-#define fulleval
+#define randomeval
+//#define fulleval
 //#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
 
 // CNN Random Data Test - Replace CNN inbuffer data with random values (same as LLM)
@@ -30,8 +30,7 @@
 
 //#define  PADDING_RANDOM
 
-
-//#define YZLLMSwitchON
+#define YZLLMSwitchON
 //#define LLMPADDING_RANDOM
 #define LLM_OPTIMIZED_TYPE03_HANDLING  // Enable optimized Type 0/3 handling (16 elements only)
 #define LLM_OUTPUT_PATH "src/output/"
@@ -83,8 +82,9 @@
 #define bitsPerElement 32
 #define payloadElementNum 16
 #define headerPerFlit 0
+#ifndef YZLLMSwitchON  // dnn latency has some problems in LLM mode. Commented it for LLM
 #define SoCC_Countlatency
-
+#endif
 #define VN_NUM 1
 #define VC_PER_VN 4
 #define VC_PRIORITY_PER_VN 0

@@ -53,7 +53,7 @@ echo ""
 
 # Initialize summary file
 SUMMARY_FILE="${BASE_OUTPUT_DIR}/summary_all.txt"
-echo "NoC_Size,Test_Case,Status,Total_Cycles,Packets,Flits,Avg_Hops,BitTrans_Float,BitTrans_Fixed,Runtime" > $SUMMARY_FILE
+echo "NoC_Size,Test_Case,Status,Runtime" > $SUMMARY_FILE
 
 # Job counter
 TOTAL_JOBS=$((${#NOC_SIZES[@]} * ${#TEST_CASES[@]}))
@@ -140,21 +140,13 @@ run_test() {
     END_TIME=$(date +%s)
     RUNTIME=$((END_TIME - START_TIME))
     
-    # Extract BATCH_STATS
-    BATCH_STATS=$(grep "BATCH_STATS:" "$output_file" | tail -1)
-    if [ ! -z "$BATCH_STATS" ]; then
-        total_cycles=$(echo "$BATCH_STATS" | grep -oP 'total_cycles=\K[0-9]+' || echo "0")
-        packet_id=$(echo "$BATCH_STATS" | grep -oP 'packetid=\K[0-9]+' || echo "0")
-        flit_id=$(echo "$BATCH_STATS" | grep -oP 'YZGlobalFlit_id=\K[0-9]+' || echo "0")
-        avg_hops=$(echo "$BATCH_STATS" | grep -oP 'avg_hops_per_flit=\K[0-9]+\.?[0-9]*' || echo "0")
-        bit_trans_float=$(echo "$BATCH_STATS" | grep -oP 'bit_transition_float_per_flit=\K[0-9]+\.?[0-9]*' || echo "0")
-        bit_trans_fixed=$(echo "$BATCH_STATS" | grep -oP 'bit_transition_fixed_per_flit=\K[0-9]+\.?[0-9]*' || echo "0")
-        
-        echo "$noc_name,$test_case,SUCCESS,$total_cycles,$packet_id,$flit_id,$avg_hops,$bit_trans_float,$bit_trans_fixed,$RUNTIME" >> $SUMMARY_FILE
-        echo "[Execute][$job_id/$TOTAL_JOBS][Slot $exec_slot] Completed: Cycles=$total_cycles, Runtime=${RUNTIME}s"
+    # Check if execution completed successfully
+    if grep -q "CNN Layer 6 Avg cycle:" "$output_file"; then
+        echo "$noc_name,$test_case,SUCCESS,$RUNTIME" >> $SUMMARY_FILE
+        echo "[Execute][$job_id/$TOTAL_JOBS][Slot $exec_slot] Completed: SUCCESS, Runtime=${RUNTIME}s"
     else
-        echo "$noc_name,$test_case,NO_STATS,0,0,0,0,0,0,$RUNTIME" >> $SUMMARY_FILE
-        echo "[Execute][$job_id/$TOTAL_JOBS][Slot $exec_slot] Completed: No BATCH_STATS, Runtime=${RUNTIME}s"
+        echo "$noc_name,$test_case,FAILED,$RUNTIME" >> $SUMMARY_FILE
+        echo "[Execute][$job_id/$TOTAL_JOBS][Slot $exec_slot] Completed: FAILED, Runtime=${RUNTIME}s"
     fi
     
     # Clean up binary
@@ -231,7 +223,7 @@ for i in "${!NOC_SIZES[@]}"; do
         fi
         
         # Progress report
-        COMPLETED=$(grep -c "SUCCESS\|NO_STATS" "$SUMMARY_FILE" 2>/dev/null || echo "0")
+        COMPLETED=$(grep -c "SUCCESS\|FAILED" "$SUMMARY_FILE" 2>/dev/null || echo "0")
         RUNNING=$(jobs -r | wc -l)
         echo "[Progress] Compiled: $JOB_ID/$TOTAL_JOBS | Running: $RUNNING | Completed: $COMPLETED/$TOTAL_JOBS"
         echo ""

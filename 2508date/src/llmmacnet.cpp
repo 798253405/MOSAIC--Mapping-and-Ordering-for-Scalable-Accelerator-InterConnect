@@ -818,14 +818,14 @@ void LLMMACnet::llmGenerateAllTasks() {
 				// 打印Input和Query数据（用于debug）
 				// 只打印第一个任务，且只打印一次
 				if (task.task_id == 0 && cycles < 3) {
-					std::cout << "\n llmmacnet === Task " << task.task_id << " Input data (first 8 values) ===" << std::endl;
-					for (int i = 0; i < std::min(100, (int)task.input_data.size()); i++) {
+					std::cout << "\n llmmacnet === Task " << task.task_id << " Input data (first 20 values) ===" << std::endl;
+					for (int i = 0; i < std::min(20, (int)task.input_data.size()); i++) {
 						std::cout << std::fixed << std::setprecision(3) 
 						         << std::setw(8) << task.input_data[i] << " ";
 					}
 					std::cout << std::endl;
 					
-					std::cout << "\n=== Task " << task.task_id << " Query weights (first 8 values) ===" << std::endl;
+					std::cout << "\n=== Task " << task.task_id << " Query weights (first 20 values) ===" << std::endl;
 					for (int i = 0; i < std::min(20, (int)task.query_data.size()); i++) {
 						std::cout << std::fixed << std::setprecision(3) 
 						         << std::setw(8) << task.query_data[i] << " ";

@@ -301,34 +301,8 @@ bool LLMMAC::llmMemNodeInject(int type, int d_id, int  tllm_eleNum, float t_outp
 					0.0f);
 
 		// 应用排序优化（对所有消息类型）
-		// 注意：数据现在来自all_tasks而非随机，排序会产生实际的bit flip优化效果
 		static int inject_count = 0;
-		if (inject_count < 3) {
-			std::cout << "[DEBUG-INJECT-BEFORE] Type 1 message #" << inject_count+1 
-			          << ", payload size=" << msg.yzMSGPayload.size() 
-			          << ", first 5: ";
-			for (int i = 0; i < 5 && i < msg.yzMSGPayload.size(); i++) {
-				std::cout << std::fixed << std::setprecision(3) << msg.yzMSGPayload[i] << " ";
-			}
-			std::cout << std::endl;
-		}
-		
 		YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix(msg.yzMSGPayload);
-		
-		if (inject_count < 3) {
-			std::cout << "[DEBUG-INJECT-AFTER] Type 1 message #" << inject_count+1 
-			          << ", first 8 input: ";
-			for (int i = 0; i < 8 && i < 64; i++) {
-				std::cout << std::fixed << std::setprecision(3) << msg.yzMSGPayload[i] << " ";
-			}
-			std::cout << "\n                     first 8 query: ";
-			for (int i = 64; i < 72 && i < msg.yzMSGPayload.size(); i++) {
-				int bits = countOnesInIEEE754(msg.yzMSGPayload[i]);
-				std::cout << msg.yzMSGPayload[i] << "(" << bits << ") ";
-			}
-			std::cout << std::endl;
-			inject_count++;
-		}
 	}
 
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);

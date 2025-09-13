@@ -582,7 +582,22 @@ void NI::inputCheck() {
 
 #ifdef SoCC_Countlatency
 			if (flit->type == 1 || flit->type == 10) {
+				// Debug: Check if this is a pooling packet
+				if (flit->signalid >= 4704 && flit->signalid <= 4850) {  // Pooling range for Layer 2
+					cout << "[DEBUG] NI_" << this->id << " received packet signalid=" << flit->signalid 
+					     << " msgtype=" << (int)flit->packet->message.msgtype
+					     << " dest=" << flit->packet->message.destination
+					     << " at cycle " << cycles << endl;
+				}
 				//statistics for tail flit arrived at NI in all types
+				// Debug pooling
+				if (flit->signalid >= 4704 && flit->signalid <= 4850 && flit->packet->message.msgtype == 0) {
+					cout << "[DEBUG] Checking DNN_latency for pooling request:" << endl;
+					int idx = flit->signalid * 3;
+					cout << "  signalid=" << flit->signalid << " idx=" << idx << endl;
+					cout << "  DNN_latency[" << idx << "][6]=" << DNN_latency[idx][6] << endl;
+					cout << "  Will enter stats code? " << (DNN_latency[idx][6] == 0 ? "YES" : "NO") << endl;
+				}
 				if (DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6]
 						== 0) {
 					DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6] =
@@ -591,19 +606,43 @@ void NI::inputCheck() {
 					if (flit->packet->message.msgtype == 0) { //request  for req/response/ack
 						samplingAccumlatedCounter += 1;
 						#ifndef YZLLMSwitchON  // Don't accumulate in LLM mode
-						samplingWindowDelay[(DNN_latency[flit->signalid * 3][2])] +=   // this nodes' overall latency (in this samping window)
-								DNN_latency[flit->signalid * 3][6]
-										- DNN_latency[flit->signalid* 3][5];
+						// Debug: Check if this is a pooling request
+						if (DNN_latency[flit->signalid * 3][0] == 2 || DNN_latency[flit->signalid * 3][0] == 4) {
+							cout << "[DEBUG] NI.cpp POOLING Request arrived at memory!" << endl;
+							cout << "  signalid=" << flit->signalid 
+							     << " [5]=" << DNN_latency[flit->signalid * 3][5]
+							     << " [6]=" << DNN_latency[flit->signalid * 3][6]
+							     << " delay=" << (DNN_latency[flit->signalid * 3][6] - DNN_latency[flit->signalid * 3][5])
+							     << " Layer=" << DNN_latency[flit->signalid * 3][0] 
+							     << " MAC=" << DNN_latency[flit->signalid * 3][2] << endl;
+						}
+						if (DNN_latency[flit->signalid * 3][6] == 0 || DNN_latency[flit->signalid * 3][5] == 0) {
+							cout << "[DEBUG] NI.cpp Request timestamps not set! signalid=" << flit->signalid << endl;
+						}
+						int mac_id_w = DNN_latency[flit->signalid * 3][2];
+						int delay_add_w = DNN_latency[flit->signalid * 3][6] - DNN_latency[flit->signalid* 3][5];
+						if (delay_add_w > 0) {
+							samplingWindowDelay[mac_id_w] += delay_add_w;
+							// Debug print
+							cout << "[LAT_ADD] NI.cpp:594 Weight_Req MAC " << mac_id_w 
+							     << " += " << delay_add_w 
+							     << " (total=" << samplingWindowDelay[mac_id_w] << ")" << endl;
+						} else {
+							cout << "[DEBUG] NI.cpp:594 Skipped negative/zero delay: " << delay_add_w 
+							     << " for MAC " << mac_id_w << endl;
+						}
 						#endif
 
 					} else if (flit->packet->message.msgtype == 1) { //response  for req/response/ack
 						#ifndef YZLLMSwitchON  // Don't accumulate in LLM mode
-						samplingWindowDelay[(DNN_latency[flit->signalid * 3
-								+ flit->packet->message.msgtype][2])] +=
-								DNN_latency[flit->signalid * 3
-										+ flit->packet->message.msgtype][6]
-										- DNN_latency[flit->signalid * 3
-												+ flit->packet->message.msgtype][5];
+						int mac_id_i = DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][2];
+						int delay_add_i = DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6]
+										- DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][5];
+						samplingWindowDelay[mac_id_i] += delay_add_i;
+						// Debug print
+						cout << "[LAT_ADD] NI.cpp:601 Input_Req MAC " << mac_id_i 
+						     << " += " << delay_add_i 
+						     << " (total=" << samplingWindowDelay[mac_id_i] << ")" << endl;
 						#endif
 						samplingAccumlatedCounter += 1;
 

@@ -47,6 +47,8 @@ cp -r Debug "$COMPILE_DIR/Debug"
 for ((i=1; i<=MAX_PARALLEL_SLOTS; i++)); do
     EXEC_DIR="${BASE_OUTPUT_DIR}/exec_${i}"
     mkdir -p "$EXEC_DIR/Debug"
+    mkdir -p "$EXEC_DIR/src/Input"
+    ln -s "$(realpath src/Input/llminput)" "$EXEC_DIR/src/Input/llminput"
 done
 
 echo "==========================================="
@@ -69,35 +71,34 @@ configure_test_case() {
     local test_case=$1
     local params_file=$2
     
-    # Start with clean slate - disable all optimizations
-    sed -i 's|^#define YZSAMOSSampleMapping|//#define YZSAMOSSampleMapping|' "$params_file"
-    sed -i 's|^#define case3_affiliatedordering|//#define case3_affiliatedordering|' "$params_file"
-    sed -i 's|^#define case4_seperratedordering|//#define case4_seperratedordering|' "$params_file"
-    sed -i 's|^#define YzAffiliatedOrdering|//#define YzAffiliatedOrdering|' "$params_file"
+    # First, disable all case definitions
+    sed -i 's|^#define case[0-9]_[a-zA-Z]*|//&|g' "$params_file"
     
-    # Enable specific features based on test case
+    # Enable specific case based on test case
     case "$test_case" in
         "baseline")
-            # All optimizations disabled (default)
+            # Enable case1_default for baseline
+            sed -i 's|^//#define case1_default|#define case1_default|' "$params_file"
             ;;
         "samos_only")
-            sed -i 's|^//#define YZSAMOSSampleMapping|#define YZSAMOSSampleMapping|' "$params_file"
+            # Enable case2_samos
+            sed -i 's|^//#define case2_samos|#define case2_samos|' "$params_file"
             ;;
         "separated_only")
+            # Enable case4_seperratedordering
             sed -i 's|^//#define case4_seperratedordering|#define case4_seperratedordering|' "$params_file"
             ;;
         "affiliated_only")
+            # Enable case3_affiliatedordering
             sed -i 's|^//#define case3_affiliatedordering|#define case3_affiliatedordering|' "$params_file"
-            sed -i 's|^//#define YzAffiliatedOrdering|#define YzAffiliatedOrdering|' "$params_file"
             ;;
         "samos_separated")
-            sed -i 's|^//#define YZSAMOSSampleMapping|#define YZSAMOSSampleMapping|' "$params_file"
-            sed -i 's|^//#define case4_seperratedordering|#define case4_seperratedordering|' "$params_file"
+            # Enable case6_MOSAIC2 (SAMOS + Separated)
+            sed -i 's|^//#define case6_MOSAIC2|#define case6_MOSAIC2|' "$params_file"
             ;;
         "samos_affiliated")
-            sed -i 's|^//#define YZSAMOSSampleMapping|#define YZSAMOSSampleMapping|' "$params_file"
-            sed -i 's|^//#define case3_affiliatedordering|#define case3_affiliatedordering|' "$params_file"
-            sed -i 's|^//#define YzAffiliatedOrdering|#define YzAffiliatedOrdering|' "$params_file"
+            # Enable case5_MOSAIC1 (SAMOS + Affiliated)
+            sed -i 's|^//#define case5_MOSAIC1|#define case5_MOSAIC1|' "$params_file"
             ;;
     esac
     
@@ -119,7 +120,7 @@ compile_config() {
     cp src/parameters.hpp.backup_llm "$COMPILE_DIR/src/parameters.hpp"
     
     # Configure NoC size
-    sed -i 's|^#define MemNode[0-9]_[0-9X]*|//#define &|' "$COMPILE_DIR/src/parameters.hpp"
+    sed -i 's|^#define MemNode[0-9]*_[0-9X]*|//&|g' "$COMPILE_DIR/src/parameters.hpp"
     sed -i "s|^//#define $noc_size|#define $noc_size|" "$COMPILE_DIR/src/parameters.hpp"
     
     # Configure test case

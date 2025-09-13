@@ -1,272 +1,6 @@
 #include <cstdlib>  // For std::exit()
 
-/**
- * @file llmmacnet.cpp
- * @brief LLM (Large Language Model) MAC网络实现 - 优化版本
- * 
- * 本文件实现了LLM模式下的MAC网络管理器，专门处理Transformer架构的
- * Attention计算。主要目标是通过数据排序优化减少NoC传输中的bit翻转。
- * 
- * ==================================================================
- * LLM处理流程 - 7大步骤详解
- * ==================================================================
- * 
- * Step 0: 初始化 - 数据加载与任务创建
- * ---------------------------------
- * 0.1 全部数据加载 [llmmacnet.cpp]
- *     函数：LLMMACnet::llmLoadRealMatrices() [行273-391]
- *     关键代码：
- *       llm_query_matrix.resize(matrix_size);  // 行279
- *       llm_key_matrix.resize(matrix_size);    // 行280
- *       std::ifstream file(filepath);          // 行304
- *       llm_query_matrix[i][j] = value;        // 行338
- *     功能：
- *     - 初始化512x512矩阵尺寸
- *     - 分配Query/Key/Value/Output矩阵存储空间
- *     - 从文件加载真实LLaMA数据或生成随机数据
- *     - 处理维度不匹配时的循环填充
- * 
- * 0.2 子任务创建 [llmmacnet.cpp]
- *     函数：LLMMACnet::llmGenerateAllTasks() [行536-659]
- *     关键代码：
- *       all_tasks.reserve(matrixOutputPixels * 4);  // 行549
- *       for(int pixel_y=0; pixel_y<matrixOutputPixels_size; pixel_y++)  // 行553
- *       for(int subchunk_id=0; subchunk_id<4; subchunk_id++)  // 行556
- *       task.query_data[data_idx] = llm_query_matrix[src_y][src_x];  // 行586
- *     功能：
- *     - 将512x512大矩阵分解为262,144个像素
- *     - 每像素生成4个子任务（2x2 subchunks）
- *     - 总计生成1,048,576个任务
- *     - 提取每任务的64个Query和64个Key元素
- * 
- * Step 1: 状态检查与转换
- * ---------------------------------
- * 函数：LLMMAC::llmRunOneStep() [llmmac.cpp 行319-479]
- * 关键代码与状态：
- *   if (selfstatus == 0) {  // IDLE状态 行332
- *     if (llmtasktable.size() > 0) selfstatus = 1;  // 有任务则转REQUEST 行342
- *   }
- *   else if (selfstatus == 1) {  // REQUEST状态 行348
- *     request = llmtasktable.front();  // 获取任务 行349
- *     llmInject(0, dest_mem_id, ...);  // 发送请求 行362
- *     selfstatus = 2;  // 转WAIT状态 行373
- *   }
- *   else if (selfstatus == 2) {  // WAIT状态 行378
- *     // 等待数据到达，由processCNNPacket()设置selfstatus=3
- *   }
- *   else if (selfstatus == 3) {  // COMPUTE状态 行443
- *     compute();  // 执行计算 行454
- *     selfstatus = 0;  // 完成后回IDLE 行476
- *   }
- * 功能：
- *   - 状态机控制：IDLE(0) -> REQUEST(1) -> WAIT(2) -> COMPUTE(3) -> IDLE(0)
- *   - 检查任务队列，管理任务执行流程
- *   - 跟踪每个状态的转换时间点
- * 
- * Step 2: 数据请求发送 (状态1: REQUEST)
- * ---------------------------------
- * 函数：LLMMAC::llmInject() [llmmac.cpp 行93-136]
- * 
- * Type 0请求消息数据结构：
- * ========================
- * msg.msgtype = 0;  // 请求类型
- * msg.data字段更新（llmmac.cpp行126-129）：
- *   msg.data[0] = currentRequestedTaskIDd;  // 任务ID（原名request）
- *   msg.data[1] = tile_x_start;  // tile起始X坐标
- *   msg.data[2] = tile_y_start;  // tile起始Y坐标  
- *   msg.data[3] = time_slice;     // 时间片(=subchunk_id)
- * 
- * currentRequestedTaskIDd说明：
- * - 变量原名：request
- * - 取值范围：0 到 1,048,575 (262,144像素 × 4个子块)
- * - 编码规则：pixel_id * 4 + subchunk_id
- * - 大小：int类型，通过float传输
- * 
- * 触发条件：
- *   selfstatus == 1 且 llmtasktable非空
- * 功能：
- * - 从任务队列取出任务ID
- * - 创建type 0请求消息
- * - 通过NoC发送到内存节点
- * 
- * Step 3: 响应包创建与排序 (内存节点处理)
- * ---------------------------------
- * 3.1 内存节点处理请求
- *     位置：LLMMACnet::llmRunOneStep() [llmmacnet.cpp 行1215-1524]
- *     功能：
- *     - 接收MAC发来的type 0请求
- *     - 从请求包的data[0]提取任务ID
- *     - 根据任务ID从all_tasks数组查找对应的Query/Key数据
- *     - 创建type 1响应消息
- *     - 准备数据容器tmpLLMMAC->input_buffer：[元数据(4) + query(64) + key(64)]
- *     - 排序处理（可选）：通过YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix()应用
- * 
- * 3.2 应用排序优化
- *     主函数：YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix() [yzllmieee754.cpp]
- *     
- * ========================================================================
- * 分离排序模式详细步骤（Separated Ordering）- 以4x8矩阵为例
- * ========================================================================
- * 
- * 输入：Query[4x8]=32个float, Key[4x8]=32个float
- * 
- * Step 1: 数据布局
- * ----------------
- * 原始Query矩阵（按行存储）：
- *   [Q0  Q1  Q2  Q3  Q4  Q5  Q6  Q7 ]  <- Row0
- *   [Q8  Q9  Q10 Q11 Q12 Q13 Q14 Q15]  <- Row1
- *   [Q16 Q17 Q18 Q19 Q20 Q21 Q22 Q23]  <- Row2
- *   [Q24 Q25 Q26 Q27 Q28 Q29 Q30 Q31]  <- Row3
- *   
- * Step 2: 展开为一维数组并全局排序
- * ----------------------------------
- * a) 展开：[Q0, Q1, Q2, ..., Q31] 共32个元素
- * 
- * b) 计算每个元素的1-bit数并排序：
- *    假设排序后：[B0, B1, B2, ..., B31]
- *    其中B0的1-bit数最少，B31的1-bit数最多
- * 
- * Step 3: 按列主序重新填充矩阵
- * ----------------------------
- * 使用排序后的数组B[]，按列填充：
- * 
- * x = 0
- * for col in 0..7:
- *     for row in 0..3:
- *         Query[row][col] = B[x]
- *         x = x + 1
- * 
- * 填充后的矩阵：
- *   Col0    Col1    Col2    ...  Col7
- * Row0: B[0]    B[4]    B[8]        B[28]
- * Row1: B[1]    B[5]    B[9]        B[29]
- * Row2: B[2]    B[6]    B[10]       B[30]
- * Row3: B[3]    B[7]    B[11]       B[31]
- * 
- * Key矩阵同样处理
- * 
- * Step 4: NoC传输顺序
- * --------------------
- * 传输序列: Col0[0]→Col0[1]→...→Col7[3]
- * 相邻传输bit翻转最小
- * 
- * ========================================================================
- * 关联排序模式详细步骤（Affiliated Ordering）- 以4x8矩阵为例
- * ========================================================================
- * 
- * Step 1: 创建Q-K配对（32对）
- * ----------------------------
- * Pair[0]=(Q0,K0), Pair[1]=(Q1,K1), ..., Pair[31]=(Q31,K31)
- * 
- * Step 2: 计算Key的1-bit数作为排序键
- * -----------------------------------
- * 示例：
- * Pair[0]: K0=0.5 → 9个1-bit
- * Pair[1]: K1=0.125 → 8个1-bit  
- * Pair[2]: K2=1.0 → 10个1-bit
- * 
- * Step 3: 按Key的1-bit数排序所有对
- * ---------------------------------
- * 排序前: [(Q0,K0,9), (Q1,K1,8), (Q2,K2,10)]
- * 排序后: [(Q1,K1,8), (Q0,K0,9), (Q2,K2,10)]
- * Query跟随Key移动，保持配对
- * 
- * Step 4: 重组为4x8矩阵
- * ---------------------
- * 排序后的对按顺序填充矩阵位置
- * 保持Query-Key语义对应关系
- *
- *     辅助函数 [yzIEEE754.cpp]：
- *     - countOnesInIEEE754() [行76-89]: 计算浮点数1-bit数
- *     - compareFloatsByOnes() [行125-127]: 比较函数
- * 
- * Step 4: 数据接收处理 (状态2: WAIT)
- * ---------------------------------
- * 函数：LLMMAC::() [llmmac.cpp 行262-317]
- * 关键代码：
- *   if(re_msg->msgtype == 1) {  // 行264
- *   input_buffer = re_msg->yzMSGPayload;  // 行281
- *   llmReshapeFlatToQueryKeyMatrix(input_buffer);  // 行293
- *   selfstatus = 3;  // 准备计算 行315
- * 功能：
- * - 接收type 1响应消息
- * - 提取payload数据到input_buffer
- * - 调用reshape函数重组数据
- * - 触发状态转换到COMPUTE
- * 
- * Step 5: 运算执行与新请求发送 (状态3: COMPUTE)
- * ---------------------------------
- * 函数：LLMMAC::llmComputeAttention() [llmmac.cpp 行795-868]
- * 关键代码：
- *   llmComputeValueWeightedSum();  // 与Value相乘 行815
- *   attention_output = result;  // 保存结果 行853
- * 功能：
- * - 执行attention三步计算
- * - Q*K^T矩阵乘法，除以sqrt(d_k)
- * - Softmax归一化获得注意力权重
- * - 权重与Value矩阵相乘得最终输出
- * 
- * Step 6: 结果输出与状态复位
- * ---------------------------------
- * 函数：LLMMAC::llmInject() with type=3 [llmmac.cpp 行212-260]
- * 关键代码：
- *   msg.msgtype = 3;  // LLM最终结果消息 行228
- *   msg.yzMSGPayload.push_back(attention_output);  // 添加结果 行235
- *   t_NI->inject(s_id, d_id, Message_cnt, NMessage);  // 发送 行238
- *   selfstatus = 0;  // 回到空闲状态 行257
- * 功能：
- * - 创建type 3最终结果消息（LLM专用）
- * - 打包attention计算结果
- * - 通过NoC发送到内存节点
- * - MAC状态复位，准备处理下一任务
- * 
- * ==================================================================
- * 数据格式与优化策略
- * ==================================================================
- * 
- * Payload结构（132个float）：
- * [0-3]   : 元数据（magic, size, chunk_id, pixel_id）
- * [4-67]  : Query数据（64个元素）
- * [68-131]: Key数据（64个元素）
- * 
- * 半半重组格式（CNN兼容）：
- * 每行：[Query_row[0-7] | Key_row[0-7]] = 16元素
- * 8行x16列 = 128元素矩阵
- * 
- * Bit翻转优化效果：
- * - 基准线（无排序）：1620.5 bit flips
- * - 分离排序：1595 bit flips (1.57%改善)
- * - 关联排序：保持语义同时减少翻转
- * 
- * ==================================================================
- * 配置选项 (parameters.hpp)
- * ==================================================================
- * 
- * - YZLLMSwitchON: 启用LLM模式
- * - case4_seperratedordering: 使用分离排序
- * - case3_affiliatedordering: 使用关联排序
- * - LLM_CNN_HALFHALF_RESHAPE: 启用半半重组
- * - YzAffiliatedOrdering: 激活排序优化
- * 
- * ==================================================================
- * 与CNN模式的关键区别
- * ==================================================================
- * 
- * LLM特点：
- * - 任务级并行（百万级子任务）
- * - 动态数据访问模式
- * - Attention矩阵每次不同
- * - Bit flipping较多（需要排序优化）
- * 
- * CNN特点：
- * - 层级顺序处理
- * - 固定卷积核复用
- * - 规则的滑动窗口
- * - Bit flipping较少（天然随机分布）
- * 
- * @author YZ
- * @date 2025
- */
+
 
 #include "llmmacnet.hpp"
 #include "llmmac.hpp"
@@ -306,12 +40,12 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	// Set actual dimensions for the real matrices
 	// X_input (8×4096) @ Wq^T (4096×128) = Q (8×128)
 
-	input_sequence_length = 8;     // X_input has 8 rows
+	input_sequence_length = 128;     // X_input has 8 rows
 	input_hidden_dim = 4096;       // X_input has 4096 columns
 	query_output_dim = 128;        // Wq produces 128-dim query vectors
 	time_slices = LLM_SUBCHUNKS_PER_PIXEL;  // Each pixel has N time slices (subchunks)
-	matrixOutputPixels_inputsequencelength = 8;  // 8 rows output matrix (from X_input rows)
-	matrixOutputPixels_queryoutputdim = 128;
+	matrixOutputPixels_inputsequencelength = input_sequence_length;  // 8 rows output matrix (from X_input rows)
+	matrixOutputPixels_queryoutputdim = query_output_dim;
 
 	// Calculate derived parameters
 	// Each pixel generates N tasks (subchunks)
@@ -577,6 +311,11 @@ bool LLMMACnet::llmReadSavedMatrix() {
 	std::string x_input_file = input_dir + "X_input.txt";
 	std::string wq_file = input_dir + "Wq.txt";
 	
+	if(input_sequence_length ==128){
+		x_input_file = input_dir + "X_input_128seq.txt";
+		wq_file = input_dir + "Wq_128seq.txt";
+	}
+
 	// Check if files exist
 	std::ifstream test_x(x_input_file);
 	std::ifstream test_wq(wq_file);
@@ -935,13 +674,13 @@ void LLMMACnet::llmCheckStatus() {
 		int available_macs = macNum - MEM_NODES;  // Exclude memory nodes
 		int total_pixels = 	matrixOutputPixels_inputsequencelength *  matrixOutputPixels_queryoutputdim  ;
 		
-		if (total_pixels / available_macs < samplingWindowLength) {
+		if (total_pixels / available_macs < samplingTasksPerMAC) {
 			// If pixels are fewer than sampling window, use normal row mapping
 			this->llmXMapping(total_pixels);
 		} else {
 			if (mapping_again == 0) {
 				// First phase: run sampling window (pixel-based)
-				int sampling_pixels = available_macs * samplingWindowLength;
+				int sampling_pixels = available_macs * samplingTasksPerMAC;
 				
 				// Reset sampling statistics
 				std::fill_n(samplingWindowDelay, TOT_NUM, 0);
@@ -952,7 +691,7 @@ void LLMMACnet::llmCheckStatus() {
 				
 			} else if (mapping_again == 2) {
 				// Second phase: map remaining pixels based on sampling results
-				int sampling_pixels = available_macs * samplingWindowLength;
+				int sampling_pixels = available_macs * samplingTasksPerMAC;
 				int remaining_pixels = total_pixels - sampling_pixels;
 				int remaining_tasks = remaining_pixels * this->tasks_per_pixel;
 
@@ -966,10 +705,10 @@ void LLMMACnet::llmCheckStatus() {
 				for (int i = 0; i < macNum; i++) {
 					if (!llmIsMemoryNode(i)) {
 						cout << "MAC " << i << ": samplingWindowDelay=" << samplingWindowDelay[i] 
-						     << " (avg=" << (double)samplingWindowDelay[i]/samplingWindowLength << ")" << endl;
+						     << " (avg=" << (double)samplingWindowDelay[i]/samplingTasksPerMAC << ")" << endl;
 					}
 				}
-				cout << "samplingWindowLength=" << samplingWindowLength << endl;
+				cout << "samplingTasksPerMAC=" << samplingTasksPerMAC << endl;
 				cout << "=== End Sampling Measurements ===" << endl;
 				
 				// Use SAMOS mapping based on latency measurements
@@ -1091,7 +830,7 @@ void LLMMACnet::llmCheckStatus() {
 		#ifdef YZSAMOSSampleMapping
 		int available_macs = macNum - MEM_NODES;
 		int total_pixels = 	matrixOutputPixels_inputsequencelength *  matrixOutputPixels_queryoutputdim  ;
-		if (total_pixels / available_macs < samplingWindowLength) {
+		if (total_pixels / available_macs < samplingTasksPerMAC) {
 			// Used normal mapping, add all tasks (pixels * 4)
 			packet_id = packet_id + total_pixels * 4;
 		} else {
@@ -1130,7 +869,7 @@ int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
 	double sum_lat = 0.0;
 	int nz = 0;
 	for (int id : pe_ids) {
-		double lat = double(samplingWindowDelay[id]) / std::max(1, samplingWindowLength);
+		double lat = double(samplingWindowDelay[id]) / std::max(1, samplingTasksPerMAC);
 		if (lat > 0.0) {
 			sum_lat += lat;
 			++nz;
@@ -1152,7 +891,7 @@ int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
 
 	double sumW = 0.0;
 	for (int id : pe_ids) {
-		double lat = double(samplingWindowDelay[id]) / std::max(1, samplingWindowLength);
+		double lat = double(samplingWindowDelay[id]) / std::max(1, samplingTasksPerMAC);
 		if (lat <= 0.0)
 			lat = default_lat;
 		double w = 1.0 / (lat + eps);
@@ -1228,7 +967,7 @@ int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
 	cout << "\n=== SAMOS Task Distribution (Phase 2) ===" << endl;
 	for (auto &n : nodes) {
 		int task_count = n.alloc * this->tasks_per_pixel;
-		double avgLat = double(samplingWindowDelay[n.id]) / std::max(1, samplingWindowLength);
+		double avgLat = double(samplingWindowDelay[n.id]) / std::max(1, samplingTasksPerMAC);
 		cout << "MAC " << n.id << ": " << task_count << " tasks (pixels=" << n.alloc 
 		     << ", avgLat=" << avgLat << ", weight=" << n.w << ")" << endl;
 	}

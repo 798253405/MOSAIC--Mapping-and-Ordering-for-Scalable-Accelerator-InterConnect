@@ -4,8 +4,8 @@
 #define DEFAULT_NNINPUT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/input2.txt"
 #define DEFAULT_NNMODEL_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/newnet2.txt"
 
-#define randomeval
-//#define fulleval
+//#define randomeval
+#define fulleval
 //#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
 
 // CNN Random Data Test - Replace CNN inbuffer data with random values (same as LLM)
@@ -23,7 +23,6 @@
 // Test Case Configuration - Choose one
 //#define case1_default
 #define case2_samos
-
 //#define case3_affiliatedordering
 //#define case4_seperratedordering
 //#define case5_MOSAIC1
@@ -32,7 +31,7 @@
 //#define  PADDING_RANDOM
 
 
-#define YZLLMSwitchON
+//#define YZLLMSwitchON
 //#define LLMPADDING_RANDOM
 #define LLM_OPTIMIZED_TYPE03_HANDLING  // Enable optimized Type 0/3 handling (16 elements only)
 #define LLM_OUTPUT_PATH "src/output/"
@@ -45,11 +44,6 @@
 // #define LLM_INPUT_BASED  // Comment this out for weight-based mode
 
 // LLM Type 0/3 Message Handling - Toggle between original and optimized versions
-
-                                       // Comment out to use original version (incorrectly applies 128-element sorting)
-
-
-
 
 // Test Case Logic
 #if defined(case1_default)
@@ -75,7 +69,7 @@
 #endif
 
 
-#define samplingWindowLength 10
+#define samplingTasksPerMAC 10
 //#define FIXED_POINT_SORTING
 
 #define only3type
@@ -86,9 +80,9 @@
 #define PRINT 100000
 #define valueBytes 4
 #define FLIT_LENGTH 512
-#define headerPerFlit 0
 #define bitsPerElement 32
 #define payloadElementNum 16
+#define headerPerFlit 0
 #define SoCC_Countlatency
 
 #define VN_NUM 1

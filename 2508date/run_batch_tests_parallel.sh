@@ -75,11 +75,15 @@ compile_config() {
     echo "[Compile][$job_id/$TOTAL_JOBS] Compiling: NoC=$noc_name, Case=$test_case"
     
     # Create modified parameters.hpp
-    cat src/parameters.hpp.backup_pipeline | \
-        sed -e '/^#define MemNode/s/^#define/\/\/#define/' \
-        -e '/^\/\/#define '"$noc_size"'/s/^\/\///' \
-        -e '/^#define case[0-9]/s/^#define/\/\/#define/' \
-        -e '/^\/\/#define '"$test_case"'/s/^\/\///' > "$COMPILE_DIR/src/parameters.hpp"
+    cp src/parameters.hpp.backup_pipeline "$COMPILE_DIR/src/parameters.hpp"
+    # Disable all MemNode configurations
+    sed -i 's|^#define MemNode[0-9]*_[0-9X]*|//&|g' "$COMPILE_DIR/src/parameters.hpp"
+    # Enable the selected MemNode
+    sed -i "s|^//#define $noc_size|#define $noc_size|" "$COMPILE_DIR/src/parameters.hpp"
+    # Disable all case configurations
+    sed -i 's|^#define case[0-9]_[a-zA-Z]*|//&|g' "$COMPILE_DIR/src/parameters.hpp"
+    # Enable the selected case
+    sed -i "s|^//#define $test_case|#define $test_case|" "$COMPILE_DIR/src/parameters.hpp"
     
     # Compile
     cd "$COMPILE_DIR/Debug"

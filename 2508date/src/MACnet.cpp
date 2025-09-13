@@ -330,11 +330,19 @@ int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 
 	// 2) 计算每个节点的平均延迟（采样窗口平均），以及缺失/0 值的回退
 	//    回退策略：用所有非零样本的均值作为默认延迟，避免除零/未采到样本时的不稳定
+	// Debug: Print what SAMOS function actually sees
+	cout << "\n[DEBUG] Inside yzFuncSAMOSSampleMapping:" << endl;
+	cout << "[DEBUG] Reading samplingWindowDelay values:" << endl;
 	double sum_lat = 0.0;
 	int nz = 0;
 	for (int id : pe_ids) {
 		double lat = double(samplingWindowDelay[id])
-				/ std::max(1, samplingWindowLength);
+				/ std::max(1, samplingTasksPerMAC);
+		if (samplingWindowDelay[id] > 0) {
+			cout << "  MAC " << id << ": raw_delay=" << samplingWindowDelay[id] 
+			     << " window_len=" << samplingTasksPerMAC
+			     << " avg_lat=" << lat << endl;
+		}
 		if (lat > 0.0) {
 			sum_lat += lat;
 			++nz;
@@ -357,7 +365,7 @@ int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 	double sumW = 0.0;
 	for (int id : pe_ids) {
 		double lat = double(samplingWindowDelay[id])
-				/ std::max(1, samplingWindowLength);
+				/ std::max(1, samplingTasksPerMAC);
 		if (lat <= 0.0)
 			lat = default_lat;
 		double w = 1.0 / (lat + eps);
@@ -408,7 +416,7 @@ int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 			<< nodes.size() << " TOTallocated=" << j << "\n";
 	for (auto &n : nodes) {
 		double avgLat = double(samplingWindowDelay[n.id])
-				/ std::max(1, samplingWindowLength);
+				/ std::max(1, samplingTasksPerMAC);
 		std::cout << "  node " << n.id << " lat=" << avgLat << " w=" << n.w
 				<< " want=" << n.want << " alloc=" << n.alloc << "\n";
 	}
@@ -426,13 +434,13 @@ int MACnet::yzPostSimTravelMapping(int neuronnum) {
 	int countPerPE = 0;
 	int tempAllocatedCount = 0;
 
-	double timeHop1 = samplingWindowDelay[13] / samplingWindowLength, timeHop2 =
-			samplingWindowDelay[5] / samplingWindowLength, timeHop3 =
-			samplingWindowDelay[8] / samplingWindowLength, timeHop4 =
-			samplingWindowDelay[1] / samplingWindowLength, timeHop5 =
-			samplingWindowDelay[4] / samplingWindowLength, timeHop6 =
-			samplingWindowDelay[12] / samplingWindowLength, timeHop7 =
-			samplingWindowDelay[0] / samplingWindowLength;
+	double timeHop1 = samplingWindowDelay[13] / samplingTasksPerMAC, timeHop2 =
+			samplingWindowDelay[5] / samplingTasksPerMAC, timeHop3 =
+			samplingWindowDelay[8] / samplingTasksPerMAC, timeHop4 =
+			samplingWindowDelay[1] / samplingTasksPerMAC, timeHop5 =
+			samplingWindowDelay[4] / samplingTasksPerMAC, timeHop6 =
+			samplingWindowDelay[12] / samplingTasksPerMAC, timeHop7 =
+			samplingWindowDelay[0] / samplingTasksPerMAC;
 	timeHop1 = 36.80357142857143; // layer1postsimulation
 	timeHop2 = 37.729166666666664;
 	timeHop3 = 39.839285714285715;
@@ -632,40 +640,63 @@ void MACnet::checkStatus() {
 			this->yzDistancemapping(o_ch * o_x * o_y);
 #endif
 #ifdef YZSAMOSSampleMapping
-		if ((o_ch * o_x * o_y) / (macNum - YZMEMCount) < samplingWindowLength) {
+		if ((o_ch * o_x * o_y) / (macNum - YZMEMCount) < samplingTasksPerMAC) {
 			cout
 					<< " thisLayerIsShorterThan15SamplingWindow！！！noSAMOSMapping！JustRowMapping！！！   "
 					<< endl;
 			this->xmapping(o_ch * o_x * o_y);
 		} else {
 			if (mappingagain == 0) {
+				// Debug: Show values BEFORE reset
+				cout << "\n[DEBUG] About to RESET samplingWindowDelay (mappingagain==0), Layer " << current_layerSeq << endl;
+				cout << "[DEBUG] Values BEFORE reset:" << endl;
+				for(int i = 0; i < TOT_NUM; i++) {
+					if(samplingWindowDelay[i] > 0) {
+						cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i] << endl;
+					}
+				}
 				samplingAccumlatedCounter = 0;
 				std::fill_n(samplingWindowDelay, TOT_NUM, 0); //rest samping window statistic
-				cout << " samplingWindowDelay[0] " << samplingWindowDelay[0]
+				cout << " samplingWindowDelay[0] AFTER reset: " << samplingWindowDelay[0]
 						<< endl;
 				cout << " samplingAccumlatedCounter "
 						<< samplingAccumlatedCounter << " macnum " << macNum
 						<< endl;
 				cout << endl;
 				// if sampling window has not been done in this layer, do sampling window
-				this->xmapping((macNum - YZMEMCount) * samplingWindowLength);
+				this->xmapping((macNum - YZMEMCount) * samplingTasksPerMAC);
 				mappingagain = 1; // normal = 0, doing sampling and need to do body mapping later = 1, doing body mapping =2 (should be set after complete samping )
 
 			} else if (mappingagain == 2) { // if sampling window has been done in this layer, do left parts
 				packet_id = packet_id
-						+ (macNum - YZMEMCount) * samplingWindowLength;
+						+ (macNum - YZMEMCount) * samplingTasksPerMAC;
+				// Debug: Print samplingWindowDelay RIGHT BEFORE calling SAMOS
+				cout << "\n[DEBUG] About to call SAMOS (mappingagain==2), Layer " << current_layerSeq << endl;
+				cout << "[DEBUG] samplingWindowDelay values BEFORE SAMOS:" << endl;
+				for(int i = 0; i < TOT_NUM; i++) {
+					if(samplingWindowDelay[i] > 0) {
+						cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i] 
+						     << " avg=" << (double)samplingWindowDelay[i]/samplingTasksPerMAC << endl;
+					}
+				}
 				cout << " samplingWindowDelay[0] " << samplingWindowDelay[0]
 						<< endl;
 				cout << " samplingAccumlatedCounter "
 						<< samplingAccumlatedCounter << " macnum " << macNum
 						<< endl;
+				// Debug: Check delay before SAMOS
+				cout << "[DEBUG] Right before calling SAMOS: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
+				
 				this->yzFuncSAMOSSampleMapping(
 						o_ch * o_x
-								* o_y- (macNum -YZMEMCount) * samplingWindowLength);
+								* o_y- (macNum -YZMEMCount) * samplingTasksPerMAC);
+				
+				// Debug: Check delay after SAMOS
+				cout << "[DEBUG] Right after calling SAMOS: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
 				// 3) ✅ 把局部编号统一转换为“全局编号”（关键修复）
 				{
 					const int offset = (macNum - YZMEMCount)
-							* samplingWindowLength;
+							* samplingTasksPerMAC;
 					for (int i = 0; i < macNum; ++i) {
 						for (int &gid : this->mapping_table[i]) {
 							gid += offset;
@@ -673,7 +704,11 @@ void MACnet::checkStatus() {
 					}
 				}
 				cout << " this is second mappi of one layer" << endl;
+				
+				// Debug: Check delay before resetting mappingagain
+				cout << "[DEBUG] Before mappingagain=0: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
 				mappingagain = 0; //reset
+				cout << "[DEBUG] After mappingagain=0: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
 			} else {
 				cout
 						<< " error!line878, mapping again should be 0 or 2 when readyflag=0(new mapping) "
@@ -721,10 +756,37 @@ void MACnet::checkStatus() {
 	}
 	if (mappingagain == 1) {	// if  =1 , hold up before going to next steps.
 		readyflag = 0;
+		// Debug: Print samplingWindowDelay BEFORE changing mappingagain
+		cout << "\n[DEBUG] End of sampling (mappingagain 1->2), Layer " << current_layerSeq << endl;
+		cout << "[DEBUG] samplingWindowDelay values BEFORE transition:" << endl;
+		for(int i = 0; i < TOT_NUM; i++) {
+			if(samplingWindowDelay[i] > 0) {
+				cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i] 
+				     << " avg=" << (double)samplingWindowDelay[i]/samplingTasksPerMAC << endl;
+			}
+		}
 		mappingagain = 2;
+
+		// 再次检查
+		    cout << "[DEBUG] After mappingagain 1->2 transition:" << endl;
+		    for(int i = 0; i < TOT_NUM; i++) {
+		        if(samplingWindowDelay[i] > 0) {
+		            cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i] << endl;
+		        }
+		    }
+
+		// 在重置MAC状态前再检查一次
+		cout << "[DEBUG] Before resetting MAC status:" << endl;
+		cout << "  samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
+		
 		for (int i = 0; i < macNum; i++) {
 			MAC_list[i]->selfstatus = 0;
 		}
+		
+		// 重置MAC状态后再检查
+		cout << "[DEBUG] After resetting MAC status:" << endl;
+		cout << "  samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
+		
 		return;
 	}
 
@@ -732,7 +794,7 @@ void MACnet::checkStatus() {
 			<< "  current_layerSeq " << current_layerSeq << " " << n_layer
 			<< " leftTasksCount "
 			<< ((o_ch * o_x * o_y)
-					- (TOT_NUM - YZMEMCount) * samplingWindowLength) << endl;
+					- (TOT_NUM - YZMEMCount) * samplingTasksPerMAC) << endl;
 // after layer complete, fetch new layer
 	deque<int> layer_info;
 	in_x = o_x; // in_x
@@ -762,13 +824,12 @@ void MACnet::checkStatus() {
 		readyflag = 2;
 		cout << "debug packetid1395 " << packet_id << endl;
 #ifdef YZSAMOSSampleMapping  //last layer
-		if ((o_ch * o_x * o_y) / (macNum - YZMEMCount) < samplingWindowLength) {
-			packet_id = packet_id + o_ch * o_x * o_y;
-		} else {
-			packet_id = packet_id
-					+ o_ch * o_x
-							* o_y- (macNum -YZMEMCount) * samplingWindowLength;
-		}
+		// Always increment packet_id by total tasks to avoid signalid conflicts
+		int total_tasks = o_ch * o_x * o_y;
+		packet_id = packet_id + total_tasks;  // Use full task count for unique signalids
+		cout << "[DEBUG] Last layer, packet_id updated: " << (packet_id - total_tasks) 
+		     << " -> " << packet_id 
+		     << " (added " << total_tasks << " tasks)" << endl;
 #else
 		packet_id = packet_id + o_ch * o_x * o_y;
 #endif
@@ -782,14 +843,14 @@ void MACnet::checkStatus() {
 		cout << "intermediate Layer finished " << (current_layerSeq - 1)
 				<< " at cycle " << cycles << endl;
 		Layer_latency.push_back(cycles);
-#ifdef YZSAMOSSampleMapping  //pakcetid compenstation
-		if ((o_ch * o_x * o_y) / (macNum - YZMEMCount) < samplingWindowLength) {
-			packet_id = packet_id + o_ch * o_x * o_y;
-		} else {
-			packet_id = packet_id
-					+ o_ch * o_x
-							* o_y- (macNum -YZMEMCount) * samplingWindowLength;
-		}
+#ifdef YZSAMOSSampleMapping  //pakcetid compensation
+		// Always increment packet_id by total tasks to avoid signalid conflicts
+		int total_tasks = o_ch * o_x * o_y;
+		packet_id = packet_id + total_tasks;  // Use full task count for unique signalids
+		cout << "[DEBUG] Layer " << (current_layerSeq - 1) 
+		     << " completed, packet_id updated: " << (packet_id - total_tasks) 
+		     << " -> " << packet_id 
+		     << " (added " << total_tasks << " tasks)" << endl;
 #else
 		packet_id = packet_id + o_ch * o_x * o_y;
 #endif
@@ -1216,9 +1277,13 @@ void MACnet::runOneStep() {
 			yzLastSeenPid = pidSignalID;
 #ifdef SoCC_Countlatency
 			DNN_latency[pidSignalID * 3 + 1][4] = tmpPacket->send_out_time; //DNN_yzlatency[x+1][4]
-			samplingWindowDelay[DNN_latency[pidSignalID * 3 + 1][2]] +=
-					DNN_latency[pidSignalID * 3 + 1][4]
-							- DNN_latency[pidSignalID * 3 + 1][3];
+			int mac_id_resp = DNN_latency[pidSignalID * 3 + 1][2];
+			int delay_add_resp = DNN_latency[pidSignalID * 3 + 1][4] - DNN_latency[pidSignalID * 3 + 1][3];
+			samplingWindowDelay[mac_id_resp] += delay_add_resp;
+			// Debug print
+			cout << "[LAT_ADD] MACnet.cpp:1219 Input_Resp MAC " << mac_id_resp 
+			     << " += " << delay_add_resp 
+			     << " (total=" << samplingWindowDelay[mac_id_resp] << ")" << endl;
 			DNN_latency[pidSignalID * 3 + 1][7] = cycles; //DNN_yzlatency[x+1][7]
 #endif
 			tmpMAC = MAC_list[src_mac];

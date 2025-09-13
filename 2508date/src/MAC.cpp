@@ -303,8 +303,25 @@ void MAC::runOneStep() {
 			cnn_saved_task_id = cnn_current_layer_task_id;       // 保存任务ID副本 //taskid
 			cnn_task_queue.pop_front();
 			//send_request(), fill inbuffer type 0
+			// Debug: Track Pooling requests
+			if (net->cnnmodel->all_layer_type[net->current_layerSeq] == 'p') {
+				cout << "[DEBUG] MAC " << selfMACid << " sending POOLING request"
+				     << " signalid=" << (packet_id + cnn_current_layer_task_id)
+				     << " Layer=" << net->current_layerSeq
+				     << " cycle=" << cycles << endl;
+			}
+			// Debug: Track signalid allocation
+			int signal_id = packet_id + cnn_current_layer_task_id;
+			if (signal_id == 4704 || (signal_id >= 4700 && signal_id <= 4710)) {
+				cout << "[SIGNALID] MAC " << selfMACid 
+				     << " using signalid=" << signal_id
+				     << " (packet_id=" << packet_id 
+				     << " + task_id=" << cnn_current_layer_task_id << ")"
+				     << " Layer=" << net->current_layerSeq
+				     << " at cycle " << cycles << endl;
+			}
 			inject(0, dest_mem_id, 1, cnn_current_layer_task_id, net->vcNetwork->NI_list[NI_id],
-					packet_id + cnn_current_layer_task_id, selfMACid); //taskid
+					signal_id, selfMACid); //taskid
 			selfstatus = 2;
 			pecycle = cycles;
 #ifdef SoCC_Countlatency
@@ -403,9 +420,13 @@ void MAC::runOneStep() {
 				DNN_latency[stats1SigIDplus2][1] = 2;
 				DNN_latency[stats1SigIDplus2][2] = selfMACid;
 				DNN_latency[stats1SigIDplus2][3] = pecycle;
-				samplingWindowDelay[DNN_latency[stats1SigIDplus2][2]] +=
-						DNN_latency[stats1SigIDplus2][3]
-								- DNN_latency[stats1SigIDplus2 - 1][7];
+				int mac_id_pool = DNN_latency[stats1SigIDplus2][2];
+				int delay_add_pool = DNN_latency[stats1SigIDplus2][3] - DNN_latency[stats1SigIDplus2 - 1][7];
+				samplingWindowDelay[mac_id_pool] += delay_add_pool;
+				// Debug print
+				cout << "[LAT_ADD] MAC.cpp:406 Pooling MAC " << mac_id_pool 
+				     << " += " << delay_add_pool 
+				     << " (total=" << samplingWindowDelay[mac_id_pool] << ")" << endl;
 				samplingAccumlatedCounter += 1;
 
 #endif
@@ -414,7 +435,27 @@ void MAC::runOneStep() {
 			}
 
 			int calctime = (ch_size * m_size / PE_NUM_OP + 1) * 10;
-			//cout<<calctime  <<" line 287 "<<ch_size   <<" "<< m_size <<endl;
+			/*
+			if (net->current_layerSeq == 1 || net->current_layerSeq == 3) {  //
+
+			          cout << "\n=== Calctime Debug ===" << endl;
+			          cout << "Layer " << net->current_layerSeq
+			               << " (type: " <<
+			  net->cnnmodel->all_layer_type[net->current_layerSeq] << ")" << endl;
+			          cout << "MAC " << selfMACid << " Task " <<
+			  cnn_current_layer_task_id << ":" << endl;
+			          cout << "  ch_size (in_ch) = " << ch_size << endl;
+			          cout << "  m_size (w_x*w_y) = " << m_size << endl;
+			          cout << "  PE_NUM_OP = " << PE_NUM_OP << endl;
+			          cout << "  Formula: (" << ch_size << " * " << m_size << " / " <<
+			        		  PE_NUM_OP << " + 1) * 10" << endl;
+
+			          cout << "  calctime = " << calctime << " cycles" << endl;
+			          cout << "  Current cycle: " << cycles << endl;
+			          cout << "  Will complete at: " << (cycles + calctime) << endl;
+			          cout << "===================" << endl;
+			      }
+			 	 */
 
 			// activation
 			if ((fn % 4) == 0) //linear
@@ -459,9 +500,13 @@ void MAC::runOneStep() {
 			DNN_latency[stats1SigIDplus2][2] = selfMACid; //DNN_yzlatency[x+2][2]
 			DNN_latency[stats1SigIDplus2][3] = pecycle; //DNN_yzlatency[x+2][3]
 
-			samplingWindowDelay[DNN_latency[stats1SigIDplus2][2]] +=
-					DNN_latency[stats1SigIDplus2][3]
-							- DNN_latency[stats1SigIDplus2 - 1][7];
+			int mac_id_comp = DNN_latency[stats1SigIDplus2][2];
+			int delay_add_comp = DNN_latency[stats1SigIDplus2][3] - DNN_latency[stats1SigIDplus2 - 1][7];
+			samplingWindowDelay[mac_id_comp] += delay_add_comp;
+			// Debug print
+			cout << "[LAT_ADD] MAC.cpp:482 Compute MAC " << mac_id_comp 
+			     << " += " << delay_add_comp 
+			     << " (total=" << samplingWindowDelay[mac_id_comp] << ")" << endl;
 			samplingAccumlatedCounter += 1;
 #endif
 			//packet_id++;

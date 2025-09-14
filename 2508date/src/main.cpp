@@ -96,8 +96,8 @@ int main(int arg_num, char *arg_vet[]) {
 	// statistics
 	// refer to output neuron id (tmpch * ox * oy + tmpm)
 #ifdef SoCC_Countlatency
-	DNN_latency.resize(900000000);
-	for (int i = 0; i < 900000000; i++) {
+	DNN_latency.resize(9000000);
+	for (int i = 0; i < 9000000; i++) {
 		DNN_latency[i].assign(8, 0);
 	}
 #endif

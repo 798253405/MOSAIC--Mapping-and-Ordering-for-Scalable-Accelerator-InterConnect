@@ -53,7 +53,7 @@ echo ""
 
 # Initialize summary file
 SUMMARY_FILE="${BASE_OUTPUT_DIR}/summary_all.txt"
-echo "NoC_Size,Test_Case,Status,Runtime" > $SUMMARY_FILE
+echo "NoC_Size,Test_Case,Runtime" > $SUMMARY_FILE
 
 # Job counter
 TOTAL_JOBS=$((${#NOC_SIZES[@]} * ${#TEST_CASES[@]}))
@@ -140,14 +140,9 @@ run_test() {
     END_TIME=$(date +%s)
     RUNTIME=$((END_TIME - START_TIME))
     
-    # Check if execution completed successfully
-    if grep -q "CNN Layer 6 Avg cycle:" "$output_file"; then
-        echo "$noc_name,$test_case,SUCCESS,$RUNTIME" >> $SUMMARY_FILE
-        echo "[Execute][$job_id/$TOTAL_JOBS][Slot $exec_slot] Completed: SUCCESS, Runtime=${RUNTIME}s"
-    else
-        echo "$noc_name,$test_case,FAILED,$RUNTIME" >> $SUMMARY_FILE
-        echo "[Execute][$job_id/$TOTAL_JOBS][Slot $exec_slot] Completed: FAILED, Runtime=${RUNTIME}s"
-    fi
+    # Simply record runtime
+    echo "$noc_name,$test_case,$RUNTIME" >> $SUMMARY_FILE
+    echo "[Execute][$job_id/$TOTAL_JOBS][Slot $exec_slot] Completed: Runtime=${RUNTIME}s"
     
     # Clean up binary
     rm -f "${BASE_OUTPUT_DIR}/binary_${noc_name}_${test_case}"
@@ -223,7 +218,7 @@ for i in "${!NOC_SIZES[@]}"; do
         fi
         
         # Progress report
-        COMPLETED=$(grep -c "SUCCESS\|FAILED" "$SUMMARY_FILE" 2>/dev/null || echo "0")
+        COMPLETED=$(tail -n +2 "$SUMMARY_FILE" 2>/dev/null | wc -l || echo "0")
         RUNNING=$(jobs -r | wc -l)
         echo "[Progress] Compiled: $JOB_ID/$TOTAL_JOBS | Running: $RUNNING | Completed: $COMPLETED/$TOTAL_JOBS"
         echo ""

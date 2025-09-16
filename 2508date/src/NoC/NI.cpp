@@ -593,11 +593,7 @@ void NI::inputCheck() {
 				#ifdef SoCC_Countlatency
 				// Debug pooling
 				if (flit->signalid >= 4704 && flit->signalid <= 4850 && flit->packet->message.msgtype == 0) {
-					cout << "[DEBUG] Checking DNN_latency for pooling request:" << endl;
-					int idx = flit->signalid * 3;
-					cout << "  signalid=" << flit->signalid << " idx=" << idx << endl;
-					cout << "  DNN_latency[" << idx << "][6]=" << DNN_latency[idx][6] << endl;
-					cout << "  Will enter stats code? " << (DNN_latency[idx][6] == 0 ? "YES" : "NO") << endl;
+
 				}
 				if (DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6]
 						== 0) {
@@ -624,10 +620,7 @@ void NI::inputCheck() {
 						int delay_add_w = DNN_latency[flit->signalid * 3][6] - DNN_latency[flit->signalid* 3][5];
 						if (delay_add_w > 0) {
 							samplingWindowDelay[mac_id_w] += delay_add_w;
-							// Debug print
-							cout << "[LAT_ADD] NI.cpp:594 Weight_Req MAC " << mac_id_w 
-							     << " += " << delay_add_w 
-							     << " (total=" << samplingWindowDelay[mac_id_w] << ")" << endl;
+
 						} else {
 							cout << "[DEBUG] NI.cpp:594 Skipped negative/zero delay: " << delay_add_w 
 							     << " for MAC " << mac_id_w << endl;

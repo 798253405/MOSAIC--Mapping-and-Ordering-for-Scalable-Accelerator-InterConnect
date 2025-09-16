@@ -71,30 +71,63 @@
 #include "yzllmieee754.hpp"  // LLM专用IEEE754排序优化
 // 注意: llmmacnet.hpp 会在 .cpp 文件中包含，避免循环依赖
 
-#if defined MemNode2_4X4
+#if defined DATEMC2_4X4
 	#define MEM_NODES 2
-	const int dest_list[] = {9, 11}; // 4*4
+	const int dest_list[] = {9, 11}; // (2,1) and (2,3) in 4x4 grid
 
-#elif defined MemNode4_4X4
-#define MEM_NODES 4
-	// 4×4：TL(1,1),BL(3,1), TR(1,3),  BR(3,3)
-	const int dest_list[] = {5, 13, 7, 15}; // 4*4
+#elif defined DATEMC8_8X8
+	#define MEM_NODES 8
+	// 2x2 tiles, each tile has MCs at local (2,1) and (2,3)
+	const int dest_list[] = {
+		17, 19,   // Tile(0,0): (2,1), (2,3)
+		21, 23,   // Tile(0,1): (2,5), (2,7)
+		49, 51,   // Tile(1,0): (6,1), (6,3)
+		53, 55    // Tile(1,1): (6,5), (6,7)
+	};
 
-#elif defined  MemNode4_8X8
-	#define MEM_NODES 4
-	// 8×8：象限中心 -> (2,2),(6,2),(2,6),(6,6)
-	const int dest_list[] = {18, 50, 22, 54}; // 8*8
+#elif defined DATEMC32_16X16
+	#define MEM_NODES 32
+	// 4x4 tiles, each tile has MCs at local (2,1) and (2,3)
+	const int dest_list[] = {
+		// Row 0 tiles (y=2)
+		33, 35,   37, 39,   41, 43,   45, 47,
+		// Row 1 tiles (y=6)
+		97, 99,   101, 103, 105, 107, 109, 111,
+		// Row 2 tiles (y=10)
+		161, 163, 165, 167, 169, 171, 173, 175,
+		// Row 3 tiles (y=14)
+		225, 227, 229, 231, 233, 235, 237, 239
+	};
 
-#elif defined MemNode4_16X16
-	#define MEM_NODES 4
-	 // 16×16：象限中心 -> (4,4),(12,4),(4,12),(12,12)   // 顺序：TL, BL, TR, BR
-	 // 节点ID = xid*16 + yid
-	 const int dest_list[] = {68, 196, 76, 204}; // 16*16
-
-#elif defined MemNode4_32X32
-	#define MEM_NODES 4
-	// 32×32：象限中心 -> (8,8),24,8),(8,24),((24,24)
-	const int dest_list[] = {264, 776, 280, 792};
+#elif defined DATEMC128_32X32
+	#define MEM_NODES 128
+	// 8x8 tiles, each tile has MCs at local (2,1) and (2,3)
+	const int dest_list[] = {
+		// Tile row 0
+		65,  67,  69,  71,  73,  75,  77,  79,
+		81,  83,  85,  87,  89,  91,  93,  95,
+		// Tile row 1
+		193, 195, 197, 199, 201, 203, 205, 207,
+		209, 211, 213, 215, 217, 219, 221, 223,
+		// Tile row 2
+		321, 323, 325, 327, 329, 331, 333, 335,
+		337, 339, 341, 343, 345, 347, 349, 351,
+		// Tile row 3
+		449, 451, 453, 455, 457, 459, 461, 463,
+		465, 467, 469, 471, 473, 475, 477, 479,
+		// Tile row 4
+		577, 579, 581, 583, 585, 587, 589, 591,
+		593, 595, 597, 599, 601, 603, 605, 607,
+		// Tile row 5
+		705, 707, 709, 711, 713, 715, 717, 719,
+		721, 723, 725, 727, 729, 731, 733, 735,
+		// Tile row 6
+		833, 835, 837, 839, 841, 843, 845, 847,
+		849, 851, 853, 855, 857, 859, 861, 863,
+		// Tile row 7
+		961, 963, 965, 967, 969, 971, 973, 975,
+		977, 979, 981, 983, 985, 987, 989, 991
+	};
 #endif
 
 using namespace std;
@@ -205,6 +238,33 @@ class LLMMAC
 		// Partial sum aggregation for pixels
 		std::map<int, std::vector<float>> pixel_partial_sums;    // pixel_id -> [LLM_SUBCHUNKS_PER_PIXEL partial sums]
 		int current_pixel_id;                          // Current pixel being processed
+
+		// Monitoring structures for SAMOS vs actual latency tracking
+		struct LatencyMonitoring {
+			// Per-MAC statistics
+			int task_count;                    // Number of tasks processed
+			double sampled_latency_avg;        // Average latency from SAMOS sampling
+			double actual_latency_sum;         // Sum of actual latencies
+			double actual_latency_min;         // Minimum actual latency
+			double actual_latency_max;         // Maximum actual latency
+
+			// Sampling phase data (from SAMOS)
+			double samos_expected_latency;     // Expected latency from SAMOS sampling
+
+			// For periodic reporting
+			int last_report_task_count;        // Task count at last report
+
+			LatencyMonitoring() :
+				task_count(0),
+				sampled_latency_avg(0.0),
+				actual_latency_sum(0.0),
+				actual_latency_min(1e9),
+				actual_latency_max(0.0),
+				samos_expected_latency(0.0),
+				last_report_task_count(0) {}
+		};
+
+		LatencyMonitoring latency_monitor;
 
 		deque<int> llmPEExpectedtasktable;
 

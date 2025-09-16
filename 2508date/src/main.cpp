@@ -403,7 +403,6 @@ int main(int arg_num, char *arg_vet[]) {
 
 	cout << "LLM Attention Parameters:" << endl;
 	cout << "  Output matrix size: " << llmMacnet->input_sequence_length << "x" << llmMacnet->query_output_dim << endl;
-	cout << "  Time slices: " << llmMacnet->time_slices << endl;
 	cout << "  Total tasks (quicktest): " << llmMacnet->total_task_slicedPixels << endl;
 
 	// Simulation parameters
@@ -502,7 +501,6 @@ int main(int arg_num, char *arg_vet[]) {
 	
 	cout << "  NoC Size: " << X_NUM << "x" << Y_NUM << " (" << TOT_NUM << " nodes)" << endl;
 	cout << "  Test Case: " << LLM_TEST_CASE << endl;
-	cout << "  Time Slices: " << llmMacnet->time_slices << endl;
 	
 	cout << "\nExecution Metrics:" << endl;
 	cout << "  Total Cycles: " << cycles << endl;

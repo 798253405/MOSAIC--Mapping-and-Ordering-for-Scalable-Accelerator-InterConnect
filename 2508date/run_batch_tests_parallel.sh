@@ -18,8 +18,8 @@ mkdir -p $BASE_OUTPUT_DIR
 ln -sfn "batchCNN_parallel_${TIMESTAMP}" "output/batchCNN_parallel_latest"
 
 # Define NoC sizes and their names
-declare -a NOC_SIZES=("MemNode2_4X4" "MemNode4_4X4" "MemNode4_8X8" "MemNode4_16X16" "MemNode4_32X32")
-declare -a NOC_NAMES=("2_4x4" "4_4x4" "4_8x8" "4_16x16" "4_32x32")
+declare -a NOC_SIZES=("DATEMC2_4X4" "DATEMC8_8X8" "DATEMC32_16X16" "DATEMC128_32X32")
+declare -a NOC_NAMES=("2mc_4x4" "8mc_8x8" "32mc_16x16" "128mc_32x32")
 
 # Define test cases
 declare -a TEST_CASES=("case1_default" "case2_samos" "case3_affiliatedordering" "case4_seperratedordering" "case5_MOSAIC1" "case6_MOSAIC2")
@@ -76,8 +76,8 @@ compile_config() {
     
     # Create modified parameters.hpp
     cp src/parameters.hpp.backup_pipeline "$COMPILE_DIR/src/parameters.hpp"
-    # Disable all MemNode configurations
-    sed -i 's|^#define MemNode[0-9]*_[0-9X]*|//&|g' "$COMPILE_DIR/src/parameters.hpp"
+    # Disable all DATEMC configurations
+    sed -i 's|^#define DATEMC[0-9]*_[0-9X]*|//&|g' "$COMPILE_DIR/src/parameters.hpp"
     # Enable the selected MemNode
     sed -i "s|^//#define $noc_size|#define $noc_size|" "$COMPILE_DIR/src/parameters.hpp"
     # Disable all case configurations

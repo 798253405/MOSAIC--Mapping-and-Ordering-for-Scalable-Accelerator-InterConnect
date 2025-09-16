@@ -1280,10 +1280,7 @@ void MACnet::runOneStep() {
 			int mac_id_resp = DNN_latency[pidSignalID * 3 + 1][2];
 			int delay_add_resp = DNN_latency[pidSignalID * 3 + 1][4] - DNN_latency[pidSignalID * 3 + 1][3];
 			samplingWindowDelay[mac_id_resp] += delay_add_resp;
-			// Debug print
-			cout << "[LAT_ADD] MACnet.cpp:1219 Input_Resp MAC " << mac_id_resp 
-			     << " += " << delay_add_resp 
-			     << " (total=" << samplingWindowDelay[mac_id_resp] << ")" << endl;
+
 			DNN_latency[pidSignalID * 3 + 1][7] = cycles; //DNN_yzlatency[x+1][7]
 #endif
 			tmpMAC = MAC_list[src_mac];

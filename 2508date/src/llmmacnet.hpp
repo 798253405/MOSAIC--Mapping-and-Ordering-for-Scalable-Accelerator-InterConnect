@@ -80,7 +80,6 @@ public:
 	int matrixOutputPixels_queryoutputdim;
 
 
-	int time_slices;
 	int tasks_per_pixel;          // Number of sub-tasks each pixel is divided into (e.g., 4)
 	int total_task_slicedPixels;  // Total number of tasks (sliced pixels)
 

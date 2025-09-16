@@ -23,6 +23,7 @@ static inline std::string getCurrentTimeStr() {
 }
 LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) {
 	macNum = mac_num;
+	//cout<<"line26mac_num "<<mac_num<<endl;
 	LLMMAC_list.reserve(mac_num);
 	pe_x = t_pe_x;
 	pe_y = t_pe_y;
@@ -43,7 +44,6 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	input_sequence_length = 128;     // X_input has 8 rows
 	input_hidden_dim = 4096;       // X_input has 4096 columns
 	query_output_dim = 128;        // Wq produces 128-dim query vectors
-	time_slices = LLM_SUBCHUNKS_PER_PIXEL;  // Each pixel has N time slices (subchunks)
 	matrixOutputPixels_inputsequencelength = input_sequence_length;  // 8 rows output matrix (from X_input rows)
 	matrixOutputPixels_queryoutputdim = query_output_dim;
 
@@ -51,7 +51,7 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	// Each pixel generates N tasks (subchunks)
 	tasks_per_pixel = LLM_SUBCHUNKS_PER_PIXEL;  // Use configured subchunks per pixel
 	int elements_per_task = 128;  // 64 query + 64 key per task
-	total_task_slicedPixels = input_sequence_length * query_output_dim * time_slices;  // 8 * 128 * 64 = 65536 tasks
+	total_task_slicedPixels = input_sequence_length * query_output_dim * LLM_SUBCHUNKS_PER_PIXEL;  // 8 * 128 * 64 = 65536 tasks
 	#endif
 
 
@@ -103,17 +103,6 @@ void LLMMACnet::llmNetRunStep() {
 		// Process ALL message types in buffer[0]
 		pbuffer_size = tmpNI->packet_buffer_out[0].size();
 
-		// Debug: Check for Type 3 packets in buffer
-		// if (pbuffer_size > 0) {
-		// 	for (int k = 0; k < pbuffer_size; k++) {
-		// 		Packet* debugPkt = tmpNI->packet_buffer_out[0][k];
-		// 		if (debugPkt && debugPkt->message.msgtype == 3) {
-		// 			std::cout << "[DEBUG-BUFFER] Type 3 packet found in Memory " << mem_id 
-		// 			          << " buffer at position " << k 
-		// 			          << " (buffer size=" << pbuffer_size << ")" << std::endl;
-		// 		}
-		// 	}
-		// }
 		// Process packets in buffer[0] (Type 0 requests)
 		for (int j = 0; j < pbuffer_size; j++) {
 			tmpPacket = tmpNI->packet_buffer_out[0].front();
@@ -843,8 +832,8 @@ void LLMMACnet::llmCheckStatus() {
 		int total_pixels = 	matrixOutputPixels_inputsequencelength *  matrixOutputPixels_queryoutputdim  ;
 		cout << "[DEBUG-STATS-7] SAMOS mode: total_pixels=" << total_pixels << ", available_macs=" << available_macs << endl;
 		if (total_pixels / available_macs < samplingTasksPerMAC) {
-			// Used normal mapping, add all tasks (pixels * 4)
-			packet_id = packet_id + total_pixels * 4;
+			// Used normal mapping, add all tasks (pixels * LLM_SUBCHUNKS_PER_PIXEL)=task
+			packet_id = packet_id + total_pixels * LLM_SUBCHUNKS_PER_PIXEL;
 			cout << "[DEBUG-STATS-8] Normal mapping path. New packet_id=" << packet_id << endl;
 		} else {
 			// Used SAMOS mapping, already adjusted during mapping
@@ -943,6 +932,72 @@ int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
 	}
 
 	// 3) Hamilton's method (largest remainder)
+#ifdef USE_SCALED_HAMILTONLLM
+	// 改进的放大系数Hamilton方法
+	const int SCALE = 1000;  // 放大1000倍提高精度
+	int total_scaled = pixel_count * SCALE;
+	int allocated_scaled = 0;
+
+	// Step 1: 计算放大后的分配
+	for (auto &n : nodes) {
+		double exact_scaled = total_scaled * (n.w / sumW);
+		n.want = exact_scaled / SCALE;  // 保存原始理想值用于调试
+		// 使用round而非floor保留更多信息
+		int alloc_scaled = int(std::round(exact_scaled));
+		n.alloc = alloc_scaled / SCALE;  // 整数除法得到基本分配
+		n.frac = double(alloc_scaled % SCALE);  // 余数作为fractional part
+		allocated_scaled += alloc_scaled;
+	}
+
+	// Step 2: 调整使总和精确
+	int diff_scaled = total_scaled - allocated_scaled;
+	if (diff_scaled != 0) {
+		// 将差值分配给权重最大的节点
+		auto max_node = std::max_element(nodes.begin(), nodes.end(),
+			[](const NodeW &a, const NodeW &b) { return a.w < b.w; });
+		max_node->frac += diff_scaled;
+	}
+
+	// Step 3: 处理剩余pixels（因为整数除法）
+	int allocated = 0;
+	for (auto &n : nodes) {
+		allocated += n.alloc;
+	}
+	int remainder = pixel_count - allocated;
+
+	// Step 4: 按放大后的余数排序分配
+	std::sort(nodes.begin(), nodes.end(), [](const NodeW &a, const NodeW &b) {
+		// 余数差异小于1%时，使用原始权重
+		if (std::abs(a.frac - b.frac) < 10) {  // SCALE/100
+			return a.w > b.w;
+		}
+		return a.frac > b.frac;
+	});
+
+	for (int i = 0; i < remainder; ++i) {
+		nodes[i].alloc++;
+	}
+
+	cout << "[DEBUG] Scaled Hamilton: SCALE=" << SCALE << ", remainder=" << remainder << endl;
+
+	// 添加单调性检查
+	bool monotonic = true;
+	for (size_t i = 1; i < nodes.size(); i++) {
+		// 如果延迟更高的MAC分配了更多任务，违反单调性
+		double lat_i = double(samplingWindowDelay[nodes[i].id]) / std::max(1, samplingTasksPerMAC);
+		double lat_prev = double(samplingWindowDelay[nodes[i-1].id]) / std::max(1, samplingTasksPerMAC);
+		if (lat_i > lat_prev && nodes[i].alloc > nodes[i-1].alloc) {
+			monotonic = false;
+			cout << "[WARNING] Monotonicity violation: MAC " << nodes[i].id
+			     << " (lat=" << lat_i << ") has more tasks than MAC "
+			     << nodes[i-1].id << " (lat=" << lat_prev << ")" << endl;
+		}
+	}
+	if (monotonic) {
+		cout << "[DEBUG] Allocation maintains monotonicity ✓" << endl;
+	}
+#else
+	// 原始Hamilton方法
 	int allocated = 0;
 	for (auto &n : nodes) {
 		double exact = pixel_count * (n.w / sumW);
@@ -959,6 +1014,7 @@ int LLMMACnet::llmSAMOSTaskMapping(int pixel_count, int start_pixel_id) {
 	});
 	for (int i = 0; i < remainder; ++i)
 		nodes[i % nodes.size()].alloc++;
+#endif
 
 	// 4) Generate pixel and task mapping
 	int current_pixel_id = start_pixel_id;

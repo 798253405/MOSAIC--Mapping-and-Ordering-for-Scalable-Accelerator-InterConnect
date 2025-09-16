@@ -18,8 +18,8 @@ mkdir -p $BASE_OUTPUT_DIR
 ln -sfn "batchLLM_parallel_${TIMESTAMP}" "output/batchLLM_latest"
 
 # Define NoC sizes and their names (same as CNN)
-declare -a NOC_SIZES=("MemNode2_4X4" "MemNode4_4X4" "MemNode4_8X8" "MemNode4_16X16" "MemNode4_32X32")
-declare -a NOC_NAMES=("2_4x4" "4_4x4" "4_8x8" "4_16x16" "4_32x32")
+declare -a NOC_SIZES=("DATEMC2_4X4" "DATEMC8_8X8" "DATEMC32_16X16" "DATEMC128_32X32")
+declare -a NOC_NAMES=("2mc_4x4" "8mc_8x8" "32mc_16x16" "128mc_32x32")
 
 # Define LLM test cases
 declare -a TEST_CASES=(
@@ -120,7 +120,7 @@ compile_config() {
     cp src/parameters.hpp.backup_llm "$COMPILE_DIR/src/parameters.hpp"
     
     # Configure NoC size
-    sed -i 's|^#define MemNode[0-9]*_[0-9X]*|//&|g' "$COMPILE_DIR/src/parameters.hpp"
+    sed -i 's|^#define DATEMC[0-9]*_[0-9X]*|//&|g' "$COMPILE_DIR/src/parameters.hpp"
     sed -i "s|^//#define $noc_size|#define $noc_size|" "$COMPILE_DIR/src/parameters.hpp"
     
     # Configure test case

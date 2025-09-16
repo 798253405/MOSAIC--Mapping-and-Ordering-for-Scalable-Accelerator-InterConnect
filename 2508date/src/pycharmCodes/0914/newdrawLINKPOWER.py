@@ -10,13 +10,13 @@ data = {
     'Link power NOCS 2007 after MOSAIC-2': [68.738, 321.618, 1408.728, 5806.259],
     'Original link power SoCC 2025': [33.216, 155.008, 664.32, 2745.856],
     'Link power SoCC 2025 after MOSAIC-2': [22.352, 104.586, 458.101, 1888.125],
-    'Four-ordering': [8.852, 8.852, 8.852, 8.852]
+    'Four-ordering': [8.852/4*2, 8.852/4*8, 8.852/4*32, 8.852/4*128]
 }
 
 # 面积数据 (kGE)
 area_data = {
-    'ref2': [2008.64, 8034.56, 32138.24, 128552.96],
-    'socc4 units': [51.64, 51.64, 51.64, 51.64]
+    'Routers': [2008.64, 8034.56, 32138.24, 128552.96],
+    'Ordering units': [51.64/4*2, 51.64/4*8, 51.64/4*32, 51.64/4*128]
 }
 
 # 创建图形和主轴
@@ -78,17 +78,17 @@ ax1.set_xticklabels(noc_sizes, fontsize=20)
 ax2 = ax1.twinx()
 
 # 绘制ref2面积折线
-line1 = ax2.plot(x, area_data['ref2'], 'o-', color='red',
-                 linewidth=3, markersize=12, label='Area ref2',
+line1 = ax2.plot(x, area_data['Routers'], 'o-', color='red',
+                 linewidth=3, markersize=12, label='Area of routers',
                  markeredgecolor='darkred', markeredgewidth=2)
 
 # 绘制socc4 units面积折线
-line2 = ax2.plot(x, area_data['socc4 units'], 's-', color='green',
-                 linewidth=3, markersize=12, label='Area socc4 units',
-                 markeredgecolor='darkgreen', markeredgewidth=2)
+line2 = ax2.plot(x, area_data['Ordering units'], 's-', color='blue',
+                 linewidth=3, markersize=12, label='Area of ordering units',
+                 markeredgecolor='red', markeredgewidth=2)
 
 # 在折线上添加数值标签
-for i, (x_val, y_val) in enumerate(zip(x, area_data['ref2'])):
+for i, (x_val, y_val) in enumerate(zip(x, area_data['Routers'])):
     if y_val > 10000:
         label_text = f'{y_val / 1000:.2f}k'
     else:
@@ -97,16 +97,11 @@ for i, (x_val, y_val) in enumerate(zip(x, area_data['ref2'])):
              ha='center', va='bottom', fontsize=20,
              fontweight='bold', color='red')
 
-# socc4 units的标签
-ax2.text(1.5, 51.64, f'51.64 kGE (constant)',
-         ha='center', va='bottom', fontsize=20,
-         fontweight='bold', color='green',
-         bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
-                   edgecolor='green', alpha=0.8))
+ 
 
 # 设置右Y轴 - 从负值开始以显示底部的线
 ax2.set_ylabel('Area (kGE)', fontsize=20, fontweight='bold', color='black')
-ax2.set_ylim(-10000, max(area_data['ref2']) * 1.15)
+ax2.set_ylim(-10000, max(area_data['Routers']) * 1.15)
 ax2.tick_params(axis='y', labelcolor='black', labelsize=16)
 
 # 在Y轴0处添加水平参考线

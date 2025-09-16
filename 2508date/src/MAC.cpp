@@ -42,6 +42,7 @@
  */
 
 #include "MAC.hpp"
+#include "mc_mapping.hpp"
 
 MAC::MAC(int t_id, MACnet *t_net, int t_NI_id) {
 	selfMACid = t_id;
@@ -72,72 +73,16 @@ MAC::MAC(int t_id, MACnet *t_net, int t_NI_id) {
 
 	// find dest id
 	//这里 xid = row（行），yid = col（列）
-	int xid = NI_id / X_NUM;
-	int yid = NI_id % X_NUM;
-	// MC nodes
-
-#if defined MemNode2_4X4
-	dest_mem_id = dest_list[(yid / 2)];
-#elif defined MemNode4_4X4
-	if (xid <= 1 && yid <= 1) {
-		dest_mem_id = dest_list[0]; // 上左 left and upper
-	} else if (xid >= 2 && yid <= 1) {// 下左
-		dest_mem_id = dest_list[1];
-	} else if (xid <= 1 && yid >= 2) { //上右
-		dest_mem_id = dest_list[2];
-	} else if ((xid >= 2 && yid >= 2)) { //下右
-		dest_mem_id = dest_list[3];
-	} else {
-		cout << "error!line66";
+	// 使用新的映射函数
+	dest_mem_id = get_mc_for_pe(NI_id, X_NUM, Y_NUM);
+	
+	// Debug output for first few MACs
+	if (selfMACid < 4) {
+		int xid = NI_id / X_NUM;
+		int yid = NI_id % X_NUM;
+		std::cout << "MAC[" << selfMACid << "] at (" << xid << "," << yid 
+		          << ") -> MC " << dest_mem_id << std::endl;
 	}
-
-#elif defined MemNode4_8X8
-    const int mid = X_NUM / 2;
-    if (xid < mid && yid < mid) {
-        dest_mem_id = dest_list[0]; // tl: 上左
-    } else if (xid   >= mid && yid < mid) {
-        dest_mem_id = dest_list[1]; // bl: 下左
-    } else if (xid < mid && yid >= mid) {
-        dest_mem_id = dest_list[2]; // tr: 上右
-    } else if (xid >= mid && yid >= mid)
-	{
-        dest_mem_id = dest_list[3]; // br: 下右
-    }else {
-		cout << "error!line66";
-	}
-#elif defined MemNode4_16X16
-    const int mid = X_NUM / 2;
-    if (xid < mid && yid < mid) {
-        dest_mem_id = dest_list[0]; // tl: 上左
-    } else if (xid   >= mid && yid < mid) {
-        dest_mem_id = dest_list[1]; // bl: 下左
-    } else if (xid < mid && yid >= mid) {
-        dest_mem_id = dest_list[2]; // tr: 上右
-    } else if (xid >= mid && yid >= mid)
-	{
-        dest_mem_id = dest_list[3]; // br: 下右
-    }else {
-		cout << "error!line66";
-	}
-#elif defined MemNode4_32X32
-    // 32×32 网格按中线分象限：x 是行(0..31)，y 是列(0..31)
-    const int mid = X_NUM / 2; // 对 32×32 即 16
-    if (xid < mid && yid < mid) {
-        dest_mem_id = dest_list[0]; // tl: 上左
-    } else if (xid   >= mid && yid < mid) {
-        dest_mem_id = dest_list[1]; // bl: 下左
-    } else if (xid < mid && yid >= mid) {
-        dest_mem_id = dest_list[2]; // tr: 上右
-    } else if (xid >= mid && yid >= mid)
-	{
-        dest_mem_id = dest_list[3]; // br: 下右
-    }else {
-		cout << "error!line66";
-	}
-
-
-
-#endif
 	cnn_task_queue.clear();
 }
 

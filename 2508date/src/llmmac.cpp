@@ -118,6 +118,7 @@
 // 小矩阵版本的 llmmac.cpp - 4x4可调试
 #include "llmmac.hpp"
 #include "llmmacnet.hpp"
+#include "mc_mapping.hpp"
 #include "yzIEEE754.hpp"  // For bit-count sorting functions
 #include <ctime>
 #include <iomanip>
@@ -193,65 +194,21 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	current_subchunk_id = 0;
 
 	// Find destination memory ID
-	int xid = NI_id / X_NUM;
-	int yid = NI_id % X_NUM;
-
-#if defined MemNode2_4X4
-	dest_mem_id = dest_list[(yid / 2)];
-#elif defined MemNode4_4X4
-	if (xid <= 1 && yid <= 1) {
-		dest_mem_id = dest_list[0];
-	} else if (xid >= 2 && yid <= 1) {
-		dest_mem_id = dest_list[1];
-	} else if (xid <= 1 && yid >= 2) {
-		dest_mem_id = dest_list[2];
-	} else if ((xid >= 2 && yid >= 2)) {
-		dest_mem_id = dest_list[3];
-	} else {
-		cout << "Error in LLMMAC constructor";
+	// 使用新的映射函数
+	dest_mem_id = get_mc_for_pe(NI_id, X_NUM, Y_NUM);
+	
+	// Debug output for first few MACs
+	if (selfMACid < 16) {
+		int xid = NI_id / X_NUM;
+		int yid = NI_id % X_NUM;
+		std::cout << "204LLMMAC[" << selfMACid << "] at (" << xid << "," << yid
+		          << ") -> MC " << dest_mem_id << std::endl;
 	}
-#elif defined MemNode4_8X8
-	const int mid = X_NUM / 2;
-	if (xid < mid && yid < mid) {
-		dest_mem_id = dest_list[0];
-	} else if (xid >= mid && yid < mid) {
-		dest_mem_id = dest_list[1];
-	} else if (xid < mid && yid >= mid) {
-		dest_mem_id = dest_list[2];
-	} else if (xid >= mid && yid >= mid) {
-		dest_mem_id = dest_list[3];
-	} else {
-		cout << "Error in LLMMAC constructor";
-	}
-#elif defined MemNode4_16X16
-	const int mid = X_NUM / 2;
-	if (xid < mid && yid < mid) {
-		dest_mem_id = dest_list[0];
-	} else if (xid >= mid && yid < mid) {
-		dest_mem_id = dest_list[1];
-	} else if (xid < mid && yid >= mid) {
-		dest_mem_id = dest_list[2];
-	} else if (xid >= mid && yid >= mid) {
-		dest_mem_id = dest_list[3];
-	} else {
-		cout << "Error in LLMMAC constructor";
-	}
-#elif defined MemNode4_32X32
-	const int mid = X_NUM / 2;
-	if (xid < mid && yid < mid) {
-		dest_mem_id = dest_list[0];
-	} else if (xid >= mid && yid < mid) {
-		dest_mem_id = dest_list[1];
-	} else if (xid < mid && yid >= mid) {
-		dest_mem_id = dest_list[2];
-	} else if (xid >= mid && yid >= mid) {
-		dest_mem_id = dest_list[3];
-	} else {
-		cout << "Error in LLMMAC constructor";
-	}
-#endif
 
 	llmPEExpectedtasktable.clear();
+
+	// Initialize latency monitoring
+	latency_monitor = LatencyMonitoring();
 }
 
 bool LLMMAC::llmMemNodeInject(int type, int d_id, int  tllm_eleNum, float t_output, NI* t_NI, int p_id, int mac_src,int task_id) {
@@ -557,17 +514,58 @@ void LLMMAC::llmRunOneStep() {
 		else if (selfstatus == 4) {
 			// Save completed task timing
 			task_timings.push_back(current_task_timing);
-			
-			// Update sampling window delay for SAMOS mapping
+
+			// Update sampling window delay and monitoring for SAMOS mapping
 			#ifdef YZSAMOSSampleMapping
 			if (net && net->mapping_again == 1) {  // Only during sampling phase
 				// Calculate total latency for this task
 				int total_latency = current_task_timing.compute_end_cycle - current_task_timing.request_send_cycle;
-				//if (selfMACid == 0 && samplingWindowDelay[0] > 300000) {
-				//	cout << "Line588: MAC 0 large delay! Before=" << samplingWindowDelay[0] 
-				//	     << " adding=" << total_latency << " task_id=" << current_task_timing.task_id << endl;
-				//}
+
 				samplingWindowDelay[selfMACid] += total_latency;
+
+				// Store the expected latency from SAMOS sampling
+				if (latency_monitor.samos_expected_latency == 0.0) {
+					// Store the average latency from sampling phase
+					latency_monitor.samos_expected_latency = total_latency;  // This will be averaged later
+				}
+			} else {
+				// During actual execution phase - track the real latency
+				int actual_latency = current_task_timing.compute_end_cycle - current_task_timing.request_send_cycle;
+
+				// Update monitoring statistics
+				latency_monitor.task_count++;
+				latency_monitor.actual_latency_sum += actual_latency;
+				latency_monitor.actual_latency_min = std::min(latency_monitor.actual_latency_min, (double)actual_latency);
+				latency_monitor.actual_latency_max = std::max(latency_monitor.actual_latency_max, (double)actual_latency);
+
+				// Check if we should print a summary (every 10,000 tasks)
+				const int REPORT_INTERVAL = 10000;
+				if (latency_monitor.task_count - latency_monitor.last_report_task_count >= REPORT_INTERVAL) {
+					// Calculate averages
+					double actual_avg = latency_monitor.actual_latency_sum / latency_monitor.task_count;
+
+					// Get SAMOS expected latency (if available)
+					double samos_expected = 0.0;
+					if (latency_monitor.samos_expected_latency == 0.0 && samplingTasksPerMAC > 0) {
+						// Calculate from samplingWindowDelay if not already set
+						samos_expected = samplingWindowDelay[selfMACid] / samplingTasksPerMAC;
+					} else {
+						samos_expected = latency_monitor.samos_expected_latency;
+					}
+
+					// Print summary
+					std::cout << "[LATENCY-MONITOR] MAC " << selfMACid
+					          << " after " << latency_monitor.task_count << " tasks:"
+					          << " SAMOS_expected=" << std::fixed << std::setprecision(2) << samos_expected
+					          << " Actual_avg=" << actual_avg
+					          << " Actual_min=" << latency_monitor.actual_latency_min
+					          << " Actual_max=" << latency_monitor.actual_latency_max
+					          << " Discrepancy=" << (actual_avg - samos_expected)
+					          << " (" << (100.0 * (actual_avg - samos_expected) / samos_expected) << "%)"
+					          << std::endl;
+
+					latency_monitor.last_report_task_count = latency_monitor.task_count;
+				}
 			}
 			#endif
 
@@ -577,6 +575,29 @@ void LLMMAC::llmRunOneStep() {
 				// - Purpose: A final, static state indicating this MAC has completed all its tasks.
 				// - Duration: Stays in this state until the simulation ends.
 				this->selfstatus = 5;
+
+				#ifdef YZSAMOSSampleMapping
+				// Print final summary when MAC finishes all tasks
+				if (latency_monitor.task_count > 0) {
+					double actual_avg = latency_monitor.actual_latency_sum / latency_monitor.task_count;
+					double samos_expected = 0.0;
+					if (latency_monitor.samos_expected_latency == 0.0 && samplingTasksPerMAC > 0) {
+						samos_expected = samplingWindowDelay[selfMACid] / samplingTasksPerMAC;
+					} else {
+						samos_expected = latency_monitor.samos_expected_latency;
+					}
+
+					std::cout << "[LATENCY-MONITOR-FINAL] MAC " << selfMACid
+					          << " COMPLETED " << latency_monitor.task_count << " tasks:"
+					          << " SAMOS_expected=" << std::fixed << std::setprecision(2) << samos_expected
+					          << " Actual_avg=" << actual_avg
+					          << " Actual_min=" << latency_monitor.actual_latency_min
+					          << " Actual_max=" << latency_monitor.actual_latency_max
+					          << " Final_Discrepancy=" << (actual_avg - samos_expected)
+					          << " (" << (100.0 * (actual_avg - samos_expected) / samos_expected) << "%)"
+					          << std::endl;
+				}
+				#endif
 
 			} else {
 				this->selfstatus = 0;

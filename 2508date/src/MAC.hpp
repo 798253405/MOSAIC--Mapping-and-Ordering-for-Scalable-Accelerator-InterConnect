@@ -106,6 +106,12 @@
 		961, 963, 965, 967, 969, 971, 973, 975,
 		977, 979, 981, 983, 985, 987, 989, 991
 	};
+#elif defined TACOMC4_4X4
+	#define MEM_NODES 4
+	const int dest_list[] = {5, 13, 7, 15}; // 8*8
+#elif defined TACOMC4_8X8
+	#define MEM_NODES 4
+	const int dest_list[] = {18, 21, 50, 53}; // 8*8
 #endif
 //
 

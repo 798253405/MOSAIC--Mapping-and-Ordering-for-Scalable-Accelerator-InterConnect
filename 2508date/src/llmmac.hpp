@@ -75,6 +75,7 @@
 	#define MEM_NODES 2
 	const int dest_list[] = {9, 11}; // (2,1) and (2,3) in 4x4 grid
 
+
 #elif defined DATEMC8_8X8
 	#define MEM_NODES 8
 	// 2x2 tiles, each tile has MCs at local (2,1) and (2,3)

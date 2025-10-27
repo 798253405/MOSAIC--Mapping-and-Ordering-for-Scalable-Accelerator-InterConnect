@@ -4,8 +4,8 @@
 #define DEFAULT_NNINPUT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/input2.txt"
 #define DEFAULT_NNMODEL_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/newnet2.txt"
 
-#define randomeval
-//#define fulleval
+//#define randomeval
+#define fulleval
 //#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
 
 // CNN Random Data Test - Replace CNN inbuffer data with random values (same as LLM)
@@ -14,21 +14,31 @@
 
 // NoC Configuration - Choose one
 //#define DATEMC2_4X4      // 2 MCs in 4x4 mesh (base tile pattern)
-#define DATEMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
+//#define DATEMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
 //#define DATEMC32_16X16   // 32 MCs in 16x16 mesh (4x4 tiles)
 //#define DATEMC128_32X32  // 128 MCs in 32x32 mesh (8x8 tiles)
+#define TACOMC4_4X4
+//#define TACOMC4_8X8
+
+
 
 // Test Case Configuration - Choose one
-//#define case1_default
-#define case2_samos
+#define case1_default
+//#define case2_samos
 //#define case3_affiliatedordering
 //#define case4_seperratedordering
 //#define case5_MOSAIC1
 //#define case6_MOSAIC2
 
+
+ //#define TACOall128BitInvert
+//#define TACOpartionedInvert
+
+
+
 //#define  PADDING_RANDOM
 
-#define YZLLMSwitchON
+//#define YZLLMSwitchON
 //#define LLMPADDING_RANDOM
 #define LLM_OPTIMIZED_TYPE03_HANDLING  // Enable optimized Type 0/3 handling (16 elements only)
 #define LLM_OUTPUT_PATH "src/output/"
@@ -128,6 +138,22 @@
 	#define Y_NUM 32
 	#define TOT_NUM 1024
 	#define YZMEMCount 128
+#elif defined  TACOMC4_4X4
+	#define PE_X_NUM 4
+	#define PE_Y_NUM 4
+	//NI size
+	#define X_NUM 4
+	#define Y_NUM 4
+	#define TOT_NUM 16
+	#define YZMEMCount 4
+#elif defined TACOMC4_8X8
+	#define PE_X_NUM 8
+	#define PE_Y_NUM 8
+	//NI size
+	#define X_NUM 8
+	#define Y_NUM 8
+	#define TOT_NUM 64
+	#define YZMEMCount 4
 #endif
 
 #define LINK_TIME 2

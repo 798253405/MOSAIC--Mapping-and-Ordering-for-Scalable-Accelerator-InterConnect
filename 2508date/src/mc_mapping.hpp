@@ -78,7 +78,9 @@ inline int get_mc_for_pe(int ni_id, int x_num, int y_num) {
     } else {
         return dest_list[base_mc_idx + 1];  // 瓦片内右侧MC
     }
-    
+#elif defined TACOMC4_4X4
+
+#elif defined TACOMC4_8X8
 #else
     // 默认返回第一个MC
     return dest_list[0];

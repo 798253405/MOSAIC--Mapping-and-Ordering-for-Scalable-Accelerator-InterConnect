@@ -49,11 +49,11 @@
 
 
 
-#if defined DATEMC2_4X4
+#if defined NOCSIZEMC2_4X4
 	#define MEM_NODES 2
 	const int dest_list[] = {9, 11}; // (2,1) and (2,3) in 4x4 grid
 
-#elif defined DATEMC8_8X8
+#elif defined NOCSIZEMC8_8X8
 	#define MEM_NODES 8
 	// 2x2 tiles, each tile has MCs at local (2,1) and (2,3)
 	const int dest_list[] = {
@@ -63,7 +63,7 @@
 		53, 55    // Tile(1,1): (6,5), (6,7)
 	};
 
-#elif defined DATEMC32_16X16
+#elif defined NOCSIZEMC32_16X16
 	#define MEM_NODES 32
 	// 4x4 tiles, each tile has MCs at local (2,1) and (2,3)
 	const int dest_list[] = {
@@ -77,7 +77,7 @@
 		225, 227, 229, 231, 233, 235, 237, 239
 	};
 
-#elif defined DATEMC128_32X32
+#elif defined NOCSIZEMC128_32X32
 	#define MEM_NODES 128
 	// 8x8 tiles, each tile has MCs at local (2,1) and (2,3)
 	const int dest_list[] = {
@@ -194,6 +194,9 @@ class MAC
 	int n_tmpch;
 	deque<int> n_tmpm;
 
+#ifdef bianryroutingSwitch
+	int lastResponseRouting;  // 记录上一次response packet的routing状态 (1 or 2)
+#endif
 
 	MAC* nextMAC;
 

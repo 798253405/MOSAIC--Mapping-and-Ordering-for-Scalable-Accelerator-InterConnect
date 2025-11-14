@@ -35,13 +35,17 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	// Use configuration from parameters.hpp
 	#if LLM_TEST_CASE == 1
 	// Test Case 1: Small matrix test
-	
+	// X_input (8×4096) @ Wq^T (4096×128) = Q (8×128)
+	input_sequence_length = 8;//128;     // X_input has 8 rows
 	#elif LLM_TEST_CASE == 2
 	// Test Case 2: Real matrix 8×128 output
 	// Set actual dimensions for the real matrices
-	// X_input (8×4096) @ Wq^T (4096×128) = Q (8×128)
 
 	input_sequence_length = 128;     // X_input has 8 rows
+	#endif
+
+
+
 	input_hidden_dim = 4096;       // X_input has 4096 columns
 	query_output_dim = 128;        // Wq produces 128-dim query vectors
 	matrixOutputPixels_inputsequencelength = input_sequence_length;  // 8 rows output matrix (from X_input rows)
@@ -51,8 +55,8 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	// Each pixel generates N tasks (subchunks)
 	tasks_per_pixel = LLM_SUBCHUNKS_PER_PIXEL;  // Use configured subchunks per pixel
 	int elements_per_task = 128;  // 64 query + 64 key per task
-	total_task_slicedPixels = input_sequence_length * query_output_dim * LLM_SUBCHUNKS_PER_PIXEL;  // 8 * 128 * 64 = 65536 tasks
-	#endif
+	total_output_pixels = input_sequence_length * query_output_dim;  // 8 * 128 = 1024 pixels
+	total_task_slicedPixels = total_output_pixels * LLM_SUBCHUNKS_PER_PIXEL;  // 1024 * 64 = 65536 tasks
 
 
 	ready_flag = 0;
@@ -260,12 +264,22 @@ void LLMMACnet::llmNetRunStep() {
 				// Debug output for first few pixels
 				if (pixel_y == 0 && pixel_x <= 2) {
 					float expected = 0.0f;
-					if (pixel_x == 0) expected = 0.01544952f;
-					else if (pixel_x == 1) expected = -0.01119441f;
-					else if (pixel_x == 2) expected = 0.00336472f;
-					
-					std::cout << "[DEBUG-RECEIVED] Memory node received pixel[" << pixel_y << "][" << pixel_x << "] = " 
-					          << std::fixed << std::setprecision(8) << result_value 
+
+					// Set expected values based on LLM_TEST_CASE
+					#if LLM_TEST_CASE == 1
+						// Test Case 1: 8-sequence version expected values
+						if (pixel_x == 0) expected = 0.01544952f;
+						else if (pixel_x == 1) expected = -0.01119441f;
+						else if (pixel_x == 2) expected = 0.00336472f;
+					#elif LLM_TEST_CASE == 2
+						// Test Case 2: 128-sequence version expected values
+						if (pixel_x == 0) expected = 0.01204206f;
+						else if (pixel_x == 1) expected = -0.05397284f;
+						else if (pixel_x == 2) expected = 0.05427083f;
+					#endif
+
+					std::cout << "[DEBUG-RECEIVED] Memory node received pixel[" << pixel_y << "][" << pixel_x << "] = "
+					          << std::fixed << std::setprecision(8) << result_value
 					          << " (expected: " << expected << ", diff: " << (result_value - expected) << ")" << std::endl;
 				}
 			} else {
@@ -725,6 +739,12 @@ void LLMMACnet::llmCheckStatus() {
 				// 分配task IDs而不是pixel IDs
 				this->LLMMAC_list[i]->llmPEExpectedtasktable.assign(
 					llmTaskMappingTable[i].begin(), llmTaskMappingTable[i].end());
+
+#ifdef fireAdvance
+				// 设置总任务数
+				this->LLMMAC_list[i]->total_tasks = this->LLMMAC_list[i]->llmPEExpectedtasktable.size();
+#endif
+
 				active_macs++;
 				//cout << "MAC " << i << " assigned " << llmTaskMappingTable[i].size() << " tasks" << endl;
 			}
@@ -779,6 +799,21 @@ void LLMMACnet::llmCheckStatus() {
 			for (int i = 0; i < macNum; i++) {
 				LLMMAC_list[i]->selfstatus = 0;
 				// Also reset the current task ID to avoid assertion failure
+
+				#ifdef fireAdvance
+				// Reset fire advance counters for Phase 2
+				// Phase 1 counters (e.g., requests_sent=640) would exceed Phase 2 total_tasks (e.g., 512)
+				// This would cause MACs to immediately mark themselves as FINISHED
+				LLMMAC_list[i]->requests_sent = 0;
+				LLMMAC_list[i]->responses_received = 0;
+				LLMMAC_list[i]->tasks_completed = 0;
+				LLMMAC_list[i]->computing_task_id = -1;
+				LLMMAC_list[i]->fire_advance_counter = 0;
+				LLMMAC_list[i]->fire_advance_armed = false;
+
+				std::cout << "[PHASE2-RESET] MAC " << i
+				          << " fire advance counters reset for Phase 2" << std::endl;
+				#endif
 			}
 			return;
 		}

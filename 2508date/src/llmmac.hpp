@@ -71,11 +71,11 @@
 #include "yzllmieee754.hpp"  // LLM专用IEEE754排序优化
 // 注意: llmmacnet.hpp 会在 .cpp 文件中包含，避免循环依赖
 
-#if defined DATEMC2_4X4
+#if defined NOCSIZEMC2_4X4
 	#define MEM_NODES 2
 	const int dest_list[] = {9, 11}; // (2,1) and (2,3) in 4x4 grid
 
-#elif defined DATEMC8_8X8
+#elif defined NOCSIZEMC8_8X8
 	#define MEM_NODES 8
 	// 2x2 tiles, each tile has MCs at local (2,1) and (2,3)
 	const int dest_list[] = {
@@ -85,7 +85,7 @@
 		53, 55    // Tile(1,1): (6,5), (6,7)
 	};
 
-#elif defined DATEMC32_16X16
+#elif defined NOCSIZEMC32_16X16
 	#define MEM_NODES 32
 	// 4x4 tiles, each tile has MCs at local (2,1) and (2,3)
 	const int dest_list[] = {
@@ -99,7 +99,7 @@
 		225, 227, 229, 231, 233, 235, 237, 239
 	};
 
-#elif defined DATEMC128_32X32
+#elif defined NOCSIZEMC128_32X32
 	#define MEM_NODES 128
 	// 8x8 tiles, each tile has MCs at local (2,1) and (2,3)
 	const int dest_list[] = {
@@ -267,6 +267,23 @@ class LLMMAC
 		LatencyMonitoring latency_monitor;
 
 		deque<int> llmPEExpectedtasktable;
+
+#ifdef bianryroutingSwitch
+		int lastResponseRouting;  // 记录上一次response packet的routing状态 (1 or 2)
+#endif
+
+#ifdef fireAdvance
+		// Fire advance功能：提前发送下一个request
+		int total_tasks;              // 总任务数（初始队列大小）
+		int requests_sent;            // 已发送request的数量
+		int responses_received;       // 已收到response的数量
+		int tasks_completed;          // 已完成计算的数量
+
+		int fire_advance_counter;     // 倒计时：收到response后等多久发下一个request
+		bool fire_advance_armed;      // 是否已启动fire advance
+
+		int computing_task_id;        // 当前正在计算的task ID（-1表示无）
+#endif
 
 		LLMMAC* nextLLMMAC;
 		

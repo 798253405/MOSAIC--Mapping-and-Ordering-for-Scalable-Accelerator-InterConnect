@@ -13,10 +13,10 @@
 
 
 // NoC Configuration - Choose one
-//#define DATEMC2_4X4      // 2 MCs in 4x4 mesh (base tile pattern)
-#define DATEMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
-//#define DATEMC32_16X16   // 32 MCs in 16x16 mesh (4x4 tiles)
-//#define DATEMC128_32X32  // 128 MCs in 32x32 mesh (8x8 tiles)
+//#define NOCSIZEMC2_4X4      // 2 MCs in 4x4 mesh (base tile pattern)
+#define NOCSIZEMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
+//#define NOCSIZEMC32_16X16   // 32 MCs in 16x16 mesh (4x4 tiles)
+//#define NOCSIZEMC128_32X32  // 128 MCs in 32x32 mesh (8x8 tiles)
 
 // Test Case Configuration - Choose one
 //#define case1_default
@@ -100,28 +100,28 @@
 #define CACHE_DELAY 0
 #define flitcomparison
 
-#if defined DATEMC2_4X4
+#if defined NOCSIZEMC2_4X4
 	#define PE_X_NUM 4
 	#define PE_Y_NUM 4
 	#define X_NUM 4
 	#define Y_NUM 4
 	#define TOT_NUM 16
 	#define YZMEMCount 2
-#elif defined DATEMC8_8X8
+#elif defined NOCSIZEMC8_8X8
 	#define PE_X_NUM 8
 	#define PE_Y_NUM 8
 	#define X_NUM 8
 	#define Y_NUM 8
 	#define TOT_NUM 64
 	#define YZMEMCount 8
-#elif defined DATEMC32_16X16
+#elif defined NOCSIZEMC32_16X16
 	#define PE_X_NUM 16
 	#define PE_Y_NUM 16
 	#define X_NUM 16
 	#define Y_NUM 16
 	#define TOT_NUM 256
 	#define YZMEMCount 32
-#elif defined DATEMC128_32X32
+#elif defined NOCSIZEMC128_32X32
 	#define PE_X_NUM 32
 	#define PE_Y_NUM 32
 	#define X_NUM 32

@@ -49,29 +49,82 @@ VCRouter::VCRouter(int* t_id, int in_out_port_num, VCNetwork* t_vcNetwork, int t
   port_total_utilization = 0;
   port_utilization_innet = 0;
 }
-
-// For each head/head_tail flit coming from the in_link, do routing;
+// 主函数 - 根据packet的标志选择routing算法
+// xyroutingBool: 0=默认(用old), 1=old(XY routing), 2=new(YX routing)
 int VCRouter::getRoute(Flit* t_flit){
-      int x = t_flit->packet->destination[0];
-      int y = t_flit->packet->destination[1];
-      int z = t_flit->packet->destination[2];
-      if(y < id[1]){ // turn left
-	  return 3;
-      }else
-          if(y > id[1]){ // turn right
-              return 1;
-          }else{ // y direction
-              if(x < id[0]){ // turn up
-        	  return 0;
-              }else
-        	if(x > id[0]){ // turn down
-        	    return 2;
-        	}else // arrival
-        	    return (z+4); // 0->y+(up); 1->x+(right); 2->y-(down); 3->x-(left); 4/4+-> controller
-      }
-      assert(1==0);
-      return -1;
+    int routingMode = t_flit->packet->xyroutingBool;
+
+    // Debug: Count routing mode usage (only for first 1000 flits)
+    static int routing_count[3] = {0, 0, 0};
+    static int total_routed = 0;
+    if(total_routed < 1000 && routingMode >= 0 && routingMode <= 2){
+        routing_count[routingMode]++;
+        total_routed++;
+        if(total_routed == 1000){
+            cout << "[ROUTING-DEBUG] First 1000 flits routed: mode0(default)=" << routing_count[0]
+                 << " mode1(XY)=" << routing_count[1] << " mode2(YX)=" << routing_count[2] << endl;
+        }
+    }
+
+    if(routingMode == 0 || routingMode == 1){
+        return getRouteOld(t_flit);  // XY routing（左右优先）
+    } else if(routingMode == 2){
+        return getRouteNew(t_flit);  // YX routing（上下优先）
+    } else {
+        // 非法routing模式值
+        assert(false && "ERROR: Invalid xyroutingBool value, must be 0, 1, or 2");
+        return -1;
+    }
 }
+
+// 旧的routing: XY routing（左右优先，再上下）
+int VCRouter::getRouteOld(Flit* t_flit){
+    int x = t_flit->packet->destination[0];
+    int y = t_flit->packet->destination[1];
+    int z = t_flit->packet->destination[2];
+
+    if(y < id[1]){ // turn left
+        return 3;
+    } else if(y > id[1]){ // turn right
+        return 1;
+    } else { // y direction matches
+        if(x < id[0]){ // turn up
+            return 0;
+        } else if(x > id[0]){ // turn down
+            return 2;
+        } else { // arrival
+            return (z+4); // 0->y+(up); 1->x+(right); 2->y-(down); 3->x-(left); 4/4+-> controller
+        }
+    }
+    assert(1==0);
+    return -1;
+}
+
+// 新的routing: YX routing（上下优先，再左右）
+int VCRouter::getRouteNew(Flit* t_flit){
+    int x = t_flit->packet->destination[0];
+    int y = t_flit->packet->destination[1];
+    int z = t_flit->packet->destination[2];
+
+    // 先处理X方向（上下）
+    if(x < id[0]){ // turn up
+        return 0;
+    } else if(x > id[0]){ // turn down
+        return 2;
+    } else { // X方向已到达，再处理Y方向（左右）
+        if(y < id[1]){ // turn left
+            return 3;
+        } else if(y > id[1]){ // turn right
+            return 1;
+        } else { // arrival
+            return (z+4); // 0->y+(up); 1->x+(right); 2->y-(down); 3->x-(left); 4/4+-> controller
+        }
+    }
+    assert(1==0);
+    return -1;
+}
+
+
 
 void VCRouter::vcRequest(){  //for each vc in each port which is in state v(2), do vc request
   for(int i=0; i<port_num; i++){ //port round robin

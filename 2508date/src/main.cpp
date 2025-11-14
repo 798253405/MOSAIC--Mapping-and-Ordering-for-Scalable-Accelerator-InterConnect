@@ -12,12 +12,16 @@
 #include <iomanip>
 #include <stdio.h>
 #include <string.h>
+#include <algorithm>  // For sort
+#include <climits>    // For INT_MAX
 #include "parameters.hpp"
 #include "NoC/VCNetwork.hpp"
+#include "NoC/VCRouter.hpp"
 #include "MACnet.hpp"
 #include "Model.hpp"
 #include <ctime>  // For time()
 #include <chrono>  // For high resolution timing
+#include <cmath>  // For sqrt()
 
 #include "llmmacnet.hpp"
 #include "llmmac.hpp"
@@ -506,8 +510,9 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "  Total Cycles: " << cycles << endl;
 	cout << "  Total Flits Transmitted: " << YZGlobalFlit_id << endl;
 	cout << "  Total Packets Sent: " << packet_id << endl;
-	cout << "  Tasks Completed: " << llmMacnet->executed_tasks << "/" << llmMacnet->total_task_slicedPixels << endl;
-	float completion_rate = (float)llmMacnet->executed_tasks * 100.0f / llmMacnet->total_task_slicedPixels;
+	cout << "  Pixels Completed: " << llmMacnet->executed_tasks << "/" << llmMacnet->total_output_pixels << endl;
+	cout << "  Total Sub-tasks: " << llmMacnet->total_task_slicedPixels << " (" << llmMacnet->tasks_per_pixel << " per pixel)" << endl;
+	float completion_rate = (float)llmMacnet->executed_tasks * 100.0f / llmMacnet->total_output_pixels;
 	cout << "  Completion Rate: " << fixed << setprecision(2) << completion_rate << "%" << endl;
 	
 	// Hop statistics
@@ -624,6 +629,44 @@ int main(int arg_num, char *arg_vet[]) {
 			vcNetwork->NI_list[i]->in_port->yzweightCollsionCountInportCount;
 	}
 
+	// Collect port utilization statistics
+	long long total_port_utilization = 0;
+	long long total_innet_utilization = 0;
+	int max_utilization = 0;
+	int max_router_id = -1;
+	int min_utilization = INT_MAX;
+	int min_router_id = -1;
+
+	struct RouterUtil {
+		int router_id;
+		int total_util;
+		int innet_util;
+	};
+	vector<RouterUtil> router_utils;
+
+	for (int i = 0; i < TOT_NUM; i++) {
+		VCRouter* router = dynamic_cast<VCRouter*>(vcNetwork->router_list[i]);
+		if (router != NULL) {
+			total_port_utilization += router->port_total_utilization;
+			total_innet_utilization += router->port_utilization_innet;
+
+			RouterUtil ru;
+			ru.router_id = i;
+			ru.total_util = router->port_total_utilization;
+			ru.innet_util = router->port_utilization_innet;
+			router_utils.push_back(ru);
+
+			if (router->port_total_utilization > max_utilization) {
+				max_utilization = router->port_total_utilization;
+				max_router_id = i;
+			}
+			if (router->port_total_utilization < min_utilization) {
+				min_utilization = router->port_total_utilization;
+				min_router_id = i;
+			}
+		}
+	}
+
 	cout << "[DEBUG-MAIN-11] Network statistics collection completed" << endl;
 	cout << "\n=== NETWORK STATISTICS ===" << endl;
 
@@ -677,8 +720,81 @@ int main(int arg_num, char *arg_vet[]) {
 		cout << "MAC Efficiency: " << fixed << setprecision(2) << efficiency << "%" << endl;
 	}
 
+	// Port Utilization Statistics
+	cout << "\n=== PORT UTILIZATION STATISTICS ===" << endl;
+	cout << "Total Port Transmissions:" << endl;
+	cout << "  All ports (including NI): " << total_port_utilization << " flits" << endl;
+	cout << "  Network-internal ports only: " << total_innet_utilization << " flits" << endl;
+
+	if (cycles > 0) {
+		double avg_util_per_cycle = (double)total_port_utilization / (TOT_NUM * cycles);
+		double avg_innet_per_cycle = (double)total_innet_utilization / (TOT_NUM * cycles);
+		cout << "\nAverage Utilization:" << endl;
+		cout << "  Per router per cycle: " << fixed << setprecision(4) << avg_util_per_cycle << " flits" << endl;
+		cout << "  Network-internal per cycle: " << fixed << setprecision(4) << avg_innet_per_cycle << " flits" << endl;
+
+		// Calculate percentage utilization (assuming 5 ports per router, 1 flit/cycle max per port)
+		double total_capacity = TOT_NUM * 5.0 * cycles;  // Total port-cycles available
+		double util_percentage = (double)total_port_utilization / total_capacity * 100.0;
+		cout << "  Overall network utilization: " << fixed << setprecision(2) << util_percentage << "%" << endl;
+	}
+
+	cout << "\nRouter Utilization Range:" << endl;
+	if (max_router_id >= 0) {
+		int max_x = max_router_id / X_NUM;
+		int max_y = max_router_id % X_NUM;
+		cout << "  Max: Router " << max_router_id << " (" << max_x << "," << max_y
+		     << ") - " << max_utilization << " flits transmitted" << endl;
+	}
+	if (min_router_id >= 0) {
+		int min_x = min_router_id / X_NUM;
+		int min_y = min_router_id % X_NUM;
+		cout << "  Min: Router " << min_router_id << " (" << min_x << "," << min_y
+		     << ") - " << min_utilization << " flits transmitted" << endl;
+	}
+
+	// Sort and print top 10 busiest routers
+	sort(router_utils.begin(), router_utils.end(),
+	     [](const RouterUtil& a, const RouterUtil& b) {
+	         return a.total_util > b.total_util;
+	     });
+
+	cout << "\nTop 10 Busiest Routers:" << endl;
+	cout << "  Rank  Router ID  Position    Total Flits  InNet Flits  Util%" << endl;
+	cout << "  ----  ---------  ----------  -----------  -----------  -----" << endl;
+	int print_count = min(10, (int)router_utils.size());
+	for (int i = 0; i < print_count; i++) {
+		int rid = router_utils[i].router_id;
+		int rx = rid / X_NUM;
+		int ry = rid % X_NUM;
+		double util_pct = (cycles > 0) ? (double)router_utils[i].total_util / (5.0 * cycles) * 100.0 : 0.0;
+		cout << "  " << setw(4) << (i+1)
+		     << "  " << setw(9) << rid
+		     << "  (" << rx << "," << ry << ")     "
+		     << setw(11) << router_utils[i].total_util
+		     << "  " << setw(11) << router_utils[i].innet_util
+		     << "  " << fixed << setprecision(1) << setw(5) << util_pct << endl;
+	}
+
+	// Check if MC locations are hotspots
+	cout << "\nMemory Controller (MC) Router Utilization:" << endl;
+	int mc_locations_8x8[] = {17, 19, 21, 23, 49, 51, 53, 55};
+	for (int i = 0; i < 8; i++) {
+		int mc_id = mc_locations_8x8[i];
+		int mc_x = mc_id / X_NUM;
+		int mc_y = mc_id % X_NUM;
+		VCRouter* router = dynamic_cast<VCRouter*>(vcNetwork->router_list[mc_id]);
+		if (router != NULL) {
+			double util_pct = (cycles > 0) ? (double)router->port_total_utilization / (5.0 * cycles) * 100.0 : 0.0;
+			cout << "  MC at Router " << mc_id << " (" << mc_x << "," << mc_y << "): "
+			     << router->port_total_utilization << " flits ("
+			     << fixed << setprecision(1) << util_pct << "%)" << endl;
+		}
+	}
+
 	cout << "\n!!LLM ATTENTION SIMULATION END!!" << endl;
 
+#ifdef YZLLMSwitchON
 	// Print output matrix (attention_output_table)
 	cout << "\n==================== ATTENTION OUTPUT TABLE ====================" << endl;
 	cout << "Matrix dimensions: " << llmMacnet->input_sequence_length << " x " << llmMacnet->query_output_dim << endl;
@@ -740,10 +856,10 @@ int main(int arg_num, char *arg_vet[]) {
 	// Calculate and print some statistics about the output matrix
 	cout << "\nOutput Matrix Statistics:" << endl;
 	cout << "-------------------------" << endl;
-	
+
 	float min_val = 1e9, max_val = -1e9, sum = 0;
 	int zero_count = 0;
-	
+
 	for (int i = 0; i < llmMacnet->input_sequence_length; i++) {
 		for (int j = 0; j < llmMacnet->query_output_dim; j++) {
 			float val = llmMacnet->attention_output_table[i][j];
@@ -753,29 +869,178 @@ int main(int arg_num, char *arg_vet[]) {
 			if (abs(val) < 1e-6) zero_count++;
 		}
 	}
-	
+
 	int total_elements = llmMacnet->input_sequence_length * llmMacnet->query_output_dim;
 	float avg = sum / total_elements;
-	
+
 	cout << "  Min value: " << fixed << setprecision(6) << min_val << endl;
 	cout << "  Max value: " << fixed << setprecision(6) << max_val << endl;
 	cout << "  Average value: " << fixed << setprecision(6) << avg << endl;
-	cout << "  Zero elements: " << zero_count << " / " << total_elements 
+	cout << "  Zero elements: " << zero_count << " / " << total_elements
 	     << " (" << fixed << setprecision(2) << (100.0 * zero_count / total_elements) << "%)" << endl;
-	
+
+	// Load and compare with golden reference
+	cout << "\n==================== GOLDEN REFERENCE COMPARISON ====================" << endl;
+
+	// Select golden reference file based on LLM_TEST_CASE
+	string golden_file;
+	#if LLM_TEST_CASE == 1
+		// Test Case 1: 8-sequence version
+		golden_file = "/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/llminput/Q_result_python.txt";
+		cout << "Using golden reference: Q_result_python.txt (8 sequences)" << endl;
+	#elif LLM_TEST_CASE == 2
+		// Test Case 2: 128-sequence version
+		golden_file = "/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/llminput/Q_result_python_128seq.txt";
+		cout << "Using golden reference: Q_result_python_128seq.txt (128 sequences)" << endl;
+	#else
+		#error "Unknown LLM_TEST_CASE value"
+	#endif
+
+	ifstream golden_in(golden_file.c_str());
+
+	if (golden_in.is_open()) {
+		// Allocate golden reference matrix
+		float** golden_matrix = new float*[llmMacnet->input_sequence_length];
+		for (int i = 0; i < llmMacnet->input_sequence_length; i++) {
+			golden_matrix[i] = new float[llmMacnet->query_output_dim];
+		}
+
+		// Read golden reference
+		bool read_success = true;
+		for (int i = 0; i < llmMacnet->input_sequence_length; i++) {
+			for (int j = 0; j < llmMacnet->query_output_dim; j++) {
+				if (!(golden_in >> golden_matrix[i][j])) {
+					cout << "Error: Failed to read golden reference at [" << i << "][" << j << "]" << endl;
+					read_success = false;
+					break;
+				}
+			}
+			if (!read_success) break;
+		}
+		golden_in.close();
+
+		if (read_success) {
+			// Calculate error metrics
+			float mae = 0.0f;  // Mean Absolute Error
+			float mse = 0.0f;  // Mean Squared Error
+			float max_error = 0.0f;
+			int max_error_i = 0, max_error_j = 0;
+			float golden_min = 1e9, golden_max = -1e9, golden_sum = 0;
+
+			for (int i = 0; i < llmMacnet->input_sequence_length; i++) {
+				for (int j = 0; j < llmMacnet->query_output_dim; j++) {
+					float actual = llmMacnet->attention_output_table[i][j];
+					float expected = golden_matrix[i][j];
+					float error = abs(actual - expected);
+
+					mae += error;
+					mse += error * error;
+
+					if (error > max_error) {
+						max_error = error;
+						max_error_i = i;
+						max_error_j = j;
+					}
+
+					golden_min = min(golden_min, expected);
+					golden_max = max(golden_max, expected);
+					golden_sum += expected;
+				}
+			}
+
+			mae /= total_elements;
+			mse /= total_elements;
+			float rmse = sqrt(mse);
+			float golden_avg = golden_sum / total_elements;
+
+			// Print golden reference statistics
+			cout << "\nGolden Reference Statistics:" << endl;
+			cout << "  Min value: " << fixed << setprecision(6) << golden_min << endl;
+			cout << "  Max value: " << fixed << setprecision(6) << golden_max << endl;
+			cout << "  Average value: " << fixed << setprecision(6) << golden_avg << endl;
+
+
+		// Print first 5x5 elements of golden reference
+		cout << "\nGolden Reference - First 5x5 elements:" << endl;
+		cout << "-----------------------------------------------" << endl;
+		cout << "      ";
+		for (int j = 0; j < min(5, llmMacnet->query_output_dim); j++) {
+			cout << "    [" << j << "]     ";
+		}
+		cout << endl;
+		for (int i = 0; i < min(5, llmMacnet->input_sequence_length); i++) {
+			cout << "[" << i << "]  ";
+			if (i < 10) cout << " ";
+			for (int j = 0; j < min(5, llmMacnet->query_output_dim); j++) {
+				cout << fixed << setprecision(6) << setw(12) << golden_matrix[i][j] << " ";
+			}
+			cout << endl;
+		}
+
+		// Print element-by-element comparison for [0][0:5]
+		cout << "\nElement-by-Element Comparison [Row 0, Cols 0-4]:" << endl;
+		cout << "Col    Actual         Golden         Diff          Error%" << endl;
+		cout << "---    ------         ------         ----          ------" << endl;
+		for (int j = 0; j < min(5, llmMacnet->query_output_dim); j++) {
+			float actual = llmMacnet->attention_output_table[0][j];
+			float golden = golden_matrix[0][j];
+			float diff = actual - golden;
+			float error_pct = (golden != 0) ? (diff / golden) * 100 : 0;
+			cout << " " << j << "   "
+			     << fixed << setprecision(6) << setw(12) << actual << "  "
+			     << setw(12) << golden << "  "
+			     << setw(12) << diff << "  "
+			     << setw(8) << setprecision(2) << error_pct << "%" << endl;
+		}
+			// Print error metrics
+			cout << "\nError Metrics (Actual vs Golden):" << endl;
+			cout << "  Mean Absolute Error (MAE): " << scientific << setprecision(6) << mae << endl;
+			cout << "  Root Mean Squared Error (RMSE): " << scientific << setprecision(6) << rmse << endl;
+			cout << "  Max Absolute Error: " << scientific << setprecision(6) << max_error << endl;
+			cout << "    at position [" << max_error_i << "][" << max_error_j << "]" << endl;
+			cout << "    Actual: " << fixed << setprecision(6) << llmMacnet->attention_output_table[max_error_i][max_error_j] << endl;
+			cout << "    Golden: " << fixed << setprecision(6) << golden_matrix[max_error_i][max_error_j] << endl;
+
+			// Relative error
+			float relative_mae = (golden_avg != 0) ? (mae / abs(golden_avg)) * 100 : 0;
+			cout << "  Relative MAE: " << fixed << setprecision(2) << relative_mae << "%" << endl;
+
+			// Correctness assessment
+			cout << "\nCorrectness Assessment:" << endl;
+			if (mae < 1e-5) {
+				cout << "  ✓ EXCELLENT: Results match golden reference within floating-point precision" << endl;
+			} else if (mae < 1e-3) {
+				cout << "  ✓ GOOD: Results are very close to golden reference" << endl;
+			} else if (mae < 0.01) {
+				cout << "  ⚠ ACCEPTABLE: Results have small differences from golden reference" << endl;
+			} else {
+				cout << "  ✗ WARNING: Results differ significantly from golden reference" << endl;
+			}
+		}
+
+		// Cleanup
+		for (int i = 0; i < llmMacnet->input_sequence_length; i++) {
+			delete[] golden_matrix[i];
+		}
+		delete[] golden_matrix;
+	} else {
+		cout << "Warning: Could not open golden reference file: " << golden_file << endl;
+	}
+
 	cout << "==================== END OUTPUT MATRIX ====================" << endl;
+#endif // YZLLMSwitchON
 
 	// Calculate and display execution time
 	end = clock();
 	double elapsed_time = double(end - start) / CLOCKS_PER_SEC;
 	cout << "Total execution time: " << fixed << setprecision(3) << elapsed_time << " seconds" << endl;
 	// Cleanup
-	cout << "[DEBUG-MAIN-17] Starting cleanup" << endl;
+	// cout << "[DEBUG-MAIN-17] Starting cleanup" << endl;
 	delete llmMacnet;
-	cout << "[DEBUG-MAIN-18] Deleted llmMacnet" << endl;
+	// cout << "[DEBUG-MAIN-18] Deleted llmMacnet" << endl;
 	delete vcNetwork;
-	cout << "[DEBUG-MAIN-19] Deleted vcNetwork" << endl;
-	cout << "[DEBUG-MAIN-20] Cleanup completed, returning from main()" << endl;
+	// cout << "[DEBUG-MAIN-19] Deleted vcNetwork" << endl;
+	// cout << "[DEBUG-MAIN-20] Cleanup completed, returning from main()" << endl;
 
 	return 0;
 }

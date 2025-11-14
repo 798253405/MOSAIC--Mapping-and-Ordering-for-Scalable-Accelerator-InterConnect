@@ -82,6 +82,7 @@ public:
 
 	int tasks_per_pixel;          // Number of sub-tasks each pixel is divided into (e.g., 4)
 	int total_task_slicedPixels;  // Total number of tasks (sliced pixels)
+	int total_output_pixels;      // Total number of output pixels (without slicing)
 
 
 

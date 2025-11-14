@@ -71,6 +71,10 @@ MAC::MAC(int t_id, MACnet *t_net, int t_NI_id) {
 	n_tmpch = 0;
 	n_tmpm.clear();
 
+#ifdef bianryroutingSwitch
+	lastResponseRouting = 1;  // 初始化为1，第一个response packet使用routing 1
+#endif
+
 	// find dest id
 	//这里 xid = row（行），yid = col（列）
 	// 使用新的映射函数
@@ -203,6 +207,18 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);
 	packet->send_out_time = pecycle;
 	packet->in_net_time = pecycle;
+
+#ifdef bianryroutingSwitch
+	// Response packets alternate between routing 1 and 2
+	if (packet->message.msgtype == 1) {  // msgtype 1 = response packets
+		// Use the next routing mode (toggle between 1 and 2)
+		packet->xyroutingBool = (lastResponseRouting == 1) ? 2 : 1;
+		// Update for next response packet
+		lastResponseRouting = packet->xyroutingBool;
+	}
+	// Request packets keep default (0)
+#endif
+
 	net->vcNetwork->NI_list[NI_id]->packetBuffer_list[packet->vnet]->enqueue(
 			packet);
 	return true;

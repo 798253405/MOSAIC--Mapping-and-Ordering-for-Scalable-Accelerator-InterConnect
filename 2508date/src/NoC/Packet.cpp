@@ -36,6 +36,8 @@ Packet::Packet(Message t_message, int router_num_x, int* NI_num){
   send_out_time = 0;
   // added
   in_net_time = 0;
+  // 默认使用 old routing (XY routing)
+  xyroutingBool = 0;
 }
 
 /*

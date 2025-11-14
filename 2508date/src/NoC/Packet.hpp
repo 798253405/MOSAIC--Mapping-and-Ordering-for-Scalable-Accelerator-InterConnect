@@ -52,7 +52,8 @@ public:
   //added
   int in_net_time;
 
-
+  // Routing mode: 0=default(use old/XY), 1=old/XY routing, 2=new/YX routing
+  int xyroutingBool;
 
 };
 

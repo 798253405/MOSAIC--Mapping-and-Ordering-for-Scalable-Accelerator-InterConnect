@@ -209,6 +209,20 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 
 	// Initialize latency monitoring
 	latency_monitor = LatencyMonitoring();
+
+#ifdef bianryroutingSwitch
+	lastResponseRouting = 1;  // 初始化为1，第一个response packet使用routing 1
+#endif
+
+#ifdef fireAdvance
+	total_tasks = 0;
+	requests_sent = 0;
+	responses_received = 0;
+	tasks_completed = 0;
+	computing_task_id = -1;
+	fire_advance_counter = 0;
+	fire_advance_armed = false;
+#endif
 }
 
 bool LLMMAC::llmMemNodeInject(int type, int d_id, int  tllm_eleNum, float t_output, NI* t_NI, int p_id, int mac_src,int task_id) {
@@ -265,6 +279,18 @@ bool LLMMAC::llmMemNodeInject(int type, int d_id, int  tllm_eleNum, float t_outp
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);
 	packet->send_out_time = pecycle;
 	packet->in_net_time = pecycle;
+
+#ifdef bianryroutingSwitch
+	// Response packets alternate between routing 1 and 2
+	if (packet->message.msgtype == 1) {  // msgtype 1 = response packets
+		// Use the next routing mode (toggle between 1 and 2)
+		packet->xyroutingBool = (lastResponseRouting == 1) ? 2 : 1;
+		// Update for next response packet
+		lastResponseRouting = packet->xyroutingBool;
+	}
+	// Request packets keep default (0)
+#endif
+
 	net->vcNetwork->NI_list[NI_id]->packetBuffer_list[packet->vnet]->enqueue(packet);
 
 	return true;
@@ -367,14 +393,25 @@ bool LLMMAC::llmPEInject(int type, int d_id, int  tllm_eleNum, float t_output, N
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);
 	packet->send_out_time = pecycle;
 	packet->in_net_time = pecycle;
-	
+
+#ifdef bianryroutingSwitch
+	// req packets alternate between routing 1 and 2
+	if (packet->message.msgtype == 0) {  // 0=request msgtype 1 = response packets
+		// Use the next routing mode (toggle between 1 and 2)
+		packet->xyroutingBool = (lastResponseRouting == 1) ? 2 : 1;
+		// Update for next response packet
+		lastResponseRouting = packet->xyroutingBool;
+	}
+	// Request packets keep default (0)
+#endif
+
 	// if (msg.msgtype == 3) {
-	// 	std::cout << "[LLM-ENQUEUE-TYPE3] Enqueuing Type 3 to vnet=" << packet->vnet 
-	// 	          << " (buffer[0]) at NI " << NI_id << " -> dest " << msg.destination 
-	// 	          << " send_out_time=" << packet->send_out_time 
+	// 	std::cout << "[LLM-ENQUEUE-TYPE3] Enqueuing Type 3 to vnet=" << packet->vnet
+	// 	          << " (buffer[0]) at NI " << NI_id << " -> dest " << msg.destination
+	// 	          << " send_out_time=" << packet->send_out_time
 	// 	          << " out_cycle=" << msg.out_cycle << std::endl;
 	// }
-	
+
 	net->vcNetwork->NI_list[NI_id]->packetBuffer_list[packet->vnet]->enqueue(packet);
 	return true;
 }
@@ -426,6 +463,11 @@ void LLMMAC::llmRunOneStep() {
 			int dst_x = dest_mem_id % X_NUM;
 			int dst_y = dest_mem_id / X_NUM;
 			current_task_timing.request_hops = abs(dst_x - src_x) + abs(dst_y - src_y);
+
+#ifdef fireAdvance
+			requests_sent++;
+#endif
+
 			selfstatus = 2;
 			pecycle = cycles;
 		}
@@ -434,12 +476,22 @@ void LLMMAC::llmRunOneStep() {
 		// - Duration: Variable. Depends on the network travel time for the request packet to reach memory
 		//             and the response packet to return.
 		else if (selfstatus == 2) {
+#ifndef fireAdvance
 			if (currentRequestedTaskIDd >= 0) {
 				pecycle = cycles;
 				selfstatus = 2;
 				//std::cout << "llmmac439 selfstatus [DATA-CHECK] MAC "  << selfMACid  << " taskwearedoing now " << currentRequestedTaskIDd<<endl;
 				return;
 			}
+#else
+			// Fire advance模式：检查是否有response到达
+			if (computing_task_id < 0) {
+				// 还没有收到response，继续等待
+				pecycle = cycles;
+				selfstatus = 2;
+				return;
+			}
+#endif
 			// Track response arrival time (this is when we process it)
 			current_task_timing.response_arrive_cycle = cycles;
 			selfstatus = 3;
@@ -505,14 +557,9 @@ void LLMMAC::llmRunOneStep() {
 			
 			// Calculate result packet hops (same as request)
 			current_task_timing.result_hops = current_task_timing.request_hops;
-			
-			return;
-		}
-		// State 4: COMPLETE
-		// - Purpose: Finalize a single sub-task's computation and decide the next state.
-		// - Duration: 1 cycle. This state is transitional.
-		else if (selfstatus == 4) {
-			// Save completed task timing
+
+			// Fire advance会跳过state 4，所以在这里就完成统计
+			// Save completed task timing (moved from state 4)
 			task_timings.push_back(current_task_timing);
 
 			// Update sampling window delay and monitoring for SAMOS mapping
@@ -526,7 +573,7 @@ void LLMMAC::llmRunOneStep() {
 				// Store the expected latency from SAMOS sampling
 				if (latency_monitor.samos_expected_latency == 0.0) {
 					// Store the average latency from sampling phase
-					latency_monitor.samos_expected_latency = total_latency;  // This will be averaged later
+					latency_monitor.samos_expected_latency = total_latency;
 				}
 			} else {
 				// During actual execution phase - track the real latency
@@ -537,39 +584,29 @@ void LLMMAC::llmRunOneStep() {
 				latency_monitor.actual_latency_sum += actual_latency;
 				latency_monitor.actual_latency_min = std::min(latency_monitor.actual_latency_min, (double)actual_latency);
 				latency_monitor.actual_latency_max = std::max(latency_monitor.actual_latency_max, (double)actual_latency);
-
-				// Check if we should print a summary (every 10,000 tasks)
-				const int REPORT_INTERVAL = 10000;
-				if (latency_monitor.task_count - latency_monitor.last_report_task_count >= REPORT_INTERVAL) {
-					// Calculate averages
-					double actual_avg = latency_monitor.actual_latency_sum / latency_monitor.task_count;
-
-					// Get SAMOS expected latency (if available)
-					double samos_expected = 0.0;
-					if (latency_monitor.samos_expected_latency == 0.0 && samplingTasksPerMAC > 0) {
-						// Calculate from samplingWindowDelay if not already set
-						samos_expected = samplingWindowDelay[selfMACid] / samplingTasksPerMAC;
-					} else {
-						samos_expected = latency_monitor.samos_expected_latency;
-					}
-
-					// Print summary
-					std::cout << "[LATENCY-MONITOR] MAC " << selfMACid
-					          << " after " << latency_monitor.task_count << " tasks:"
-					          << " SAMOS_expected=" << std::fixed << std::setprecision(2) << samos_expected
-					          << " Actual_avg=" << actual_avg
-					          << " Actual_min=" << latency_monitor.actual_latency_min
-					          << " Actual_max=" << latency_monitor.actual_latency_max
-					          << " Discrepancy=" << (actual_avg - samos_expected)
-					          << " (" << (100.0 * (actual_avg - samos_expected) / samos_expected) << "%)"
-					          << std::endl;
-
-					latency_monitor.last_report_task_count = latency_monitor.task_count;
-				}
 			}
 			#endif
 
+#ifdef fireAdvance
+			tasks_completed++;
+			computing_task_id = -1;  // 清空，表示计算完成
+#endif
+
+			return;
+		}
+		// State 4: COMPLETE
+		// - Purpose: Finalize a single sub-task's computation and decide the next state.
+		// - Duration: 1 cycle. This state is transitional.
+		else if (selfstatus == 4) {
+			// 注意：统计代码已经移到State 3执行（line 561-593），因为Fire Advance会跳过State 4
+			// Statistics code moved to State 3 (lines 561-593) because Fire Advance bypasses State 4
+			// 删除重复的统计代码以避免double-counting（这导致了514 vs 512的差异）
+			// Removed duplicate statistics to avoid double-counting (which caused the 514 vs 512 discrepancy)
+
 			this->send = 0;
+
+#ifndef fireAdvance
+			// 原逻辑：检查任务队列
 			if (this->llmPEExpectedtasktable.size() == 0) {
 				// State 5: FINISHED
 				// - Purpose: A final, static state indicating this MAC has completed all its tasks.
@@ -602,12 +639,103 @@ void LLMMAC::llmRunOneStep() {
 			} else {
 				this->selfstatus = 0;
 			}
+#else
+			// Fire advance模式：检查是否所有任务都完成
+			if (tasks_completed >= total_tasks) {
+				this->selfstatus = 5;
+
+				#ifdef YZSAMOSSampleMapping
+				// Print final summary when MAC finishes all tasks
+				if (latency_monitor.task_count > 0) {
+					double actual_avg = latency_monitor.actual_latency_sum / latency_monitor.task_count;
+					double samos_expected = 0.0;
+					if (latency_monitor.samos_expected_latency == 0.0 && samplingTasksPerMAC > 0) {
+						samos_expected = samplingWindowDelay[selfMACid] / samplingTasksPerMAC;
+					} else {
+						samos_expected = latency_monitor.samos_expected_latency;
+					}
+
+					std::cout << "[LATENCY-MONITOR-FINAL] MAC " << selfMACid
+					          << " COMPLETED " << latency_monitor.task_count << " tasks:"
+					          << " SAMOS_expected=" << std::fixed << std::setprecision(2) << samos_expected
+					          << " Actual_avg=" << actual_avg
+					          << " Actual_min=" << latency_monitor.actual_latency_min
+					          << " Actual_max=" << latency_monitor.actual_latency_max
+					          << " Final_Discrepancy=" << (actual_avg - samos_expected)
+					          << " (" << (100.0 * (actual_avg - samos_expected) / samos_expected) << "%)"
+					          << std::endl;
+				}
+				#endif
+
+				// Fire advance统计
+				std::cout << "[FIRE-ADVANCE-FINAL] MAC " << selfMACid
+				          << " stats: sent=" << requests_sent
+				          << " received=" << responses_received
+				          << " completed=" << tasks_completed
+				          << " (total=" << total_tasks << ")" << std::endl;
+
+			} else if (computing_task_id >= 0) {
+				// 还在计算中
+				this->selfstatus = 4;
+			} else if (responses_received < requests_sent) {
+				// 有outstanding requests，回到WAITING
+				this->selfstatus = 2;
+			} else {
+				// 回到IDLE发送更多requests
+				this->selfstatus = 0;
+			}
+#endif
 
 			llmResetForNextTask();
 			this->pecycle = cycles + 1;
 			return;
 		}
 	}
+
+#ifdef fireAdvance
+	// ===== Fire Advance Logic =====
+	// 每个cycle检查fire advance倒计时（即使MAC在睡眠中也要执行）
+	if (fire_advance_armed && fire_advance_counter > 0) {
+		fire_advance_counter--;
+
+		if (fire_advance_counter == 0) {
+			// 倒计时结束，发送下一个request
+			fire_advance_armed = false;
+
+//			std::cout << "[FIRE-ADVANCE-TRIGGER] MAC " << selfMACid
+//			          << " @cycle=" << cycles
+//			          << " state=" << selfstatus
+//			          << " sent=" << requests_sent
+//			          << " total=" << total_tasks
+//			          << " queue=" << llmPEExpectedtasktable.size()
+//			          << " computing_id=" << computing_task_id
+//			          << " pecycle=" << pecycle
+//			          << std::endl;
+
+			// 检查条件：还有任务、不在REQUEST状态
+			if (requests_sent < total_tasks &&
+			    llmPEExpectedtasktable.size() > 0 &&
+			    selfstatus != 1) {
+
+//				std::cout << "[FIRE-ADVANCE-SEND] MAC " << selfMACid
+//				          << " forcing REQUEST state from state " << selfstatus
+//				          << " (was scheduled for cycle " << pecycle << ")"
+//				          << std::endl;
+
+				// 强制进入REQUEST状态，并唤醒MAC
+				selfstatus = 1;
+				pecycle = cycles;
+			} else {
+//				std::cout << "[FIRE-ADVANCE-BLOCKED] MAC " << selfMACid
+//				          << " cannot send: sent=" << requests_sent
+//				          << " total=" << total_tasks
+//				          << " queue=" << llmPEExpectedtasktable.size()
+//				          << " state=" << selfstatus
+//				          << std::endl;
+			}
+		}
+	}
+#endif
 }
 
 void LLMMAC::llmPEReceiveResp(Message* re_msg) {
@@ -618,8 +746,18 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 		current_task_timing.response_hops = current_task_timing.request_hops;
 		inPETaskIDFromResp =  re_msg->signal_id;
 		//cout<<"  currentRequestedTaskIDd "<<currentRequestedTaskIDd <<" inPETaskIDFromResp "<<inPETaskIDFromResp<<endl;
+
+#ifndef fireAdvance
 		assert(inPETaskIDFromResp ==currentRequestedTaskIDd && "currentRequestedTaskIDd shouldsame inPETaskIDFromRespSigID");
-		
+#else
+		// Fire advance模式：更新统计
+		responses_received++;
+
+		// 从task_id解码pixel和subchunk信息
+		current_pixel_id = inPETaskIDFromResp / LLM_SUBCHUNKS_PER_PIXEL;
+		current_subchunk_id = inPETaskIDFromResp % LLM_SUBCHUNKS_PER_PIXEL;
+#endif
+
 		// 从响应消息中提取 input 和 query 数据
 		input_data.clear();
 		query_data.clear();
@@ -678,7 +816,40 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 			pixel_partial_sums[current_pixel_id].resize(LLM_SUBCHUNKS_PER_PIXEL, 0.0f);
 		}
 		pixel_partial_sums[current_pixel_id][current_subchunk_id] = partial_sum;
+
+#ifndef fireAdvance
 		currentRequestedTaskIDd = -1;  // 清空当前任务ID，回到空闲状态//准确的说应该是currentrequestedtask到了
+#else
+		// 设置computing_task_id，准备计算
+		computing_task_id = inPETaskIDFromResp;
+		currentRequestedTaskIDd = -1;
+
+		// 启动fire advance：如果还有未发送的request
+		// 修改：采样阶段也启用fire advance，优先考虑总体性能而非测量精度
+		if (requests_sent < total_tasks) {
+			fire_advance_counter = FIRE_ADVANCE_DELAY;
+			fire_advance_armed = true;
+
+			#ifdef YZSAMOSSampleMapping
+			// 检测采样阶段用于debug输出
+			// bool in_sampling_phase = (net && net->mapping_again == 1);
+//			std::cout << "[FIRE-ADVANCE-ARM] MAC " << selfMACid
+//			          << " @cycle=" << cycles
+//			          << " armed counter=" << FIRE_ADVANCE_DELAY
+//			          << " for task_id=" << inPETaskIDFromResp
+//			          << " (sent=" << requests_sent << "/" << total_tasks << ")"
+//			          << (in_sampling_phase ? " [SAMPLING]" : " [PHASE2]")
+//			          << std::endl;
+			#else
+//			std::cout << "[FIRE-ADVANCE-ARM] MAC " << selfMACid
+//			          << " @cycle=" << cycles
+//			          << " armed counter=" << FIRE_ADVANCE_DELAY
+//			          << " for task_id=" << inPETaskIDFromResp
+//			          << " (sent=" << requests_sent << "/" << total_tasks << ")"
+//			          << std::endl;
+			#endif
+		}
+#endif
 	}
 	else {
 		// 错误：期望Type 1响应，但收到了其他类型
@@ -698,7 +869,6 @@ bool LLMMAC::llmIsWaitingForData() {
 void LLMMAC::llmResetForNextTask() {
 	input_data.clear();
 	query_data.clear();
-	// Key已移除
 	input_buffer.clear();
 	// Note: Don't clear pixel_partial_sums here as we need them for aggregation across tasks
 	// Only clear them when a pixel is complete and sent

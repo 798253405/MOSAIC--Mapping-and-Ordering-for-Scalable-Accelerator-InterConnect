@@ -33,6 +33,9 @@ public:
 
   // Main methods
   int getRoute(Flit* t_flit);
+	int getRouteOld(Flit* t_flit);   // added
+	int getRouteNew(Flit* t_flit);   // added
+
   void vcRequest();
   void getSwitch();
   void outPortDequeue();
@@ -46,7 +49,7 @@ public:
   void runOneStep();
 
 
-  void resetRouterRoundRobin(); //yz
+  void resetRouterRoundRobin(); //reset for each layer
 
   // Main components
   std::vector<RInPort*> in_port_list;

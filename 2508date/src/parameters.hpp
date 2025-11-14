@@ -3,44 +3,57 @@
 #define DEFAULT_NNWEIGHT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/weight.txt"
 #define DEFAULT_NNINPUT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/input2.txt"
 #define DEFAULT_NNMODEL_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/newnet2.txt"
+#define LLM_OUTPUT_PATH "src/output/"
 
-#define randomeval
-//#define fulleval
+
+//#define randomeval
+#define fulleval
 //#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
 
 // CNN Random Data Test - Replace CNN inbuffer data with random values (same as LLM)
 //#define CNN_RANDOM_DATA_TEST  // Enable this to make CNN use pure random data like LLM
 
+////////ZONE A: optimization enable  /#define DelayBasedRoutingBalancing
+//#define bianryroutingSwitch // Binary Routing Switch - If enabled, response packets use YX routing, request packets use XY routing
 
-// NoC Configuration - Choose one
-//#define DATEMC2_4X4      // 2 MCs in 4x4 mesh (base tile pattern)
-#define DATEMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
-//#define DATEMC32_16X16   // 32 MCs in 16x16 mesh (4x4 tiles)
-//#define DATEMC128_32X32  // 128 MCs in 32x32 mesh (8x8 tiles)
+//#define fireAdvance  // Fire Advance - If enabled, PE sends next request before current task completes
 
+
+//Test Case: NoC size Configuration - Choose one
+//#define NOCSIZEMC2_4X4      // 2 MCs in 4x4 mesh (base tile pattern)
+#define NOCSIZEMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
+//#define NOCSIZEMC32_16X16   // 32 MCs in 16x16 mesh (4x4 tiles)
+//#define NOCSIZEMC128_32X32  // 128 MCs in 32x32 mesh (8x8 tiles)
+
+
+#define YZLLMSwitchON
+//#define LLM_TEST_CASE 1  // 8tokesn  ~50 seconds on Intel 10700.
+#define LLM_TEST_CASE 2    //128tokens . This takes more than ~20minutes.
 // Test Case Configuration - Choose one
 //#define case1_default
-#define case2_samos
+//#define case2_samos
 //#define case3_affiliatedordering
 //#define case4_seperratedordering
 //#define case5_MOSAIC1
 //#define case6_MOSAIC2
 
+
+
+
+
+
 //#define  PADDING_RANDOM
 
-#define YZLLMSwitchON
+
 //#define LLMPADDING_RANDOM
 #define LLM_OPTIMIZED_TYPE03_HANDLING  // Enable optimized Type 0/3 handling (16 elements only)
-#define LLM_OUTPUT_PATH "src/output/"
-#define LLM_TEST_CASE 2
+
+
 #define LLM_DEBUG_LEVEL 1
 #define LLM_RANDOM_SEED 0
 #define LLM_SUBCHUNKS_PER_PIXEL 64  // Number of subchunks per pixel for task decomposition (4096/64=64 per chunk)
 
-// LLM Data Mode - Toggle between weight-based and input-based
 // #define LLM_INPUT_BASED  // Comment this out for weight-based mode
-
-// LLM Type 0/3 Message Handling - Toggle between original and optimized versions
 
 // Test Case Logic
 #if defined(case1_default)
@@ -66,13 +79,16 @@
 #endif
 
 
-#define samplingTasksPerMAC 100
+#ifdef fireAdvance
+const int FIRE_ADVANCE_DELAY = 5;
+#endif
+
+
+
+#define samplingTasksPerMAC 10//100 or 10
 #define USE_SCALED_HAMILTONLLM
 //#define FIXED_POINT_SORTING
 
-// Hamilton方法改进开关
-// 定义USE_SCALED_HAMILTON启用放大系数法（提高精度）
-// 注释掉则使用原始Hamilton方法
 
 
 #define only3type
@@ -100,28 +116,28 @@
 #define CACHE_DELAY 0
 #define flitcomparison
 
-#if defined DATEMC2_4X4
+#if defined NOCSIZEMC2_4X4
 	#define PE_X_NUM 4
 	#define PE_Y_NUM 4
 	#define X_NUM 4
 	#define Y_NUM 4
 	#define TOT_NUM 16
 	#define YZMEMCount 2
-#elif defined DATEMC8_8X8
+#elif defined NOCSIZEMC8_8X8
 	#define PE_X_NUM 8
 	#define PE_Y_NUM 8
 	#define X_NUM 8
 	#define Y_NUM 8
 	#define TOT_NUM 64
 	#define YZMEMCount 8
-#elif defined DATEMC32_16X16
+#elif defined NOCSIZEMC32_16X16
 	#define PE_X_NUM 16
 	#define PE_Y_NUM 16
 	#define X_NUM 16
 	#define Y_NUM 16
 	#define TOT_NUM 256
 	#define YZMEMCount 32
-#elif defined DATEMC128_32X32
+#elif defined NOCSIZEMC128_32X32
 	#define PE_X_NUM 32
 	#define PE_Y_NUM 32
 	#define X_NUM 32
@@ -132,9 +148,9 @@
 
 #define LINK_TIME 2
 #define DISTRIBUTION_NUM 10
-struct GlobalParams { 
-    static char NNmodel_filename[128]; 
-    static char NNweight_filename[128]; 
-    static char NNinput_filename[128]; 
+struct GlobalParams {
+    static char NNmodel_filename[128];
+    static char NNweight_filename[128];
+    static char NNinput_filename[128];
 };
 #endif

@@ -14,7 +14,7 @@ inline int get_mc_for_pe(int ni_id, int x_num, int y_num) {
     int pe_x = ni_id / x_num;  // 行坐标
     int pe_y = ni_id % x_num;  // 列坐标
     
-#if defined DATEMC2_4X4
+#if defined NOCSIZEMC2_4X4
     // 2个MC在4x4网格：简单的左右分区
     // MC在 (2,1) 和 (2,3)
     // 左半部分(y<2)映射到MC[0]，右半部分(y>=2)映射到MC[1]
@@ -24,7 +24,7 @@ inline int get_mc_for_pe(int ni_id, int x_num, int y_num) {
         return dest_list[1];  // 右侧MC at (2,3)
     }
     
-#elif defined DATEMC8_8X8
+#elif defined NOCSIZEMC8_8X8
     // 8个MC在8x8网格：2x2瓦片，每个瓦片2个MC
     // 确定PE所在的瓦片
     int tile_row = pe_x / 4;  // 0 or 1
@@ -43,7 +43,7 @@ inline int get_mc_for_pe(int ni_id, int x_num, int y_num) {
         return dest_list[base_mc_idx + 1];  // 瓦片内右侧MC
     }
     
-#elif defined DATEMC32_16X16
+#elif defined NOCSIZEMC32_16X16
     // 32个MC在16x16网格：4x4瓦片，每个瓦片2个MC
     int tile_row = pe_x / 4;  // 0-3
     int tile_col = pe_y / 4;  // 0-3
@@ -61,7 +61,7 @@ inline int get_mc_for_pe(int ni_id, int x_num, int y_num) {
         return dest_list[base_mc_idx + 1];  // 瓦片内右侧MC
     }
     
-#elif defined DATEMC128_32X32
+#elif defined NOCSIZEMC128_32X32
     // 128个MC在32x32网格：8x8瓦片，每个瓦片2个MC
     int tile_row = pe_x / 4;  // 0-7
     int tile_col = pe_y / 4;  // 0-7

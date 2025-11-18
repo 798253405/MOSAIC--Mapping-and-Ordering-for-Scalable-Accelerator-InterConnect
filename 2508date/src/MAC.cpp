@@ -71,8 +71,19 @@ MAC::MAC(int t_id, MACnet *t_net, int t_NI_id) {
 	n_tmpch = 0;
 	n_tmpm.clear();
 
-#ifdef bianryroutingSwitch
+#ifdef binaryroutingSwitch
 	lastResponseRouting = 1;  // 初始化为1，第一个response packet使用routing 1
+#endif
+
+#ifdef fireAdvance
+	// 初始化 Fire Advance 计数器
+	total_tasks = 0;
+	requests_sent = 0;
+	responses_received = 0;
+	tasks_completed = 0;
+	fire_advance_counter = 0;
+	fire_advance_armed = false;
+	computing_task_id = -1;
 #endif
 
 	// find dest id
@@ -208,7 +219,7 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 	packet->send_out_time = pecycle;
 	packet->in_net_time = pecycle;
 
-#ifdef bianryroutingSwitch
+#ifdef binaryroutingSwitch
 	// Response packets alternate between routing 1 and 2
 	if (packet->message.msgtype == 1) {  // msgtype 1 = response packets
 		// Use the next routing mode (toggle between 1 and 2)
@@ -254,6 +265,15 @@ void MAC::runOneStep() {
 				selfstatus = 0;
 				pecycle = cycles;
 			} else {
+#ifdef fireAdvance
+				// 记录总任务数（只在第一次记录）
+				if (total_tasks == 0) {
+					total_tasks = cnn_task_queue.size();
+					requests_sent = 0;
+					responses_received = 0;
+					tasks_completed = 0;
+				}
+#endif
 				pecycle = cycles;
 				selfstatus = 1;
 			}
@@ -283,6 +303,12 @@ void MAC::runOneStep() {
 			}
 			inject(0, dest_mem_id, 1, cnn_current_layer_task_id, net->vcNetwork->NI_list[NI_id],
 					signal_id, selfMACid); //taskid
+
+#ifdef fireAdvance
+			// Fire Advance: 更新已发送请求计数
+			requests_sent++;
+#endif
+
 			selfstatus = 2;
 			pecycle = cycles;
 #ifdef SoCC_Countlatency
@@ -476,6 +502,13 @@ void MAC::runOneStep() {
 		} else if (selfstatus == 4) {
 #ifdef only3type
 			this->send = 0;
+
+#ifdef fireAdvance
+			// Fire Advance: 更新已完成任务计数
+			tasks_completed++;
+			computing_task_id = -1;
+#endif
+
 			if (this->cnn_task_queue.size() == 0) {
 				this->selfstatus = 5;
 				//cout << cycles << " status=5currentPEis " << selfMACid << endl;
@@ -492,6 +525,29 @@ void MAC::runOneStep() {
 #endif
 		}
 	}
+
+#ifdef fireAdvance
+	// ===== Fire Advance Logic =====
+	// 每个cycle检查fire advance倒计时（即使MAC在睡眠中也要执行）
+	if (fire_advance_armed && fire_advance_counter > 0) {
+		fire_advance_counter--;
+
+		if (fire_advance_counter == 0) {
+			// 倒计时结束，发送下一个request
+			fire_advance_armed = false;
+
+			// 检查条件：还有任务、队列非空、不在REQUEST状态
+			if (requests_sent < total_tasks &&
+			    cnn_task_queue.size() > 0 &&
+			    selfstatus != 1) {
+
+				// 强制进入REQUEST状态，并唤醒MAC
+				selfstatus = 1;
+				pecycle = cycles;
+			}
+		}
+	}
+#endif
 
 }
 

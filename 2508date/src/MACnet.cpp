@@ -1285,6 +1285,20 @@ void MACnet::runOneStep() {
 #endif
 			tmpMAC = MAC_list[src_mac];
 			tmpMAC->cnn_current_layer_task_id = -1;
+
+#ifdef fireAdvance
+			// Fire Advance: 收到response后启动倒计时
+			tmpMAC->responses_received++;
+			tmpMAC->computing_task_id = tmpMAC->cnn_saved_task_id;
+
+			// 如果还有未发送的任务，启动 Fire Advance
+			if (tmpMAC->requests_sent < tmpMAC->total_tasks &&
+			    tmpMAC->cnn_task_queue.size() > 0) {
+				tmpMAC->fire_advance_counter = FIRE_ADVANCE_DELAY;
+				tmpMAC->fire_advance_armed = true;
+			}
+#endif
+
 			tmpNI->packet_buffer_out[0].pop_front();
 
 		}

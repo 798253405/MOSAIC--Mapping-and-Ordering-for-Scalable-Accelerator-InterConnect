@@ -489,6 +489,8 @@ int main(int arg_num, char *arg_vet[]) {
 
 	cout << "\n=== PERFORMANCE METRICS ===" << endl;
 	cout << "Configuration:" << endl;
+
+	// Mapping strategy
 	#ifdef rowmapping
 	cout << "  Mapping: Baseline (Row Mapping)" << endl;
 	#elif defined(YZSAMOSSampleMapping)
@@ -496,15 +498,31 @@ int main(int arg_num, char *arg_vet[]) {
 	#else
 	cout << "  Mapping: Unknown" << endl;
 	#endif
-	
+
+	// Ordering optimization
 	#ifdef YzAffiliatedOrdering
 	cout << "  Ordering: Flit-Level Flipping Enabled" << endl;
 	#else
 	cout << "  Ordering: No Ordering Optimization" << endl;
 	#endif
-	
+
+	// Separated ordering
+	#ifdef YZSeperatedOrdering_reArrangeInput
+	cout << "  Separated Ordering: Enabled" << endl;
+	#endif
+
+	// Fire Advance
+	#ifdef fireAdvance
+	cout << "  Fire Advance: Enabled (Delay=" << FIRE_ADVANCE_DELAY << " cycles)" << endl;
+	#endif
+
+	// Binary Routing Switch
+	#ifdef binaryroutingSwitch
+	cout << "  Binary Routing: Enabled (Request=XY, Response=YX)" << endl;
+	#endif
+
 	cout << "  NoC Size: " << X_NUM << "x" << Y_NUM << " (" << TOT_NUM << " nodes)" << endl;
-	cout << "  Test Case: " << LLM_TEST_CASE << endl;
+	cout << "  LLM Test Case: " << LLM_TOKEN_SIZE << endl;
 	
 	cout << "\nExecution Metrics:" << endl;
 	cout << "  Total Cycles: " << cycles << endl;
@@ -778,9 +796,50 @@ int main(int arg_num, char *arg_vet[]) {
 
 	// Check if MC locations are hotspots
 	cout << "\nMemory Controller (MC) Router Utilization:" << endl;
-	int mc_locations_8x8[] = {17, 19, 21, 23, 49, 51, 53, 55};
-	for (int i = 0; i < 8; i++) {
-		int mc_id = mc_locations_8x8[i];
+
+	// Define MC locations based on NoC size
+	int mc_locations[YZMEMCount];
+
+#if defined NOCSIZEMC2_4X4
+	// 4x4: 2 MCs at (2,1) and (2,3)
+	mc_locations[0] = 9;   // (2,1)
+	mc_locations[1] = 11;  // (2,3)
+#elif defined NOCSIZEMC8_8X8
+	// 8x8: 8 MCs at tile centers
+	mc_locations[0] = 17;  // (2,1)
+	mc_locations[1] = 19;  // (2,3)
+	mc_locations[2] = 21;  // (2,5)
+	mc_locations[3] = 23;  // (2,7)
+	mc_locations[4] = 49;  // (6,1)
+	mc_locations[5] = 51;  // (6,3)
+	mc_locations[6] = 53;  // (6,5)
+	mc_locations[7] = 55;  // (6,7)
+#elif defined NOCSIZEMC32_16X16
+	// 16x16: 32 MCs - pattern: every 4x4 tile has 2 MCs at (tile_base_x+2, tile_base_y+1) and (tile_base_x+2, tile_base_y+3)
+	for (int tile_row = 0; tile_row < 4; tile_row++) {
+		for (int tile_col = 0; tile_col < 4; tile_col++) {
+			int base_x = tile_row * 4 + 2;
+			int base_y = tile_col * 4;
+			int idx = (tile_row * 4 + tile_col) * 2;
+			mc_locations[idx] = base_x * X_NUM + base_y + 1;     // Left MC in tile
+			mc_locations[idx + 1] = base_x * X_NUM + base_y + 3; // Right MC in tile
+		}
+	}
+#elif defined NOCSIZEMC128_32X32
+	// 32x32: 128 MCs - pattern: every 4x4 tile has 2 MCs
+	for (int tile_row = 0; tile_row < 8; tile_row++) {
+		for (int tile_col = 0; tile_col < 8; tile_col++) {
+			int base_x = tile_row * 4 + 2;
+			int base_y = tile_col * 4;
+			int idx = (tile_row * 8 + tile_col) * 2;
+			mc_locations[idx] = base_x * X_NUM + base_y + 1;     // Left MC in tile
+			mc_locations[idx + 1] = base_x * X_NUM + base_y + 3; // Right MC in tile
+		}
+	}
+#endif
+
+	for (int i = 0; i < YZMEMCount; i++) {
+		int mc_id = mc_locations[i];
 		int mc_x = mc_id / X_NUM;
 		int mc_y = mc_id % X_NUM;
 		VCRouter* router = dynamic_cast<VCRouter*>(vcNetwork->router_list[mc_id]);
@@ -795,6 +854,16 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "\n!!LLM ATTENTION SIMULATION END!!" << endl;
 
 #ifdef YZLLMSwitchON
+#ifdef YZSeperatedOrdering_reArrangeInput
+	// Separated Ordering mode: Skip output matrix printing
+	// This mode breaks input-query pairing for bit flip optimization
+	// Output matrix requires extra ID tracking to reconstruct correct results
+	cout << "\n==================== ATTENTION OUTPUT TABLE ====================" << endl;
+	cout << "NOTE: Separated Ordering mode enabled." << endl;
+	cout << "Output matrix printing skipped - requires extra ID for result reconstruction." << endl;
+	cout << "Only latency and bit flip (BT) statistics are meaningful in this mode." << endl;
+	cout << "==================== END OUTPUT MATRIX ====================" << endl;
+#else
 	// Print output matrix (attention_output_table)
 	cout << "\n==================== ATTENTION OUTPUT TABLE ====================" << endl;
 	cout << "Matrix dimensions: " << llmMacnet->input_sequence_length << " x " << llmMacnet->query_output_dim << endl;
@@ -882,18 +951,18 @@ int main(int arg_num, char *arg_vet[]) {
 	// Load and compare with golden reference
 	cout << "\n==================== GOLDEN REFERENCE COMPARISON ====================" << endl;
 
-	// Select golden reference file based on LLM_TEST_CASE
+	// Select golden reference file based on LLM_TOKEN_SIZE
 	string golden_file;
-	#if LLM_TEST_CASE == 1
+	#if LLM_TOKEN_SIZE == 1
 		// Test Case 1: 8-sequence version
 		golden_file = "/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/llminput/Q_result_python.txt";
 		cout << "Using golden reference: Q_result_python.txt (8 sequences)" << endl;
-	#elif LLM_TEST_CASE == 2
+	#elif LLM_TOKEN_SIZE == 2
 		// Test Case 2: 128-sequence version
 		golden_file = "/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/llminput/Q_result_python_128seq.txt";
 		cout << "Using golden reference: Q_result_python_128seq.txt (128 sequences)" << endl;
 	#else
-		#error "Unknown LLM_TEST_CASE value"
+		#error "Unknown LLM_TOKEN_SIZE value"
 	#endif
 
 	ifstream golden_in(golden_file.c_str());
@@ -1028,6 +1097,7 @@ int main(int arg_num, char *arg_vet[]) {
 	}
 
 	cout << "==================== END OUTPUT MATRIX ====================" << endl;
+#endif // YZSeperatedOrdering_reArrangeInput
 #endif // YZLLMSwitchON
 
 	// Calculate and display execution time

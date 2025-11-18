@@ -26,21 +26,21 @@
 //#define NOCSIZEMC128_32X32  // 128 MCs in 32x32 mesh (8x8 tiles)
 
 
-#define YZLLMSwitchON
-//#define LLM_TEST_CASE 1  // 8tokesn  ~50 seconds on Intel 10700.
-#define LLM_TEST_CASE 2    //128tokens . This takes more than ~20minutes.
+//#define YZLLMSwitchON
+//#define LLM_TOKEN_SIZE 1  // 8tokesn  ~50 seconds on Intel 10700.
+#define LLM_TOKEN_SIZE 2    //128tokens . This takes more than ~20minutes.
+
 // Test Case Configuration - Choose one
 //#define case1_default
 //#define case2_samos
 //#define case3_affiliatedordering
 //#define case4_seperratedordering
-//#define case5_MOSAIC1
-//#define case6_MOSAIC2
-
-
-
-
-
+//#define case5_COMBO1
+//#define case6_COMBO2
+//#define case7_FireAdvance
+//#define case8_BinarySwitch
+//#define case9_MOSAIC1
+//#define case10_MOSAIC2
 
 //#define  PADDING_RANDOM
 
@@ -67,13 +67,37 @@
     #define rowmapping
     #define YzAffiliatedOrdering
     #define YZSeperatedOrdering_reArrangeInput
-#elif defined(case5_MOSAIC1)
+#elif defined(case5_COMBO1)
     #define YZSAMOSSampleMapping
     #define YzAffiliatedOrdering
-#elif defined(case6_MOSAIC2)
+#elif defined(case6_COMBO2)
     #define YZSAMOSSampleMapping
     #define YzAffiliatedOrdering
     #define YZSeperatedOrdering_reArrangeInput
+
+#elif defined(case7_FireAdvance)
+    #define rowmapping
+    #define fireAdvance
+
+#elif defined(case8_BinarySwitch)
+    #define rowmapping
+    #define binaryroutingSwitch
+
+#elif defined(case9_MOSAIC1)
+    // MOSAIC1 = SAMOS + Affiliated + FireAdvance + BinarySwitch
+    #define YZSAMOSSampleMapping
+    #define YzAffiliatedOrdering
+    #define fireAdvance
+    #define binaryroutingSwitch
+
+#elif defined(case10_MOSAIC2)
+    // MOSAIC2 = SAMOS + Affiliated + Separated + FireAdvance + BinarySwitch
+    #define YZSAMOSSampleMapping
+    #define YzAffiliatedOrdering
+    #define YZSeperatedOrdering_reArrangeInput
+    #define fireAdvance
+    #define binaryroutingSwitch
+
 #else
     #define rowmapping
 #endif

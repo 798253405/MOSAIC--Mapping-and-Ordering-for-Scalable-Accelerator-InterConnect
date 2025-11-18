@@ -194,8 +194,21 @@ class MAC
 	int n_tmpch;
 	deque<int> n_tmpm;
 
-#ifdef bianryroutingSwitch
+#ifdef binaryroutingSwitch
 	int lastResponseRouting;  // 记录上一次response packet的routing状态 (1 or 2)
+#endif
+
+#ifdef fireAdvance
+	// Fire advance功能：提前发送下一个request (CNN版本)
+	int total_tasks;              // 总任务数（初始队列大小）
+	int requests_sent;            // 已发送request的数量
+	int responses_received;       // 已收到response的数量
+	int tasks_completed;          // 已完成计算的数量
+
+	int fire_advance_counter;     // 倒计时：收到response后等多久发下一个request
+	bool fire_advance_armed;      // 是否已启动fire advance
+
+	int computing_task_id;        // 当前正在计算的task ID（-1表示无）
 #endif
 
 	MAC* nextMAC;

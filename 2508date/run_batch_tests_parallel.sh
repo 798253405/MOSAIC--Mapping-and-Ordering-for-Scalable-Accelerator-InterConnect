@@ -11,18 +11,29 @@ MAX_PARALLEL_SLOTS=6  # Change this value to adjust parallel execution limit
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 # Base output directory with timestamp
-BASE_OUTPUT_DIR="output/batchCNN_parallel_${TIMESTAMP}"
+BASE_OUTPUT_DIR="output/cnn_batch_${TIMESTAMP}"
 mkdir -p $BASE_OUTPUT_DIR
 
 # Create symlink to latest results
-ln -sfn "batchCNN_parallel_${TIMESTAMP}" "output/batchCNN_parallel_latest"
+ln -sfn "cnn_batch_${TIMESTAMP}" "output/cnn_batch_latest"
 
 # Define NoC sizes and their names
-declare -a NOC_SIZES=("DATEMC2_4X4" "DATEMC8_8X8" "DATEMC32_16X16" "DATEMC128_32X32")
+declare -a NOC_SIZES=("NOCSIZEMC2_4X4" "NOCSIZEMC8_8X8" "NOCSIZEMC32_16X16" "NOCSIZEMC128_32X32")
 declare -a NOC_NAMES=("2mc_4x4" "8mc_8x8" "32mc_16x16" "128mc_32x32")
 
-# Define test cases
-declare -a TEST_CASES=("case1_default" "case2_samos" "case3_affiliatedordering" "case4_seperratedordering" "case5_MOSAIC1" "case6_MOSAIC2")
+# Define test cases (using friendly names, mapped to actual macro names)
+declare -a TEST_CASES=(
+    "case1_baseline"          # case1_default: Row mapping
+    "case2_samos"             # case2_samos: SAMOS only
+    "case3_affiliated"        # case3_affiliatedordering
+    "case4_separated"         # case4_seperratedordering
+    "case5_combo1"            # case5_COMBO1: SAMOS + Affiliated
+    "case6_combo2"            # case6_COMBO2: SAMOS + Affiliated + Separated
+    "case7_fireadvance"       # case7_FireAdvance
+    "case8_binaryswitch"      # case8_BinarySwitch
+    "case9_mosaic1"           # case9_MOSAIC1: Full optimization w/o separated
+    "case10_mosaic2"          # case10_MOSAIC2: Full optimization
+)
 
 # Get CNN model filename
 CNN_MODEL=$(grep "DEFAULT_NNMODEL_FILENAME" src/parameters.hpp | grep -v "//" | head -1 | cut -d'"' -f2)
@@ -45,9 +56,13 @@ done
 
 echo "==========================================="
 echo "Starting Pipeline Parallel CNN Batch Tests"
-echo "CNN Model: $CNN_MODEL_NAME"
-echo "Total configurations: ${#NOC_SIZES[@]} NoC sizes × ${#TEST_CASES[@]} test cases = $((${#NOC_SIZES[@]} * ${#TEST_CASES[@]}))"
-echo "Strategy: Sequential compilation, parallel execution (max $MAX_PARALLEL_SLOTS)"
+echo "Configuration:"
+echo "  NoC Sizes: ${#NOC_SIZES[@]} (4x4, 8x8, 16x16, 32x32)"
+echo "  Test Cases: ${#TEST_CASES[@]} (case1-case10)"
+echo "  Total Tests: $((${#NOC_SIZES[@]} * ${#TEST_CASES[@]}))"
+echo "  Parallel Slots: $MAX_PARALLEL_SLOTS"
+echo "  CNN Model: $CNN_MODEL_NAME"
+echo "Strategy: Sequential compilation, parallel execution"
 echo "==========================================="
 echo ""
 
@@ -60,6 +75,49 @@ TOTAL_JOBS=$((${#NOC_SIZES[@]} * ${#TEST_CASES[@]}))
 COMPILED_COUNT=0
 RUNNING_COUNT=0
 COMPLETED_COUNT=0
+
+# Function to configure test case in parameters.hpp
+configure_test_case() {
+    local test_case=$1
+    local params_file=$2
+
+    # First, disable all case definitions
+    sed -i 's|^#define case[0-9]*_[a-zA-Z_0-9]*|//&|g' "$params_file"
+
+    # Enable specific case based on test case (map friendly name to actual macro)
+    case "$test_case" in
+        "case1_baseline")
+            sed -i 's|^//#define case1_default|#define case1_default|' "$params_file"
+            ;;
+        "case2_samos")
+            sed -i 's|^//#define case2_samos|#define case2_samos|' "$params_file"
+            ;;
+        "case3_affiliated")
+            sed -i 's|^//#define case3_affiliatedordering|#define case3_affiliatedordering|' "$params_file"
+            ;;
+        "case4_separated")
+            sed -i 's|^//#define case4_seperratedordering|#define case4_seperratedordering|' "$params_file"
+            ;;
+        "case5_combo1")
+            sed -i 's|^//#define case5_COMBO1|#define case5_COMBO1|' "$params_file"
+            ;;
+        "case6_combo2")
+            sed -i 's|^//#define case6_COMBO2|#define case6_COMBO2|' "$params_file"
+            ;;
+        "case7_fireadvance")
+            sed -i 's|^//#define case7_FireAdvance|#define case7_FireAdvance|' "$params_file"
+            ;;
+        "case8_binaryswitch")
+            sed -i 's|^//#define case8_BinarySwitch|#define case8_BinarySwitch|' "$params_file"
+            ;;
+        "case9_mosaic1")
+            sed -i 's|^//#define case9_MOSAIC1|#define case9_MOSAIC1|' "$params_file"
+            ;;
+        "case10_mosaic2")
+            sed -i 's|^//#define case10_MOSAIC2|#define case10_MOSAIC2|' "$params_file"
+            ;;
+    esac
+}
 
 # Function to compile a configuration
 compile_config() {
@@ -76,14 +134,17 @@ compile_config() {
     
     # Create modified parameters.hpp
     cp src/parameters.hpp.backup_pipeline "$COMPILE_DIR/src/parameters.hpp"
-    # Disable all DATEMC configurations
-    sed -i 's|^#define DATEMC[0-9]*_[0-9X]*|//&|g' "$COMPILE_DIR/src/parameters.hpp"
-    # Enable the selected MemNode
+
+    # ===== CNN MODE: Disable LLM switch =====
+    sed -i 's|^#define YZLLMSwitchON|//#define YZLLMSwitchON  // Disabled for CNN mode|g' "$COMPILE_DIR/src/parameters.hpp"
+
+    # Disable all NOCSIZEMC configurations
+    sed -i 's|^#define NOCSIZEMC[0-9]*_[0-9X]*|//&|g' "$COMPILE_DIR/src/parameters.hpp"
+    # Enable the selected NoC size
     sed -i "s|^//#define $noc_size|#define $noc_size|" "$COMPILE_DIR/src/parameters.hpp"
-    # Disable all case configurations
-    sed -i 's|^#define case[0-9]_[a-zA-Z]*|//&|g' "$COMPILE_DIR/src/parameters.hpp"
-    # Enable the selected case
-    sed -i "s|^//#define $test_case|#define $test_case|" "$COMPILE_DIR/src/parameters.hpp"
+
+    # Configure test case (using mapping function)
+    configure_test_case "$test_case" "$COMPILE_DIR/src/parameters.hpp"
     
     # Compile
     cd "$COMPILE_DIR/Debug"
@@ -244,9 +305,14 @@ mv src/parameters.hpp.backup_pipeline src/parameters.hpp
 
 echo ""
 echo "==========================================="
-echo "All tests completed!"
+echo "All CNN tests completed!"
 echo "Results saved in: $BASE_OUTPUT_DIR"
+echo "  ├── 2mc_4x4/ (10 tests)"
+echo "  ├── 8mc_8x8/ (10 tests)"
+echo "  ├── 32mc_16x16/ (10 tests)"
+echo "  └── 128mc_32x32/ (10 tests)"
 echo "Summary file: $SUMMARY_FILE"
+echo "==========================================="
 echo ""
 
 # Final statistics

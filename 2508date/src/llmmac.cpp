@@ -210,7 +210,7 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	// Initialize latency monitoring
 	latency_monitor = LatencyMonitoring();
 
-#ifdef bianryroutingSwitch
+#ifdef binaryroutingSwitch
 	lastResponseRouting = 1;  // 初始化为1，第一个response packet使用routing 1
 #endif
 
@@ -280,7 +280,7 @@ bool LLMMAC::llmMemNodeInject(int type, int d_id, int  tllm_eleNum, float t_outp
 	packet->send_out_time = pecycle;
 	packet->in_net_time = pecycle;
 
-#ifdef bianryroutingSwitch
+#ifdef binaryroutingSwitch
 	// Response packets alternate between routing 1 and 2
 	if (packet->message.msgtype == 1) {  // msgtype 1 = response packets
 		// Use the next routing mode (toggle between 1 and 2)
@@ -394,7 +394,7 @@ bool LLMMAC::llmPEInject(int type, int d_id, int  tllm_eleNum, float t_output, N
 	packet->send_out_time = pecycle;
 	packet->in_net_time = pecycle;
 
-#ifdef bianryroutingSwitch
+#ifdef binaryroutingSwitch
 	// req packets alternate between routing 1 and 2
 	if (packet->message.msgtype == 0) {  // 0=request msgtype 1 = response packets
 		// Use the next routing mode (toggle between 1 and 2)

@@ -268,7 +268,7 @@ class LLMMAC
 
 		deque<int> llmPEExpectedtasktable;
 
-#ifdef bianryroutingSwitch
+#ifdef binaryroutingSwitch
 		int lastResponseRouting;  // 记录上一次response packet的routing状态 (1 or 2)
 #endif
 

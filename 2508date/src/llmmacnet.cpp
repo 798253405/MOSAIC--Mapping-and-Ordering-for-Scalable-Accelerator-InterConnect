@@ -33,11 +33,11 @@ LLMMACnet::LLMMACnet(int mac_num, int t_pe_x, int t_pe_y, VCNetwork *t_Network) 
 	total_layers = 1;
 
 	// Use configuration from parameters.hpp
-	#if LLM_TEST_CASE == 1
+	#if LLM_TOKEN_SIZE == 1
 	// Test Case 1: Small matrix test
 	// X_input (8×4096) @ Wq^T (4096×128) = Q (8×128)
 	input_sequence_length = 8;//128;     // X_input has 8 rows
-	#elif LLM_TEST_CASE == 2
+	#elif LLM_TOKEN_SIZE == 2
 	// Test Case 2: Real matrix 8×128 output
 	// Set actual dimensions for the real matrices
 
@@ -265,13 +265,13 @@ void LLMMACnet::llmNetRunStep() {
 				if (pixel_y == 0 && pixel_x <= 2) {
 					float expected = 0.0f;
 
-					// Set expected values based on LLM_TEST_CASE
-					#if LLM_TEST_CASE == 1
+					// Set expected values based on LLM_TOKEN_SIZE
+					#if LLM_TOKEN_SIZE == 1
 						// Test Case 1: 8-sequence version expected values
 						if (pixel_x == 0) expected = 0.01544952f;
 						else if (pixel_x == 1) expected = -0.01119441f;
 						else if (pixel_x == 2) expected = 0.00336472f;
-					#elif LLM_TEST_CASE == 2
+					#elif LLM_TOKEN_SIZE == 2
 						// Test Case 2: 128-sequence version expected values
 						if (pixel_x == 0) expected = 0.01204206f;
 						else if (pixel_x == 1) expected = -0.05397284f;

@@ -2,7 +2,6 @@
  * flit_buffer.hpp
  *
  *  Created on: 2019年8月15日
- *      Author: wr
  */
 
 #ifndef VC_FLITBUFFER_HPP_

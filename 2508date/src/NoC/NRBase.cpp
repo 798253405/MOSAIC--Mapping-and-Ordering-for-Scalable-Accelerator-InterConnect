@@ -2,7 +2,6 @@
  * NRBase.cpp
  *
  *  Created on: 2019年8月27日
- *      Author: wr
  */
 
 #include "NRBase.hpp"

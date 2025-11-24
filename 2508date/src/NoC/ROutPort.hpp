@@ -2,7 +2,6 @@
  * ROutPort.hpp
  *
  *  Created on: 2019年8月22日
- *      Author: wr
  */
 
 #ifndef VC_ROUTPORT_HPP_

@@ -2,7 +2,6 @@
  * flit_buffer.cpp
  *
  *  Created on: 2019年8月15日
- *      Author: wr
  */
 
 #include <cassert>

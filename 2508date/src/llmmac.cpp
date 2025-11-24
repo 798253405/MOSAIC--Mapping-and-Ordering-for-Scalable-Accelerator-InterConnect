@@ -110,8 +110,7 @@
  * - outfeature: 输出结果
  * - selfstatus: 当前状态（0-3）
  * - pecycle: PE执行周期计数
- * 
- * @author YZ
+ *
  * @date 2025
  */
 

@@ -100,8 +100,7 @@
  * - Attention矩阵每次不同，无法复用
  * - 数据访问模式不规则（attention pattern）
  * - Bit flipping较多（23→13 bits梯度排序）
- * 
- * @author YZ
+ *
  * @date 2025
  */
 
@@ -1123,7 +1122,7 @@ void MACnet::runOneStep() {
 					// inbuffer: [fn] [map size] [i]
 
 					tmpMAC->inbuffer.push_back(o_fnReluOrPool); // 8
-					tmpMAC->inbuffer.push_back(1); // yz added to make sure inbuffer first 3 elements the same.
+					tmpMAC->inbuffer.push_back(1); // Anonymous: added to make sure inbuffer first 3 elements the same.
 					tmpMAC->inbuffer.push_back(w_x * w_y);
 					for (int p = 0; p < w_y; p++) {
 						//tmpMAC->inbuffer.insert(tmpMAC->inbuffer.end(), this->input_table[tmpMAC->tmpch].begin() + (tmpy*w_y+p)*in_x + tmpx*w_x, this->input_table[tmpMAC->tmpch].begin() + (tmpy*w_y+p)*in_x + tmpx*w_x + w_x);
@@ -1161,7 +1160,7 @@ void MACnet::runOneStep() {
 					tmpMAC->inbuffer.clear();
 					// inbuffer: [fn] [map size w_x * w_y] [i] [w + b]
 					tmpMAC->inbuffer.push_back(o_fnReluOrPool);
-					tmpMAC->inbuffer.push_back(1); // yz added to make sure inbuffer first 3 elements the same.
+					tmpMAC->inbuffer.push_back(1); // Anonymous: added to make sure inbuffer first 3 elements the same.
 					tmpMAC->inbuffer.push_back(w_x * w_y); //	for dense	w_x = layer_info[0]; // = in_x  // w_y 	w_y = 1;
 
 					// input table problem

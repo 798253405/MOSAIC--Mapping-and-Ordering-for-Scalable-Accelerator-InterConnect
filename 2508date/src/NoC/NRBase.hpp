@@ -2,7 +2,6 @@
  * NRBase.hpp
  *
  *  Created on: 2019年8月27日
- *      Author: wr
  */
 
 #ifndef VC_NRBASE_HPP_

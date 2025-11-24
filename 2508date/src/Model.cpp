@@ -2,7 +2,6 @@
  * Model.cpp
  *
  *  Created on: Jan 24, 2023
- *      Author: wenyao
  */
 
 

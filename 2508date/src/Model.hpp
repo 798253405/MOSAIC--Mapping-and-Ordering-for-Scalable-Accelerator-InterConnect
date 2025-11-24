@@ -2,7 +2,6 @@
  * Model.hpp
  *
  *  Created on: Jan 24, 2023
- *      Author: wenyao
  */
 
 #ifndef MODEL_HPP_

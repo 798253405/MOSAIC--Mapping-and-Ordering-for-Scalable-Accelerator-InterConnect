@@ -36,8 +36,7 @@
  * 
  * @note 本实现中使用了PADDING_RANDOM宏来控制padding策略
  * @note dest_list定义了内存节点的物理位置映射
- * 
- * @author YZ
+ *
  * @date 2025
  */
 
@@ -350,8 +349,8 @@ void MAC::runOneStep() {
 				ch_size = 1;
 				m_size = inbuffer[2]; //w_x * w_y
 				infeature.assign(inbuffer.begin() + 3,
-						inbuffer.begin() + 3 + m_size); //yz:inputforDense
-				weight.assign(inbuffer.begin() + 3 + m_size, inbuffer.end()); //yz:weighforDense  //w + b
+						inbuffer.begin() + 3 + m_size); //Anonymous: inputforDense
+				weight.assign(inbuffer.begin() + 3 + m_size, inbuffer.end()); //Anonymous: weighforDense  //w + b
 			} else if (fn == 8) // max pooling [fn] [map size] [i]
 					{
 				ch_size = 1; // also  inbuffer[1]

@@ -34,8 +34,7 @@
  * 
  * @see llmmacnet.hpp - LLM网络管理器
  * @see yzIEEE754.hpp - IEEE754位操作函数
- * 
- * @author LLM Version, YZ (comments)
+ *
  * @date 2024-12-19 (original), 2025 (updated)
  */
 

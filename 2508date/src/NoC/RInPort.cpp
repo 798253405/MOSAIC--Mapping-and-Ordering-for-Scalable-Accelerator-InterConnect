@@ -20,9 +20,9 @@ RInPort::RInPort(int t_id, int t_vn_num, int t_vc_per_vn,
 	//added oct20
 	flitOperNuminOneCycle = 0;
 	firstFlitorNot = 0;
-	yzweightCollsionCountInportCount = 0;
-	totalyzInportFixFlipping = 0;
-	totalyzInportFlipping = 0;
+	authorweightCollsionCountInportCount = 0;
+	totalauthorInportFixFlipping = 0;
+	totalauthorInportFlipping = 0;
 	reqRouterFlipInport = 0;
 	respRouterFlipInport = 0;
 	resRouterFlipInport = 0;
@@ -277,12 +277,12 @@ void RInPort::getSwitch(int t_RouterIDOweThisPort) {
 						flit);
 				//cout<<" line221t_id "<<this->id<<endl;
 				/*
-				 yzEnterOutportPerRouter[t_RouterIDOweThisPort].push_back(
+				 authorEnterOutportPerRouter[t_RouterIDOweThisPort].push_back(
 				 cycles);
-				 yzEnterOutportPerRouter[t_RouterIDOweThisPort].push_back(
+				 authorEnterOutportPerRouter[t_RouterIDOweThisPort].push_back(
 				 out_port[tag]);
-				 yzLeaveInportPerRouter[t_RouterIDOweThisPort].push_back(cycles);
-				 yzLeaveInportPerRouter[t_RouterIDOweThisPort].push_back(id);
+				 authorLeaveInportPerRouter[t_RouterIDOweThisPort].push_back(cycles);
+				 authorLeaveInportPerRouter[t_RouterIDOweThisPort].push_back(id);
 				 */
 				//added oct20
 				flitOperNuminOneCycle = flitOperNuminOneCycle + 1; //do one enqueue
@@ -366,19 +366,19 @@ void RInPort::getSwitch(int t_RouterIDOweThisPort) {
 	}
 }
 
-int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
+int RInPort::authorInportFlippingCounts(Flit *t_authortempFlit,
 		int t_routerIDIntoInport, int t_inportSeqID) {
 	int tempDataCount = payloadElementNum; //FLIT_LENGTH/valueBytes-1 ; //how many floating point values in one flit?
-	this->currentFlitInLink = t_yztempFlit; //be careful about shallow copy!
-	currentFlitInLink->yzFlitPayload.clear();
+	this->currentFlitInLink = t_authortempFlit; //be careful about shallow copy!
+	currentFlitInLink->authorFlitPayload.clear();
 
 	if ((currentFlitInLink->seqid + 1) * tempDataCount
-			> t_yztempFlit->packet->message.yzMSGPayload.size()) {
+			> t_authortempFlit->packet->message.authorMSGPayload.size()) {
 
 		std::cout << "seqid: " << currentFlitInLink->seqid;
 		std::cout << " tempDataCount: " << tempDataCount;
 		std::cout << " Payload size: "
-				<< t_yztempFlit->packet->message.yzMSGPayload.size();
+				<< t_authortempFlit->packet->message.authorMSGPayload.size();
 		std::cerr << " Error: Attempting to access beyond the vector limits!"
 				<< std::endl;
 		// Handle error or adjust indices
@@ -389,60 +389,60 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 	}
 
 #ifdef CoutDebugAll0
-		 for (const auto& element :  /* currentFlitInLink->packet->message.yzMSGPayload*/ t_yztempFlit->packet->message.yzMSGPayload) {
+		 for (const auto& element :  /* currentFlitInLink->packet->message.authorMSGPayload*/ t_authortempFlit->packet->message.authorMSGPayload) {
 		         std::cout << element << " ";
 		     }
-		     std::cout<< "  line350currentFlitInLink->packet->message.yzMSGPayloadsize =  "<<currentFlitInLink->packet->message.yzMSGPayload.size() <<" "<<t_yztempFlit->packet->message.yzMSGPayload[0] <<" ifflitze, flitnum= "<<(currentFlitInLink->packet->message.yzMSGPayload.size() ) / (16) + 1<< "  msg.yzMSGPayloadBeforePaddingForFlits  " << std::endl;
+		     std::cout<< "  line350currentFlitInLink->packet->message.authorMSGPayloadsize =  "<<currentFlitInLink->packet->message.authorMSGPayload.size() <<" "<<t_authortempFlit->packet->message.authorMSGPayload[0] <<" ifflitze, flitnum= "<<(currentFlitInLink->packet->message.authorMSGPayload.size() ) / (16) + 1<< "  msg.authorMSGPayloadBeforePaddingForFlits  " << std::endl;
 #endif
-//	cout<<" currentFlitInLink->yzFlitPayload.size()line344 " <<currentFlitInLink->yzFlitPayload.size()<<endl;
+//	cout<<" currentFlitInLink->authorFlitPayload.size()line344 " <<currentFlitInLink->authorFlitPayload.size()<<endl;
 	//inbuffer.end() //inbuffer.begin()+18
 
-	//	currentFlitInLink->yzFlitPayload.insert(t_yztempFlit->yzFlitPayload.end(), t_yztempFlit->packet->message.yzMSGPayload.begin()+3 + currentFlitInLink->id*( tempDataCount) , t_yztempFlit->packet->message.yzMSGPayload.begin()+3+(t_yztempFlit->id+1)*( tempDataCount) );// if contains three channel info, +3
-	//cout<<cycles<<" currentFlitInLink->yzFlitPayload.size()line353 " <<currentFlitInLink->yzFlitPayload.size()<<"   "<< currentFlitInLink->id<<"   "<<t_yztempFlit->packet->message.yzMSGPayload.size() <<endl;
-	currentFlitInLink->yzFlitPayload.insert(t_yztempFlit->yzFlitPayload.end(),
-			t_yztempFlit->packet->message.yzMSGPayload.begin()
-					+ t_yztempFlit->seqid * (tempDataCount),
-			t_yztempFlit->packet->message.yzMSGPayload.begin()
-					+ (t_yztempFlit->seqid + 1) * (tempDataCount));
+	//	currentFlitInLink->authorFlitPayload.insert(t_authortempFlit->authorFlitPayload.end(), t_authortempFlit->packet->message.authorMSGPayload.begin()+3 + currentFlitInLink->id*( tempDataCount) , t_authortempFlit->packet->message.authorMSGPayload.begin()+3+(t_authortempFlit->id+1)*( tempDataCount) );// if contains three channel info, +3
+	//cout<<cycles<<" currentFlitInLink->authorFlitPayload.size()line353 " <<currentFlitInLink->authorFlitPayload.size()<<"   "<< currentFlitInLink->id<<"   "<<t_authortempFlit->packet->message.authorMSGPayload.size() <<endl;
+	currentFlitInLink->authorFlitPayload.insert(t_authortempFlit->authorFlitPayload.end(),
+			t_authortempFlit->packet->message.authorMSGPayload.begin()
+					+ t_authortempFlit->seqid * (tempDataCount),
+			t_authortempFlit->packet->message.authorMSGPayload.begin()
+					+ (t_authortempFlit->seqid + 1) * (tempDataCount));
 
 #ifdef CoutDebugAll0
-        if(currentFlitInLink->yzFlitPayload[i] != 0)
+        if(currentFlitInLink->authorFlitPayload[i] != 0)
         {
-        	cout<<" cycles "<<cycles <<" ith_element  "<<i <<" currentFlitInLink->yzFlitPayload[i]=  "<< currentFlitInLink->yzFlitPayload[i] << " "<<*(t_yztempFlit->packet->message.yzMSGPayload.begin()  + currentFlitInLink->id*( 16) +i)<<" "<<t_yztempFlit->packet->message.yzMSGPayload.size()<<" flitid "<<id <<endl;
-        	 cout<<"ieee1Preload[i] " << ieee1 <<" " <<  yzPreviousFlitPayload[i] <<" ieee2CurlLoad[i] "<<ieee2 <<" "<<currentFlitInLink->yzFlitPayload[i]<<endl;
+        	cout<<" cycles "<<cycles <<" ith_element  "<<i <<" currentFlitInLink->authorFlitPayload[i]=  "<< currentFlitInLink->authorFlitPayload[i] << " "<<*(t_authortempFlit->packet->message.authorMSGPayload.begin()  + currentFlitInLink->id*( 16) +i)<<" "<<t_authortempFlit->packet->message.authorMSGPayload.size()<<" flitid "<<id <<endl;
+        	 cout<<"ieee1Preload[i] " << ieee1 <<" " <<  authorPreviousFlitPayload[i] <<" ieee2CurlLoad[i] "<<ieee2 <<" "<<currentFlitInLink->authorFlitPayload[i]<<endl;
         }
 #endif
 
 	if (this->firstFlitorNot == 0) // first flit has no previous flit，so we need to avoid accessing null adress
 			{
-		yzPreviousFlitPayload.clear();
-		yzPreviousFlitPayload.assign(currentFlitInLink->yzFlitPayload.size(),
+		authorPreviousFlitPayload.clear();
+		authorPreviousFlitPayload.assign(currentFlitInLink->authorFlitPayload.size(),
 				0); //flit level comparison. Initial to be all 0.
-		//	yzPreviousFlitPayload.insert(yzPreviousFlitPayload.end(),
-		//			t_yztempFlit->yzFlitPayload.begin(),
-		//			t_yztempFlit->yzFlitPayload.end());	// just for debug。 should rest 0, but debug to be the same as the first flit
+		//	authorPreviousFlitPayload.insert(authorPreviousFlitPayload.end(),
+		//			t_authortempFlit->authorFlitPayload.begin(),
+		//			t_authortempFlit->authorFlitPayload.end());	// just for debug。 should rest 0, but debug to be the same as the first flit
 
-		yzPreviousMSGPayload.clear();
-		yzPreviousMSGPayload.insert(yzPreviousMSGPayload.end(),
-				t_yztempFlit->packet->message.yzMSGPayload.begin(),
-				t_yztempFlit->packet->message.yzMSGPayload.end());// // just for debug。 should rest 0, but debug to be the same as the first msg
+		authorPreviousMSGPayload.clear();
+		authorPreviousMSGPayload.insert(authorPreviousMSGPayload.end(),
+				t_authortempFlit->packet->message.authorMSGPayload.begin(),
+				t_authortempFlit->packet->message.authorMSGPayload.end());// // just for debug。 should rest 0, but debug to be the same as the first msg
 		this->firstFlitorNot = 1;
 	}
 	int oneTimeFlipping = 0;
 	int oneTimeFlippingFix35 = 0;
 //	print_floats_binary
 
-	//cout<<" below is currentt " <<t_yztempFlit->seqid <<" t_yztempFlit->packet->message.yzMSGPayload "<<t_yztempFlit->packet->message.yzMSGPayload.size();
-	//print_FlitPayload(t_yztempFlit->yzFlitPayload) ;
+	//cout<<" below is currentt " <<t_authortempFlit->seqid <<" t_authortempFlit->packet->message.authorMSGPayload "<<t_authortempFlit->packet->message.authorMSGPayload.size();
+	//print_FlitPayload(t_authortempFlit->authorFlitPayload) ;
 	//cout<<"  currenttMSGPayload " ;
-	//print_FlitPayload(t_yztempFlit->packet->message.yzMSGPayload);
+	//print_FlitPayload(t_authortempFlit->packet->message.authorMSGPayload);
 	//cout<<" below is previous " ;
-	// print_FlitPayload(yzPreviousFlitPayload) ;
+	// print_FlitPayload(authorPreviousFlitPayload) ;
 
 
 #ifdef flitcomparison
 	// Function to compare flips
-	if (currentFlitInLink->yzFlitPayload.size() != payloadElementNum) { // assert if the flit size has error
+	if (currentFlitInLink->authorFlitPayload.size() != payloadElementNum) { // assert if the flit size has error
 		assert(false && "Payload size does not match expected element number.");
 	}
 /*
@@ -452,27 +452,27 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 	     << "-" << (currentFlitInLink->seqid * 16 + 15) << "):" << endl;
 	cout << "  Values: ";
 	for (size_t i = 0; i < payloadElementNum; ++i) {
-		cout << currentFlitInLink->yzFlitPayload[i];
+		cout << currentFlitInLink->authorFlitPayload[i];
 		if (i < payloadElementNum - 1) cout << " ";
 	}
 	cout << endl;
 	cout << "  Bit counts: ";
 	for (size_t i = 0; i < payloadElementNum; ++i) {
-		cout << countOnesInIEEE754(currentFlitInLink->yzFlitPayload[i]);
+		cout << countOnesInIEEE754(currentFlitInLink->authorFlitPayload[i]);
 		if (i < payloadElementNum - 1) cout << " ";
 	}
 	cout << endl;
 */
 	for (size_t i = 0; i < payloadElementNum; ++i) {
 		// flit vs flit //flit level comparison
-		std::string ieee1 = float_to_ieee754(yzPreviousFlitPayload[i]);
+		std::string ieee1 = float_to_ieee754(authorPreviousFlitPayload[i]);
 		std::string ieee2 = float_to_ieee754(
-				currentFlitInLink->yzFlitPayload[i]);
+				currentFlitInLink->authorFlitPayload[i]);
 #ifdef CoutDebugAll0
-        if(currentFlitInLink->yzFlitPayload[i] != 0)
+        if(currentFlitInLink->authorFlitPayload[i] != 0)
         {
-        	cout<<" cycles "<<cycles <<" ith_element  "<<i <<" currentFlitInLink->yzFlitPayload[i]=  "<< currentFlitInLink->yzFlitPayload[i] << " "<<*(t_yztempFlit->packet->message.yzMSGPayload.begin()  + currentFlitInLink->id*( 16) +i)<<" "<<t_yztempFlit->packet->message.yzMSGPayload.size()<<" flitid "<<id <<endl;
-        	 cout<<"ieee1Preload[i] " << ieee1 <<" " <<  yzPreviousFlitPayload[i] <<" ieee2CurlLoad[i] "<<ieee2 <<" "<<currentFlitInLink->yzFlitPayload[i]<<endl;
+        	cout<<" cycles "<<cycles <<" ith_element  "<<i <<" currentFlitInLink->authorFlitPayload[i]=  "<< currentFlitInLink->authorFlitPayload[i] << " "<<*(t_authortempFlit->packet->message.authorMSGPayload.begin()  + currentFlitInLink->id*( 16) +i)<<" "<<t_authortempFlit->packet->message.authorMSGPayload.size()<<" flitid "<<id <<endl;
+        	 cout<<"ieee1Preload[i] " << ieee1 <<" " <<  authorPreviousFlitPayload[i] <<" ieee2CurlLoad[i] "<<ieee2 <<" "<<currentFlitInLink->authorFlitPayload[i]<<endl;
         }
 #endif
 
@@ -483,23 +483,23 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 				flips++;
 			}
 		}
-		this->totalyzInportFlipping += flips;
+		this->totalauthorInportFlipping += flips;
 		oneTimeFlipping += flips;
 	}
 // fixe 35 comparison
 	for (size_t i = 0; i < payloadElementNum; ++i) {
 		// flit vs flit //flit level comparison
 		std::string fixpoint1 = singleFloat_to_fixed17(
-				yzPreviousFlitPayload[i]);
+				authorPreviousFlitPayload[i]);
 		std::string fixpoint2 = singleFloat_to_fixed17(
-				currentFlitInLink->yzFlitPayload[i]);
+				currentFlitInLink->authorFlitPayload[i]);
 		int flips = 0;
 		for (size_t i = 0; i < fixpoint1.length(); ++i) {
 			if (fixpoint1[i] != fixpoint2[i]) {
 				flips++;
 			}
 		}
-		this->totalyzInportFixFlipping += flips;
+		this->totalauthorInportFixFlipping += flips;
 		oneTimeFlippingFix35 += flips;
 	}
 	if ( oneTimeFlipping == 0)
@@ -507,10 +507,10 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 		zeroBTHopCount = zeroBTHopCount+1;
 	}
 	// Add to per-inport statistics by message type
-	if (t_yztempFlit->packet->message.msgtype == 0) {
+	if (t_authortempFlit->packet->message.msgtype == 0) {
 		this->reqRouterFlipInport += oneTimeFlipping;
 		this->reqRouterHopInport += 1;  // Count one hop per flit
-	} else if (t_yztempFlit->packet->message.msgtype == 1) {
+	} else if (t_authortempFlit->packet->message.msgtype == 1) {
 		this->respRouterFlipInport += oneTimeFlipping;
 		this->respRouterHopInport += 1;  // Count one hop per flit
 	} else {
@@ -523,53 +523,53 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 		//  if (cycles<10)
 		  {
 	      cout << " thisisline416 current flitpayloadfront "
-	              << "current: " << currentFlitInLink->yzFlitPayload[0] <<" "<< currentFlitInLink->yzFlitPayload[1] <<" "<<
-	  currentFlitInLink->yzFlitPayload[2] <<" "<< currentFlitInLink->yzFlitPayload[3] <<" "<< currentFlitInLink->yzFlitPayload[4] <<" "<<
-	  currentFlitInLink->yzFlitPayload[5] <<" "<< currentFlitInLink->yzFlitPayload[6] <<" "<< currentFlitInLink->yzFlitPayload[7] <<" | "<<
-	  currentFlitInLink->yzFlitPayload[8] <<" "<< currentFlitInLink->yzFlitPayload[9] <<" "<< currentFlitInLink->yzFlitPayload[10] <<" "<<
-	  currentFlitInLink->yzFlitPayload[11] <<" "<< currentFlitInLink->yzFlitPayload[12] <<" "<< currentFlitInLink->yzFlitPayload[13] <<" "<<
-	  currentFlitInLink->yzFlitPayload[14] <<" "<< currentFlitInLink->yzFlitPayload[15] <<"          current_Onebits: " << countOnesInIEEE754(currentFlitInLink->yzFlitPayload[0]) <<" "<<
-	  countOnesInIEEE754(currentFlitInLink->yzFlitPayload[1]) <<" "<< countOnesInIEEE754(currentFlitInLink->yzFlitPayload[2]) <<" "<<
-	  countOnesInIEEE754(currentFlitInLink->yzFlitPayload[3]) <<" "<< countOnesInIEEE754(currentFlitInLink->yzFlitPayload[4]) <<" "<<
-	  countOnesInIEEE754(currentFlitInLink->yzFlitPayload[5]) <<" "<< countOnesInIEEE754(currentFlitInLink->yzFlitPayload[6]) <<" "<<
-	  countOnesInIEEE754(currentFlitInLink->yzFlitPayload[7]) <<" | "<< countOnesInIEEE754(currentFlitInLink->yzFlitPayload[8]) <<" "<<
-	  countOnesInIEEE754(currentFlitInLink->yzFlitPayload[9]) <<" "<< countOnesInIEEE754(currentFlitInLink->yzFlitPayload[10]) <<" "<<
-	  countOnesInIEEE754(currentFlitInLink->yzFlitPayload[11]) <<" "<< countOnesInIEEE754(currentFlitInLink->yzFlitPayload[12]) <<" "<<
-	  countOnesInIEEE754(currentFlitInLink->yzFlitPayload[13]) <<" "<< countOnesInIEEE754(currentFlitInLink->yzFlitPayload[14]) <<" "<<
-	  countOnesInIEEE754(currentFlitInLink->yzFlitPayload[15]) <<" "<<endl
-	              << "                       previous: " << yzPreviousFlitPayload[0] <<" "<< yzPreviousFlitPayload[1] <<" "<<
-	  yzPreviousFlitPayload[2] <<" "<< yzPreviousFlitPayload[3] <<" "<< yzPreviousFlitPayload[4] <<" "<< yzPreviousFlitPayload[5] <<" "<<
-	  yzPreviousFlitPayload[6] <<" "<< yzPreviousFlitPayload[7] <<" | "<< yzPreviousFlitPayload[8] <<" "<< yzPreviousFlitPayload[9] <<" "<<
-	  yzPreviousFlitPayload[10] <<" "<< yzPreviousFlitPayload[11] <<" "<< yzPreviousFlitPayload[12] <<" "<< yzPreviousFlitPayload[13] <<" "<<
-	  yzPreviousFlitPayload[14] <<" "<< yzPreviousFlitPayload[15] <<" "
-	              << "                       previous_Onebits: " << countOnesInIEEE754(yzPreviousFlitPayload[0]) <<" "<<
-	  countOnesInIEEE754(yzPreviousFlitPayload[1]) <<" "<< countOnesInIEEE754(yzPreviousFlitPayload[2]) <<" "<<
-	  countOnesInIEEE754(yzPreviousFlitPayload[3]) <<" "<< countOnesInIEEE754(yzPreviousFlitPayload[4]) <<" "<<
-	  countOnesInIEEE754(yzPreviousFlitPayload[5]) <<" "<< countOnesInIEEE754(yzPreviousFlitPayload[6]) <<" "<<
-	  countOnesInIEEE754(yzPreviousFlitPayload[7]) <<" | "<< countOnesInIEEE754(yzPreviousFlitPayload[8]) <<" "<<
-	  countOnesInIEEE754(yzPreviousFlitPayload[9]) <<" "<< countOnesInIEEE754(yzPreviousFlitPayload[10]) <<" "<<
-	  countOnesInIEEE754(yzPreviousFlitPayload[11]) <<" "<< countOnesInIEEE754(yzPreviousFlitPayload[12]) <<" "<<
-	  countOnesInIEEE754(yzPreviousFlitPayload[13]) <<" "<< countOnesInIEEE754(yzPreviousFlitPayload[14]) <<" "<<
-	  countOnesInIEEE754(yzPreviousFlitPayload[15]) <<" " <<endl
+	              << "current: " << currentFlitInLink->authorFlitPayload[0] <<" "<< currentFlitInLink->authorFlitPayload[1] <<" "<<
+	  currentFlitInLink->authorFlitPayload[2] <<" "<< currentFlitInLink->authorFlitPayload[3] <<" "<< currentFlitInLink->authorFlitPayload[4] <<" "<<
+	  currentFlitInLink->authorFlitPayload[5] <<" "<< currentFlitInLink->authorFlitPayload[6] <<" "<< currentFlitInLink->authorFlitPayload[7] <<" | "<<
+	  currentFlitInLink->authorFlitPayload[8] <<" "<< currentFlitInLink->authorFlitPayload[9] <<" "<< currentFlitInLink->authorFlitPayload[10] <<" "<<
+	  currentFlitInLink->authorFlitPayload[11] <<" "<< currentFlitInLink->authorFlitPayload[12] <<" "<< currentFlitInLink->authorFlitPayload[13] <<" "<<
+	  currentFlitInLink->authorFlitPayload[14] <<" "<< currentFlitInLink->authorFlitPayload[15] <<"          current_Onebits: " << countOnesInIEEE754(currentFlitInLink->authorFlitPayload[0]) <<" "<<
+	  countOnesInIEEE754(currentFlitInLink->authorFlitPayload[1]) <<" "<< countOnesInIEEE754(currentFlitInLink->authorFlitPayload[2]) <<" "<<
+	  countOnesInIEEE754(currentFlitInLink->authorFlitPayload[3]) <<" "<< countOnesInIEEE754(currentFlitInLink->authorFlitPayload[4]) <<" "<<
+	  countOnesInIEEE754(currentFlitInLink->authorFlitPayload[5]) <<" "<< countOnesInIEEE754(currentFlitInLink->authorFlitPayload[6]) <<" "<<
+	  countOnesInIEEE754(currentFlitInLink->authorFlitPayload[7]) <<" | "<< countOnesInIEEE754(currentFlitInLink->authorFlitPayload[8]) <<" "<<
+	  countOnesInIEEE754(currentFlitInLink->authorFlitPayload[9]) <<" "<< countOnesInIEEE754(currentFlitInLink->authorFlitPayload[10]) <<" "<<
+	  countOnesInIEEE754(currentFlitInLink->authorFlitPayload[11]) <<" "<< countOnesInIEEE754(currentFlitInLink->authorFlitPayload[12]) <<" "<<
+	  countOnesInIEEE754(currentFlitInLink->authorFlitPayload[13]) <<" "<< countOnesInIEEE754(currentFlitInLink->authorFlitPayload[14]) <<" "<<
+	  countOnesInIEEE754(currentFlitInLink->authorFlitPayload[15]) <<" "<<endl
+	              << "                       previous: " << authorPreviousFlitPayload[0] <<" "<< authorPreviousFlitPayload[1] <<" "<<
+	  authorPreviousFlitPayload[2] <<" "<< authorPreviousFlitPayload[3] <<" "<< authorPreviousFlitPayload[4] <<" "<< authorPreviousFlitPayload[5] <<" "<<
+	  authorPreviousFlitPayload[6] <<" "<< authorPreviousFlitPayload[7] <<" | "<< authorPreviousFlitPayload[8] <<" "<< authorPreviousFlitPayload[9] <<" "<<
+	  authorPreviousFlitPayload[10] <<" "<< authorPreviousFlitPayload[11] <<" "<< authorPreviousFlitPayload[12] <<" "<< authorPreviousFlitPayload[13] <<" "<<
+	  authorPreviousFlitPayload[14] <<" "<< authorPreviousFlitPayload[15] <<" "
+	              << "                       previous_Onebits: " << countOnesInIEEE754(authorPreviousFlitPayload[0]) <<" "<<
+	  countOnesInIEEE754(authorPreviousFlitPayload[1]) <<" "<< countOnesInIEEE754(authorPreviousFlitPayload[2]) <<" "<<
+	  countOnesInIEEE754(authorPreviousFlitPayload[3]) <<" "<< countOnesInIEEE754(authorPreviousFlitPayload[4]) <<" "<<
+	  countOnesInIEEE754(authorPreviousFlitPayload[5]) <<" "<< countOnesInIEEE754(authorPreviousFlitPayload[6]) <<" "<<
+	  countOnesInIEEE754(authorPreviousFlitPayload[7]) <<" | "<< countOnesInIEEE754(authorPreviousFlitPayload[8]) <<" "<<
+	  countOnesInIEEE754(authorPreviousFlitPayload[9]) <<" "<< countOnesInIEEE754(authorPreviousFlitPayload[10]) <<" "<<
+	  countOnesInIEEE754(authorPreviousFlitPayload[11]) <<" "<< countOnesInIEEE754(authorPreviousFlitPayload[12]) <<" "<<
+	  countOnesInIEEE754(authorPreviousFlitPayload[13]) <<" "<< countOnesInIEEE754(authorPreviousFlitPayload[14]) <<" "<<
+	  countOnesInIEEE754(authorPreviousFlitPayload[15]) <<" " <<endl
 	              << "                      seqinfo: " << t_routerIDIntoInport << " t_inportSeqID " << t_inportSeqID
-	              << " yzPreFlitGlobalID " << yzPreFlitGlobalID
-	              << " currentglobalflitID " << t_yztempFlit->YZGlobalFlit_idInFlit
-	              << " yzPreFlitSeqID " << yzPreFlitSeqID
-	              << " currentt_yztempFlitseqid " << t_yztempFlit->seqid
+	              << " authorPreFlitGlobalID " << authorPreFlitGlobalID
+	              << " currentglobalflitID " << t_authortempFlit->authorGlobalFlit_idInFlit
+	              << " authorPreFlitSeqID " << authorPreFlitSeqID
+	              << " currentt_authortempFlitseqid " << t_authortempFlit->seqid
 	              << " oneWholeFlitFlipping " << oneTimeFlipping << endl;
 	              
 	      // Print bit counts for all 128 floats in the msg payload
 	      cout << "                      AllMsgPayloadBitCounts(128floats): " << endl;
 
 
-		  int payload_size = std::min(200, (int)t_yztempFlit->packet->message.yzMSGPayload.size());
+		  int payload_size = std::min(200, (int)t_authortempFlit->packet->message.authorMSGPayload.size());
 		 {
-			  cout<<"            565 cycles "<<cycles<<"   " <<t_yztempFlit->packet->message.msgtype<<"            "  <<endl;
+			  cout<<"            565 cycles "<<cycles<<"   " <<t_authortempFlit->packet->message.msgtype<<"            "  <<endl;
 			  for (int i = 0; i < payload_size; i++) {
 
 
-				  int bits_current = countOnesInIEEE754(t_yztempFlit->packet->message.yzMSGPayload[i]);
-				  float float_value = t_yztempFlit->packet->message.yzMSGPayload[i];
+				  int bits_current = countOnesInIEEE754(t_authortempFlit->packet->message.authorMSGPayload[i]);
+				  float float_value = t_authortempFlit->packet->message.authorMSGPayload[i];
 				  cout<< bits_current << "(" << std::fixed << std::setprecision(2) << float_value << ")";
 
 				  // Add separator every 8 elements within a line
@@ -591,42 +591,42 @@ int RInPort::yzInportFlippingCounts(Flit *t_yztempFlit,
 
 
 
-	yzweightCollsionCountInportCount = yzweightCollsionCountInportCount + 1;
-	yzFlitCollsionCountSum = yzFlitCollsionCountSum + 1;
+	authorweightCollsionCountInportCount = authorweightCollsionCountInportCount + 1;
+	authorFlitCollsionCountSum = authorFlitCollsionCountSum + 1;
 
 
-	yzPreviousFlitPayload.clear();
-	yzPreFlitGlobalID = currentFlitInLink->YZGlobalFlit_idInFlit;
-	yzPreFlitSeqID = currentFlitInLink->seqid;
-	yzPreviousFlitPayload.insert(yzPreviousFlitPayload.end(),
-			currentFlitInLink->yzFlitPayload.begin(),
-			currentFlitInLink->yzFlitPayload.end()); // flit level
+	authorPreviousFlitPayload.clear();
+	authorPreFlitGlobalID = currentFlitInLink->authorGlobalFlit_idInFlit;
+	authorPreFlitSeqID = currentFlitInLink->seqid;
+	authorPreviousFlitPayload.insert(authorPreviousFlitPayload.end(),
+			currentFlitInLink->authorFlitPayload.begin(),
+			currentFlitInLink->authorFlitPayload.end()); // flit level
 	// Update previous MSG payload for all-flits bit count analysis
-	yzPreviousMSGPayload.clear();
-	yzPreviousMSGPayload.insert(yzPreviousMSGPayload.end(),
-			t_yztempFlit->packet->message.yzMSGPayload.begin(),
-			t_yztempFlit->packet->message.yzMSGPayload.end()); // msg level
+	authorPreviousMSGPayload.clear();
+	authorPreviousMSGPayload.insert(authorPreviousMSGPayload.end(),
+			t_authortempFlit->packet->message.authorMSGPayload.begin(),
+			t_authortempFlit->packet->message.authorMSGPayload.end()); // msg level
 #endif
-	return this->totalyzInportFlipping;
+	return this->totalauthorInportFlipping;
 }
 
 
 
 
 
-int RInPort::yzInportall128BitInvertFlippingCounts(Flit *t_yztempFlit,
+int RInPort::authorInportall128BitInvertFlippingCounts(Flit *t_authortempFlit,
 		int t_routerIDIntoInport, int t_inportSeqID) {
 	int tempDataCount = payloadElementNum; //FLIT_LENGTH/valueBytes-1 ; //how many floating point values in one flit?
-	this->currentFlitInLink = t_yztempFlit; //be careful about shallow copy!
-	currentFlitInLink->yzFlitPayload.clear();
+	this->currentFlitInLink = t_authortempFlit; //be careful about shallow copy!
+	currentFlitInLink->authorFlitPayload.clear();
 
 	if ((currentFlitInLink->seqid + 1) * tempDataCount
-			> t_yztempFlit->packet->message.yzMSGPayload.size()) {
+			> t_authortempFlit->packet->message.authorMSGPayload.size()) {
 
 		std::cout << "seqid: " << currentFlitInLink->seqid;
 		std::cout << " tempDataCount: " << tempDataCount;
 		std::cout << " Payload size: "
-				<< t_yztempFlit->packet->message.yzMSGPayload.size();
+				<< t_authortempFlit->packet->message.authorMSGPayload.size();
 		std::cerr << " Error: Attempting to access beyond the vector limits!"
 				<< std::endl;
 		// Handle error or adjust indices
@@ -635,21 +635,21 @@ int RInPort::yzInportall128BitInvertFlippingCounts(Flit *t_yztempFlit,
 						&& "Rinports Attempting to access beyond the vector limits!");
 
 	}
-	currentFlitInLink->yzFlitPayload.insert(t_yztempFlit->yzFlitPayload.end(),
-			t_yztempFlit->packet->message.yzMSGPayload.begin()
-					+ t_yztempFlit->seqid * (tempDataCount),
-			t_yztempFlit->packet->message.yzMSGPayload.begin()
-					+ (t_yztempFlit->seqid + 1) * (tempDataCount));
+	currentFlitInLink->authorFlitPayload.insert(t_authortempFlit->authorFlitPayload.end(),
+			t_authortempFlit->packet->message.authorMSGPayload.begin()
+					+ t_authortempFlit->seqid * (tempDataCount),
+			t_authortempFlit->packet->message.authorMSGPayload.begin()
+					+ (t_authortempFlit->seqid + 1) * (tempDataCount));
 
 	if (this->firstFlitorNot == 0) // first flit has no previous flit，so we need to avoid accessing null adress
 			{
-		yzPreviousFlitPayload.clear();
-		yzPreviousFlitPayload.assign(currentFlitInLink->yzFlitPayload.size(),
+		authorPreviousFlitPayload.clear();
+		authorPreviousFlitPayload.assign(currentFlitInLink->authorFlitPayload.size(),
 				0); //flit level comparison. Initial to be all 0.
 
-		yzPreviousMSGPayload.insert(yzPreviousMSGPayload.end(),
-				t_yztempFlit->packet->message.yzMSGPayload.begin(),
-				t_yztempFlit->packet->message.yzMSGPayload.end()); // // just for debug。 should rest 0, but debug to be the same as the first msg
+		authorPreviousMSGPayload.insert(authorPreviousMSGPayload.end(),
+				t_authortempFlit->packet->message.authorMSGPayload.begin(),
+				t_authortempFlit->packet->message.authorMSGPayload.end()); // // just for debug。 should rest 0, but debug to be the same as the first msg
 		this->firstFlitorNot = 1;
 	}
 	int oneTimeFlipping = 0;
@@ -657,15 +657,15 @@ int RInPort::yzInportall128BitInvertFlippingCounts(Flit *t_yztempFlit,
 
 #ifdef flitcomparison
 	// Function to compare flips
-	if (currentFlitInLink->yzFlitPayload.size() != payloadElementNum) { // assert if the flit size has error
+	if (currentFlitInLink->authorFlitPayload.size() != payloadElementNum) { // assert if the flit size has error
 		assert(false && "Payload size does not match expected element number.");
 	}
 
 	for (size_t i = 0; i < payloadElementNum; ++i) {
 		// flit vs flit //flit level comparison
-		std::string ieee1 = float_to_ieee754(yzPreviousFlitPayload[i]);
+		std::string ieee1 = float_to_ieee754(authorPreviousFlitPayload[i]);
 		std::string ieee2 = float_to_ieee754(
-				currentFlitInLink->yzFlitPayload[i]);
+				currentFlitInLink->authorFlitPayload[i]);
 
 		int flips = 0;
 		// Assuming binary1 and binary2 are same length
@@ -685,9 +685,9 @@ int RInPort::yzInportall128BitInvertFlippingCounts(Flit *t_yztempFlit,
 	for (size_t i = 0; i < payloadElementNum; ++i) {
 		// flit vs flit //flit level comparison
 		std::string fixpoint1 = singleFloat_to_fixed17(
-				yzPreviousFlitPayload[i]);
+				authorPreviousFlitPayload[i]);
 		std::string fixpoint2 = singleFloat_to_fixed17(
-				currentFlitInLink->yzFlitPayload[i]);
+				currentFlitInLink->authorFlitPayload[i]);
 		int flips = 0;
 		for (size_t i = 0; i < fixpoint1.length(); ++i) {
 			if (fixpoint1[i] != fixpoint2[i]) {
@@ -716,30 +716,30 @@ int RInPort::yzInportall128BitInvertFlippingCounts(Flit *t_yztempFlit,
 #endif
 
 
-	this->totalyzInportFlipping += oneTimeFlipping;
-	this->totalyzInportFixFlipping += oneTimeFlippingFix35;
+	this->totalauthorInportFlipping += oneTimeFlipping;
+	this->totalauthorInportFixFlipping += oneTimeFlippingFix35;
 
 
-	yzweightCollsionCountInportCount = yzweightCollsionCountInportCount + 1;
-	yzFlitCollsionCountSum = yzFlitCollsionCountSum + 1;
+	authorweightCollsionCountInportCount = authorweightCollsionCountInportCount + 1;
+	authorFlitCollsionCountSum = authorFlitCollsionCountSum + 1;
 
-	if (yzPreFlitSeqID == currentFlitInLink->seqid) { //if( weight same(msg same ) && seqID same(flit same)   )  // now weight same temp not implementd
-		yzweightCollsionCountInportCount = yzweightCollsionCountInportCount + 0; // do nothing. For debugging.
+	if (authorPreFlitSeqID == currentFlitInLink->seqid) { //if( weight same(msg same ) && seqID same(flit same)   )  // now weight same temp not implementd
+		authorweightCollsionCountInportCount = authorweightCollsionCountInportCount + 0; // do nothing. For debugging.
 	}
 
-	yzPreviousFlitPayload.clear();
-	yzPreFlitGlobalID = currentFlitInLink->YZGlobalFlit_idInFlit;
-	yzPreFlitSeqID = currentFlitInLink->seqid;
-	yzPreviousFlitPayload.insert(yzPreviousFlitPayload.end(),
-			currentFlitInLink->yzFlitPayload.begin(),
-			currentFlitInLink->yzFlitPayload.end()); // flit level
+	authorPreviousFlitPayload.clear();
+	authorPreFlitGlobalID = currentFlitInLink->authorGlobalFlit_idInFlit;
+	authorPreFlitSeqID = currentFlitInLink->seqid;
+	authorPreviousFlitPayload.insert(authorPreviousFlitPayload.end(),
+			currentFlitInLink->authorFlitPayload.begin(),
+			currentFlitInLink->authorFlitPayload.end()); // flit level
 	// Update previous MSG payload for all-flits bit count analysis
-	yzPreviousMSGPayload.clear();
-	yzPreviousMSGPayload.insert(yzPreviousMSGPayload.end(),
-			t_yztempFlit->packet->message.yzMSGPayload.begin(),
-			t_yztempFlit->packet->message.yzMSGPayload.end()); // msg level
+	authorPreviousMSGPayload.clear();
+	authorPreviousMSGPayload.insert(authorPreviousMSGPayload.end(),
+			t_authortempFlit->packet->message.authorMSGPayload.begin(),
+			t_authortempFlit->packet->message.authorMSGPayload.end()); // msg level
 #endif
-	return this->totalyzInportFlipping;
+	return this->totalauthorInportFlipping;
 }
 
 RInPort::~RInPort() {

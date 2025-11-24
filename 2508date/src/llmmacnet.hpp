@@ -34,12 +34,12 @@ public:
 	std::vector<LLMMAC*> LLMMAC_list;
 	VCNetwork* vcNetwork;
 
-	// LLM-specific data structures - 只有Input和Query，没有Key
-	vector<vector<float>> input_matrix;         // 输入矩阵 (8×4096)
-	vector<vector<float>> query_weight_matrix;  // Query权重矩阵 (128×4096)
-	// Key已移除
-	vector<vector<float>> Q_resOutput_matrix;   // 输出结果矩阵 (8×128) - 作为参考保留
-	vector<vector<float>> attention_output_table;   // Attention实际输出表 (8×128)
+	// LLM-specific data structures - InputQuery，Key
+	vector<vector<float>> input_matrix;         //  (8×4096)
+	vector<vector<float>> query_weight_matrix;  // Query (128×4096)
+	// Key
+	vector<vector<float>> Q_resOutput_matrix;   //  (8×128) -
+	vector<vector<float>> attention_output_table;   // Attention (8×128)
 
 	// Task mapping and scheduling
 	deque<deque<int>> llmOutputPixelMappingTable;  // LLM-specific: maps output pixels to MAC units
@@ -73,9 +73,9 @@ public:
 	int total_layers;
 
 	// New dimensions for 8×4096 input and 128×4096 Query
-	int input_sequence_length;    // 输入序列长度 (8)
-	int input_hidden_dim;         // 输入隐藏维度 (4096)
-	int query_output_dim;         // Query输出维度 (128)
+	int input_sequence_length;    //  (8)
+	int input_hidden_dim;         //  (4096)
+	int query_output_dim;         // Query (128)
 	int matrixOutputPixels_inputsequencelength;
 	int matrixOutputPixels_queryoutputdim;
 
@@ -98,20 +98,19 @@ public:
 
 	// Task generation and distribution
 	struct LLMTask {
-		int task_id;              // 全局任务ID
-		int pixel_id;             // 所属pixel ID
-		int pixel_x, pixel_y;     // pixel坐标 (在8x128矩阵中)
-		int time_slice;           // 时间片ID，与subchunk_id相同
-		int subchunk_id;          // 子块ID (0-3)
-		
-		// 数据内容 - 只有Input和Query，没有Key
-		vector<float> input_data;  // Input数据元素
-		vector<float> query_data;  // Query权重元素
-		// Key已移除，因为只需要Input和Query
-		
-		// 数据范围信息
-		int input_offset;         // input数据起始偏移
-		int query_offset;         // query数据起始偏移
+		int task_id;              // ID
+		int pixel_id;             // pixel ID
+		int pixel_x, pixel_y;     // pixel (8x128)
+		int time_slice;           // ID，subchunk_id
+		int subchunk_id;          // ID (0-3)
+
+		//  - InputQuery，Key
+		vector<float> input_data;  // Input
+		vector<float> query_data;  // Query
+		// Key，InputQuery
+
+		int input_offset;         // input
+		int query_offset;         // query
 	};
 
 	vector<LLMTask> all_tasks;

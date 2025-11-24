@@ -1,7 +1,7 @@
 /*
  * Port.hpp
  *
- *  Created on: 2019年8月15日
+ *  Created on: 2019815
  */
 
 #ifndef VC_RINPORT_HPP_
@@ -14,7 +14,7 @@
 #include "VCRouter.hpp"
 #include "NRBase.hpp"
 #include "../parameters.hpp"
-#include "../yzIEEE754.hpp"
+#include "../IEEE754.hpp"
 #include <cassert>
 #include <vector>
 #include <iomanip>
@@ -25,9 +25,9 @@ class VCRouter;
 class Link;
 
 extern unsigned int cycles;
-extern  std::vector<std::vector<int>> yzEnterOutportPerRouter;
-extern  std::vector<std::vector<int>> yzLeaveInportPerRouter;
-extern long long yzFlitCollsionCountSum;
+extern  std::vector<std::vector<int>> authorEnterOutportPerRouter;
+extern  std::vector<std::vector<int>> authorLeaveInportPerRouter;
+extern long long authorFlitCollsionCountSum;
 class RInPort : public Port{
 public:
 
@@ -59,14 +59,14 @@ public:
   std::vector<int> priority_switch;
   int count_switch;
 
-  deque<float> yzPreviousFlitPayload;//real data flit level
-  deque<float> yzPreviousMSGPayload;//real data msg level
+  deque<float> authorPreviousFlitPayload;//real data flit level
+  deque<float> authorPreviousMSGPayload;//real data msg level
   Flit* previousFlitInLink ;
 Flit* currentFlitInLink ;
 int firstFlitorNot;
-int yzInportFlippingCounts(Flit* t_yztempFlit, int t_routerIDIntoInport,int t_inportSeqID);
-long long int totalyzInportFlipping;
-long long int  totalyzInportFixFlipping;
+int authorInportFlippingCounts(Flit* t_authortempFlit, int t_routerIDIntoInport,int t_inportSeqID);
+long long int totalauthorInportFlipping;
+long long int  totalauthorInportFixFlipping;
 
 
 long long int reqRouterFlipInport;
@@ -76,14 +76,14 @@ long long int reqRouterHopInport;
 long long int respRouterHopInport;
 long long int resRouterHopInport;
 
-int yzInportall128BitInvertFlippingCounts(Flit* t_yztempFlit, int t_routerIDIntoInport,int t_inportSeqID);
+int authorInportall128BitInvertFlippingCounts(Flit* t_authortempFlit, int t_routerIDIntoInport,int t_inportSeqID);
 int preExtraInvertBitline;
 int currentExtraInvertBitline;
 
 
-int yzPreFlitGlobalID;
-int yzPreFlitSeqID;
-int yzweightCollsionCountInportCount;
+int authorPreFlitGlobalID;
+int authorPreFlitSeqID;
+int authorweightCollsionCountInportCount;
 
 int zeroBTHopCount;
 

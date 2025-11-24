@@ -1,10 +1,10 @@
 /*
- * yzIEEE754.CPP
+ * IEEE754.CPP
  *
  *  Created on: Jun 24, 2024
  */
 
-#include "yzIEEE754.hpp"
+#include "IEEE754.hpp"
 
 // Function to convert float to IEEE 754 representation
 std::string float_to_ieee754(float float_num) {
@@ -43,11 +43,11 @@ std::string float_to_ieee754(float float_num) {
 	/*
 	 std::string result;
 	    for (int i = 0; i < 32; i++) {
-	        result += (rand() % 2) ? '1' : '0';  // 每个位独立随机
+	        result += (rand() % 2) ? '1' : '0';
 	    }
 	    return result;
 	    */
-	    //return std::string(32, '0');  // 生成 32 个 '0'
+	    //return std::string(32, '0');  //  32  '0'
 }
 
 // Function to count the number of 1 bits in IEEE 754 representation
@@ -140,12 +140,12 @@ void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 
 
 	//0 bits count based
-#ifdef YZSeperatedOrdering_reArrangeInput
+#ifdef AUTHORSeperatedOrdering_reArrangeInput
 								//below two should be enabled at the same time
 	 sortMatrix_CNNSeparated(inputData, inputcolnum_per_row, rownum_per_col);
 	 sortMatrix_CNNSeparated(weightData, weightcolnum_per_row, rownum_per_col);
 #endif
-#ifdef YzAffiliatedOrdering
+#ifdef AuthorAffiliatedOrdering
 	//this is old and for debug
 	 //sortMatrix_CNNSeparated(weightData, weightcolnum_per_row, rownum_per_col); // rearrange weights, and rearrange input accrodingly
 	 // this is current version
@@ -254,11 +254,11 @@ void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 		std::cout << std::endl;
 */
 		/*
-		// 打印 Input Rows
+		//  Input Rows
 		std::cout << "OrdedInput Rows colmajor +zero: " << std::endl;
 		for (const auto &row : input_rows) {
 			for (const auto &element : row) {
-				std::cout << std::setw(10) << element << " "; // 使用 setw 调整输出宽度
+				std::cout << std::setw(10) << element << " "; //  setw
 			}
 			std::cout << std::endl;
 		}
@@ -279,11 +279,11 @@ void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 		std::cout << std::endl;
 		*/
 		/*
-		// 打印 Weight Rows
+		//  Weight Rows
 		std::cout << "Weight Rows:" << std::endl;
 		for (const auto &row : weight_rows) {
 			for (const auto &element : row) {
-				std::cout << std::setw(10) << element << " "; // 使用 setw 调整输出宽度
+				std::cout << std::setw(10) << element << " "; //  setw
 			}
 			std::cout << std::endl;
 		}
@@ -291,11 +291,11 @@ void cnnReshapeFlatToInputWeightMatrix(std::deque<float> &dq, int t_inputCount,
 */
 
 		/*// should equla to print dq
-		// 打印 Combined Rows
+		//  Combined Rows
 		std::cout << "Combined Rows:" << std::endl;
 		for (const auto &row : combined_rows) {
 			for (const auto &element : row) {
-				std::cout << std::setw(10) << element << " "; // 使用 setw 调整输出宽度
+				std::cout << std::setw(10) << element << " "; //  setw
 			}
 			std::cout << std::endl;
 		}
@@ -396,14 +396,12 @@ void sortMatrix_CNNAffiliated(std::deque<float> &inputData,
 
 }
 
-// 计算两个浮点数的位差
 int calculate32BitDiff(float a, float b) {
 	uint32_t a_bits = *reinterpret_cast<uint32_t*>(&a);
 	uint32_t b_bits = *reinterpret_cast<uint32_t*>(&b);
 	return std::bitset<32>(a_bits ^ b_bits).count();
 }
 
-// 计算矩阵的总位差和
 int calculateTotalBitDiffSum(const std::vector<std::vector<float>> &matrix) {
 	int totalSum = 0;
 	int rows = matrix.size();
@@ -419,7 +417,7 @@ int calculateTotalBitDiffSum(const std::vector<std::vector<float>> &matrix) {
 	return totalSum;
 }
 
-// 将 std::deque<float> 转换为 m x n 矩阵
+//  std::deque<float>  m x n
 std::vector<std::vector<float>> dequeToMatrix(const std::deque<float> &dq,
 		int m, int n) {
 	std::vector<std::vector<float>> matrix(m, std::vector<float>(n));
@@ -432,7 +430,7 @@ std::vector<std::vector<float>> dequeToMatrix(const std::deque<float> &dq,
 	return matrix;
 }
 
-// 将 m x n 矩阵转换回 std::deque<float>
+//  m x n  std::deque<float>
 std::deque<float> matrixToDeque(const std::vector<std::vector<float>> &matrix) {
 	std::deque<float> dq;
 	for (const auto &row : matrix) {
@@ -441,7 +439,6 @@ std::deque<float> matrixToDeque(const std::vector<std::vector<float>> &matrix) {
 	return dq;
 }
 
-// 打印矩阵
 void printMatrix(const std::vector<std::vector<float>> &matrix,
 		const std::string &label) {
 	std::cout << label << std::endl;
@@ -453,9 +450,8 @@ void printMatrix(const std::vector<std::vector<float>> &matrix,
 	}
 }
 
-// 优化矩阵
 void optimizeMatrix(std::deque<float> &dq, int m, int n) {
-	// 将 deque 转换为矩阵
+	//  deque
 	std::vector<std::vector<float>> matrix(m, std::vector<float>(n));
 	int index = 0;
 	for (int i = 0; i < m; ++i) {
@@ -464,22 +460,18 @@ void optimizeMatrix(std::deque<float> &dq, int m, int n) {
 		}
 	}
 
-	// 扁平化矩阵
 	std::vector<float> flatMatrix(dq.begin(), dq.end());
 	int totalElements = m * n;
 	std::vector<int> indices(totalElements);
 	std::iota(indices.begin(), indices.end(), 0);
 
-	// 初始化模拟退火参数
 	double temperature = 1000.0;
 	double coolingRate = 0.995;
 	int iterationCount = 0;
 	int minSum = calculateTotalBitDiffSum(matrix);
 	std::vector<std::vector<float>> bestMatrix = matrix;
 	std::cout << "initial bitdiffSum: " << minSum << std::endl;
-	// 模拟退火过程
 	while (temperature > 1e-6) {
-		// 生成新解
 		std::vector<int> newIndices(indices);
 		std::random_shuffle(newIndices.begin(), newIndices.end());
 		std::vector<std::vector<float>> newMatrix(m, std::vector<float>(n));
@@ -499,7 +491,6 @@ void optimizeMatrix(std::deque<float> &dq, int m, int n) {
 			indices = newIndices;
 		}
 
-		// 降低温度
 		temperature *= coolingRate;
 		iterationCount++;
 		if (iterationCount % 100 == 0) {
@@ -507,17 +498,16 @@ void optimizeMatrix(std::deque<float> &dq, int m, int n) {
 		}
 	}
 
-	// 打印优化后的矩阵
 	std::cout << "Optimized matrix:" << std::endl;
 	printMatrix(bestMatrix, "finalmatrix");
 	std::cout << "Optimized bitdiffSum: " << minSum << std::endl;
 
 	//wrote  back to dq
-	dq.clear(); // 清空 deque 以避免旧数据
+	dq.clear(); //  deque
 
 	for (const auto &row : bestMatrix) {
 		for (float value : row) {
-			dq.push_back(value); // 将每个矩阵元素添加到 deque 中
+			dq.push_back(value); //  deque
 		}
 	}
 }
@@ -525,12 +515,9 @@ void optimizeMatrix(std::deque<float> &dq, int m, int n) {
 void rearrangeByAlgorithm(std::deque<float> &dq, int colnum_per_row,
 		int rownum_per_col) { // example 25 elemets : 8 value in one flit colnumperrow= 8   4flits->rownumpercol= 4 other 7 element are padding zeros
 
-	// 计算两个整数之间的位差
 	float a = 0, b = 1;
-	// 将浮点数转换为二进制表示
 	uint32_t a_bits = *reinterpret_cast<uint32_t*>(&a);
 	uint32_t b_bits = *reinterpret_cast<uint32_t*>(&b);
-	// 计算异或结果
 	uint32_t diff_bits = a_bits ^ b_bits;
 
 	std::bitset<32> binaryReps_a(a_bits);

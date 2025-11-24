@@ -13,8 +13,8 @@ VCRouter::VCRouter(int* t_id, int in_out_port_num, VCNetwork* t_vcNetwork, int t
   // Router position in two-dimension site
   id[0] = t_id[0];  // x-axis
   id[1] = t_id[1];  // y-axis
-  yzRouterID=id[0] *X_NUM  +  id[1];
-  //cout<<yzRouterID <<" yzRouterID routerline17" << endl;
+  authorRouterID=id[0] *X_NUM  +  id[1];
+  //cout<<authorRouterID <<" authorRouterID routerline17" << endl;
   vcNetwork = t_vcNetwork;
 
   in_port_list.reserve(in_out_port_num);
@@ -49,8 +49,8 @@ VCRouter::VCRouter(int* t_id, int in_out_port_num, VCNetwork* t_vcNetwork, int t
   port_total_utilization = 0;
   port_utilization_innet = 0;
 }
-// 主函数 - 根据packet的标志选择routing算法
-// xyroutingBool: 0=默认(用old), 1=old(XY routing), 2=new(YX routing)
+//  - packetrouting
+// xyroutingBool: 0=(old), 1=old(XY routing), 2=new(YX routing)
 int VCRouter::getRoute(Flit* t_flit){
     int routingMode = t_flit->packet->xyroutingBool;
 
@@ -67,17 +67,17 @@ int VCRouter::getRoute(Flit* t_flit){
     }
 
     if(routingMode == 0 || routingMode == 1){
-        return getRouteOld(t_flit);  // XY routing（左右优先）
+        return getRouteOld(t_flit);  // XY routing（）
     } else if(routingMode == 2){
-        return getRouteNew(t_flit);  // YX routing（上下优先）
+        return getRouteNew(t_flit);  // YX routing（）
     } else {
-        // 非法routing模式值
+        // routing
         assert(false && "ERROR: Invalid xyroutingBool value, must be 0, 1, or 2");
         return -1;
     }
 }
 
-// 旧的routing: XY routing（左右优先，再上下）
+// routing: XY routing（，）
 int VCRouter::getRouteOld(Flit* t_flit){
     int x = t_flit->packet->destination[0];
     int y = t_flit->packet->destination[1];
@@ -100,18 +100,18 @@ int VCRouter::getRouteOld(Flit* t_flit){
     return -1;
 }
 
-// 新的routing: YX routing（上下优先，再左右）
+// routing: YX routing（，）
 int VCRouter::getRouteNew(Flit* t_flit){
     int x = t_flit->packet->destination[0];
     int y = t_flit->packet->destination[1];
     int z = t_flit->packet->destination[2];
 
-    // 先处理X方向（上下）
+    // X（）
     if(x < id[0]){ // turn up
         return 0;
     } else if(x > id[0]){ // turn down
         return 2;
-    } else { // X方向已到达，再处理Y方向（左右）
+    } else { // X，Y（）
         if(y < id[1]){ // turn left
             return 3;
         } else if(y > id[1]){ // turn right
@@ -135,7 +135,7 @@ void VCRouter::vcRequest(){  //for each vc in each port which is in state v(2), 
 
 void VCRouter::getSwitch(){
   for(int i=0; i<port_num; i++){ //port round robin
-      in_port_list[(i+rr_port)%port_num]->getSwitch(yzRouterID);
+      in_port_list[(i+rr_port)%port_num]->getSwitch(authorRouterID);
   }
   rr_port = (rr_port+1)%port_num;
 }
@@ -150,43 +150,43 @@ void VCRouter::outPortDequeue(){
 	     	 //    cout<< "router dequeue" << endl;
 	  out_port_list[i]->out_link->rInPort->buffer_list[flit->vc]->enqueue(flit);
 
-	  YZGlobalFlitPass ++;
-	  
+	  authorGlobalFlitPass ++;
+
 	  // Count router-only hops (ports 0-3 are router-to-router)
 	  if (i <= 3) {
-		  YZGlobalRouterHopCount++;
+		  authorGlobalRouterHopCount++;
 	  } else {
 		  // Port 4 is NI connection
-		  YZGlobalNIHopCount++;
+		  authorGlobalNIHopCount++;
 	  }
-	  
+
 	  // Debug: Print first 31 flit passes
 	  /*
-	  if (YZGlobalFlitPass <= 31) {
-		  cout << "[Flit Pass #" << YZGlobalFlitPass << "] "
-		       << "SeqID: " << flit->seqid 
+	  if (authorGlobalFlitPass <= 31) {
+		  cout << "[Flit Pass #" << authorGlobalFlitPass << "] "
+		       << "SeqID: " << flit->seqid
 		       << ", Router(" << this->id[0] << "," << this->id[1] << ")"
 		       << ", Type: " << flit->type
 		       << ", MsgType: " << flit->packet->message.msgtype
 		       << endl;
 	  }
 	  */
-	  
+
 	  if(flit->packet->message.msgtype == 1) // only type 1 is recorded
 		  {
-		  YZGlobalRespFlitPass ++;
+		  authorGlobalRespFlitPass ++;
 		  }
 	   //if(flit->packet->message.msgtype == 1) // only type 1 is recorded
 	  {
 
-		  // cout <<" YZGlobalRespFlitPassinvcRouterCPP " <<  YZGlobalRespFlitPass <<endl;
+		  // cout <<" authorGlobalRespFlitPassinvcRouterCPP " <<  authorGlobalRespFlitPass <<endl;
 
-		   //cout<<"aaaa "<<cycles<<" yzflippinginrouter "<< yzRouterID <<" port "<<i<<" "<<flit->id <<" reqresprestype "<<flit->packet->message.msgtype<<endl;
+		   //cout<<"aaaa "<<cycles<<" authorflippinginrouter "<< authorRouterID <<" port "<<i<<" "<<flit->id <<" reqresprestype "<<flit->packet->message.msgtype<<endl;
 
-		#ifdef  all128BitInvert //如果做convert，那link要用特别的link比较，现在是128bit + 1个bit invert line
-		  out_port_list[i]->out_link->rInPort->yzInportall128BitInvertFlippingCounts(flit,  yzRouterID ,/* i is the portseqID*/ i  );
-		#else //正常情况下，就是正常的128 bit link，直接比较
-		  out_port_list[i]->out_link->rInPort->yzInportFlippingCounts(flit,  yzRouterID ,/* i is the portseqID*/ i  );
+		#ifdef  all128BitInvert //convert，linklink，128bit + 1bit invert line
+		  out_port_list[i]->out_link->rInPort->authorInportall128BitInvertFlippingCounts(flit,  authorRouterID ,/* i is the portseqID*/ i  );
+		#else //，128 bit link，
+		  out_port_list[i]->out_link->rInPort->authorInportFlippingCounts(flit,  authorRouterID ,/* i is the portseqID*/ i  );
 		#endif
 	  }
 	  flit->sched_time = cycles + LINK_TIME - 1;
@@ -195,9 +195,9 @@ void VCRouter::outPortDequeue(){
 
 	  VCRouter* vcRouter = dynamic_cast<VCRouter*>(out_port_list[i]->out_link->rInPort->router_owner);
 	  	      if (vcRouter != NULL){
-	  int tempNextRouterID= dynamic_cast<VCRouter*>(out_port_list[i]->out_link->rInPort->router_owner)->yzRouterID;
-	  //yzEnterInportPerRouter[tempNextRouterID].push_back(cycles);
-	  //yzEnterInportPerRouter[tempNextRouterID].push_back(i);
+	  int tempNextRouterID= dynamic_cast<VCRouter*>(out_port_list[i]->out_link->rInPort->router_owner)->authorRouterID;
+	  //authorEnterInportPerRouter[tempNextRouterID].push_back(cycles);
+	  //authorEnterInportPerRouter[tempNextRouterID].push_back(i);
 	 // cout<<"tempNextRouterID" <<tempNextRouterID<<endl;
 	  	      }
 
@@ -239,14 +239,14 @@ void VCRouter::runOneStep(){
   outPortDequeue();
   //if((cycles%100000)==0) {cout << "running cycles: " << cycles << ' ' << id[0] << ' ' << id[1] << endl;}
 //  if( id[0]==0 &&  id[1]==0 && cycles%10000==0)
-//  cout << cycles <<" debugyzzzRouterOutput[0] " << id[0] << ' ' << id[1] <<" "<< out_port_list[0]->buffer_list[0]->cur_flit_num  <<" "<< out_port_list[0]->buffer_list[0]->cur_flit_num <<" "<< out_port_list[1]->buffer_list[0]->cur_flit_num <<" "<< out_port_list[2]->buffer_list[0]->cur_flit_num
+//  cout << cycles <<" debugauthorRouterOutput[0] " << id[0] << ' ' << id[1] <<" "<< out_port_list[0]->buffer_list[0]->cur_flit_num  <<" "<< out_port_list[0]->buffer_list[0]->cur_flit_num <<" "<< out_port_list[1]->buffer_list[0]->cur_flit_num <<" "<< out_port_list[2]->buffer_list[0]->cur_flit_num
 //  <<" "<< out_port_list[3]->buffer_list[0]->cur_flit_num <<" "<< out_port_list[4]->buffer_list[0]->cur_flit_num<<endl; //<<" " << out_port_list[0]->buffer_list[0]->used_credit <<endl;
 //
 //  if( id[0]==10 &&  id[1]==10 && cycles%10000==0)
 //  {
-//   cout << cycles <<" debugyzzzRouterOutput[0] " << id[0] << ' ' << id[1] <<" "<< out_port_list[0]->buffer_list[0]->cur_flit_num  <<" "<< out_port_list[0]->buffer_list[0]->cur_flit_num <<" "<< out_port_list[1]->buffer_list[0]->cur_flit_num <<" "<< out_port_list[2]->buffer_list[0]->cur_flit_num
+//   cout << cycles <<" debugauthorRouterOutput[0] " << id[0] << ' ' << id[1] <<" "<< out_port_list[0]->buffer_list[0]->cur_flit_num  <<" "<< out_port_list[0]->buffer_list[0]->cur_flit_num <<" "<< out_port_list[1]->buffer_list[0]->cur_flit_num <<" "<< out_port_list[2]->buffer_list[0]->cur_flit_num
 //   <<" "<< out_port_list[3]->buffer_list[0]->cur_flit_num <<" "<< out_port_list[4]->buffer_list[0]->cur_flit_num<<endl; //<<" " << out_port_list[0]->buffer_list[0]->used_credit <<endl;
-//  cout << cycles <<" debugyzzzRouterInput[0] " << id[0] << " " << id[1]<<" "<<in_port_list[0]->buffer_list[0]->used_credit<<" "<<in_port_list[1]->buffer_list[0]->used_credit<<" "
+//  cout << cycles <<" debugauthorRouterInput[0] " << id[0] << " " << id[1]<<" "<<in_port_list[0]->buffer_list[0]->used_credit<<" "<<in_port_list[1]->buffer_list[0]->used_credit<<" "
 //		  <<in_port_list[2]->buffer_list[0]->used_credit<<" "<<in_port_list[3]->buffer_list[0]->used_credit<<" "<<in_port_list[4]->buffer_list[0]->used_credit<<" "<<endl;
 //  }
 }

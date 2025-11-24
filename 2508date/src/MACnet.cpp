@@ -1,111 +1,108 @@
 /**
  * @file MACnet.cpp
- * @brief CNN (Convolutional Neural Network) MAC网络实现
- * 
- * 本文件实现了CNN模式下的MAC（Multiply-Accumulate）网络管理器。
- * MACnet是CNN加速器的核心控制组件，负责协调多个MAC单元完成CNN推理。
- * 
+ * @brief CNN (Convolutional Neural Network) MAC
+ *
+ * CNNMAC（Multiply-Accumulate）。
+ * MACnetCNN，MACCNN。
+ *
  * =============================
- * 主要执行步骤 (Step Functions)
+ *  (Step Functions)
  * =============================
- * 
- * Step() 函数是MACnet的核心调度器，每个时钟周期执行一次：
- * 
- * 1. **数据初始化阶段** (cycles == 1)
- *    - 调用 preparelayer() 准备当前层数据
- *    - 初始化 input_table、weight_table、output_table
+ *
+ * Step() MACnet，：
+ *
+ * 1. **** (cycles == 1)
+ *    -  preparelayer()
+ *    -  input_table、weight_table、output_table
  *    again
  *
- *    - 根据层类型（conv/pool/FC）配置参数
- * 
- * 2. **MAC分配阶段** (mapping)
- *    - xmapping(): 按行映射neurons到MAC单元
- *    - ymapping(): 按列映射neurons到MAC单元  
- *    - yzFuncSAMOSSampleMapping(): 基于延迟采样的动态映射
- *    - 将neurons均匀或按性能分配给各MAC单元
- * 
- * 3. **数据请求阶段** (MAC发送请求)
- *    - MAC单元向内存节点发送type 0消息请求数据
- *    - 请求weight数据（卷积核参数）
- *    - 请求input数据（输入特征图）
- *    - 通过NoC发送Packet到对应内存节点
- * 
- * 4. **数据接收阶段** (处理type 1响应)
- *    - 内存节点返回type 1消息携带数据
- *    - MAC接收并缓存weight和input数据
- *    - 检查数据完整性，准备计算
- * 
- * 5. **计算执行阶段** (MAC compute)
- *    - 执行MAC运算：output += weight * input
- *    - 卷积层：滑动窗口卷积计算
- *    - 池化层：最大/平均池化
- *    - FC层：矩阵乘法运算
- *    - 激活函数：ReLU/Sigmoid等
- * 
- * 6. **结果输出阶段** (发送type 2消息)
- *    - MAC计算完成后生成type 2消息
- *    - 结果写入output_table供下一层使用
- *    - 最后一层输出到指定内存节点
- * 
- * 7. **层切换阶段** (layer transition)
- *    - 检查当前层是否完成（used_pe == 0）
- *    - current_layerSeq++切换到下一层
- *    - output_table变为下一层的input_table
- *    - 重复步骤1-6直到所有层完成
- * 
+ *    - （conv/pool/FC）
+ *
+ * 2. **MAC** (mapping)
+ *    - xmapping(): neuronsMAC
+ *    - ymapping(): neuronsMAC
+ *    - authorFuncSAMOSSampleMapping():
+ *    - neuronsMAC
+ *
+ * 3. **** (MAC)
+ *    - MACtype 0
+ *    - weight（）
+ *    - input（）
+ *    - NoCPacket
+ *
+ * 4. **** (type 1)
+ *    - type 1
+ *    - MACweightinput
+ *    - ，
+ *
+ * 5. **** (MAC compute)
+ *    - MAC：output += weight * input
+ *    - ：
+ *    - ：/
+ *    - FC：
+ *    - ：ReLU/Sigmoid
+ *
+ * 6. **** (type 2)
+ *    - MACtype 2
+ *    - output_table
+ *    -
+ *
+ * 7. **** (layer transition)
+ *    - （used_pe == 0）
+ *    - current_layerSeq++
+ *    - output_tableinput_table
+ *    - 1-6
+ *
  * =============================
- * 关键数据结构
  * =============================
- * 
- * - input_table[channel][data]: 输入特征图
- * - weight_table[och*ich + j][kernel]: 卷积核权重
- * - output_table[channel][data]: 输出特征图
- * - mapping_table[mac_id][neuron_ids]: MAC-neuron映射表
- * - MAC_list[]: 所有MAC单元的列表
- * 
+ *
+ * - input_table[channel][data]:
+ * - weight_table[och*ich + j][kernel]:
+ * - output_table[channel][data]:
+ * - mapping_table[mac_id][neuron_ids]: MAC-neuron
+ * - MAC_list[]: MAC
+ *
  * =============================
- * 消息类型处理
  * =============================
- * 
- * - Type 0 (Request): MAC请求数据
- *   格式：{src_id, dest_mem_id, data_addr, request_type}
- *   
- * - Type 1 (Response): 内存返回数据
- *   格式：{mem_id, dest_mac_id, data_payload[16]}
- *   
- * - Type 2 (Result): MAC输出结果
- *   格式：{mac_id, dest_id, result_data, layer_info}
- * 
+ *
+ * - Type 0 (Request): MAC
+ *   ：{src_id, dest_mem_id, data_addr, request_type}
+ *
+ * - Type 1 (Response):
+ *   ：{mem_id, dest_mac_id, data_payload[16]}
+ *
+ * - Type 2 (Result): MAC
+ *   ：{mac_id, dest_id, result_data, layer_info}
+ *
  * =============================
- * 优化策略
  * =============================
- * 
- * - Weight复用：同一卷积核在多个位置使用时缓存
- * - 流水线并行：计算与数据传输重叠执行
- * - 负载均衡：根据MAC延迟动态调整任务分配
- * - Padding策略：使用PADDING_RANDOM减少边界效应
- * 
+ *
+ * - Weight：
+ * - ：
+ * - ：MAC
+ * - Padding：PADDING_RANDOM
+ *
  * =============================
- * 与LLM模式的关键区别
+ * LLM
  * =============================
- * 
- * CNN模式特点：
- * - 层级顺序处理，数据流规律可预测
- * - Weight参数固定，可大量复用
- * - 数据访问模式规则（卷积窗口滑动）
- * - Bit flipping较少（12-22 bits随机分布）
- * 
- * LLM模式特点：
- * - 任务级并行处理，数据流动态变化
- * - Attention矩阵每次不同，无法复用
- * - 数据访问模式不规则（attention pattern）
- * - Bit flipping较多（23→13 bits梯度排序）
+ *
+ * CNN：
+ * - ，
+ * - Weight，
+ * - （）
+ * - Bit flipping（12-22 bits）
+ *
+ * LLM：
+ * - ，
+ * - Attention，
+ * - （attention pattern）
+ * - Bit flipping（23→13 bits）
  *
  * @date 2025
  */
 
 #include "MACnet.hpp"
-#include "MAC.hpp" // 確保這一行存在
+#include "MAC.hpp"
 #include <cassert>
 // helper function
 template<class C, typename T>
@@ -182,7 +179,7 @@ MACnet::MACnet(int mac_num, int t_pe_x, int t_pe_y, Model *m,
 	o_y = (in_y + 2 * pad - w_y) / stride + 1;
 	readyflag = 0; //standby
 	cout << "!!MACnet created!!" << endl;
-	cout << "yzzzzprintlayer " << current_layerSeq << " created "
+	cout << "authorprintlayer " << current_layerSeq << " created "
 			<< cnnmodel->all_layer_type[current_layerSeq] << " in_ch " << in_ch
 			<< " o_ch  " << o_ch << " outNeruons " << (o_ch * o_x * o_y)
 			<< " currentpacket_id " << packet_id << endl;
@@ -312,12 +309,12 @@ void MACnet::xmapping(int neuronnum) {
 }
 
 
-int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
-	// 清空并按 macNum 大小准备映射表
+int MACnet::authorFuncSAMOSSampleMapping(int neuronnum) {
+	//  macNum
 	this->mapping_table.clear();
 	this->mapping_table.resize(macNum);
 
-	// 1) 收集可计算节点（排除内存节点）
+	// 1) （）
 	std::vector<int> pe_ids;
 	pe_ids.reserve(macNum);
 	for (int id = 0; id < macNum; ++id) {
@@ -327,10 +324,10 @@ int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 	if (pe_ids.empty() || neuronnum <= 0)
 		return 0;
 
-	// 2) 计算每个节点的平均延迟（采样窗口平均），以及缺失/0 值的回退
-	//    回退策略：用所有非零样本的均值作为默认延迟，避免除零/未采到样本时的不稳定
+	// 2) （），/0
+	//    ：，/
 	// Debug: Print what SAMOS function actually sees
-	cout << "\n[DEBUG] Inside yzFuncSAMOSSampleMapping:" << endl;
+	cout << "\n[DEBUG] Inside authorFuncSAMOSSampleMapping:" << endl;
 	cout << "[DEBUG] Reading samplingWindowDelay values:" << endl;
 	double sum_lat = 0.0;
 	int nz = 0;
@@ -338,7 +335,7 @@ int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 		double lat = double(samplingWindowDelay[id])
 				/ std::max(1, samplingTasksPerMAC);
 		if (samplingWindowDelay[id] > 0) {
-			cout << "  MAC " << id << ": raw_delay=" << samplingWindowDelay[id] 
+			cout << "  MAC " << id << ": raw_delay=" << samplingWindowDelay[id]
 			     << " window_len=" << samplingTasksPerMAC
 			     << " avg_lat=" << lat << endl;
 		}
@@ -347,15 +344,15 @@ int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 			++nz;
 		}
 	}
-	const double default_lat = (nz > 0) ? (sum_lat / nz) : 1.0; // 全 0 时兜底为 1
+	const double default_lat = (nz > 0) ? (sum_lat / nz) : 1.0; //  0  1
 	const double eps = 1e-12;
 
 	struct NodeW {
 		int id;
-		double w;     // 权重 = 1/lat
-		double want;  // 理想配额
-		int alloc;    // 实际整数配额
-		double frac;  // 小数余量
+		double w;     //  = 1/lat
+		double want;
+		int alloc;
+		double frac;
 	};
 
 	std::vector<NodeW> nodes;
@@ -371,7 +368,7 @@ int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 		nodes.push_back( { id, w, 0.0, 0, 0.0 });
 		sumW += w;
 	}
-	if (sumW <= 0.0) { // 极端兜底：均匀分配
+	if (sumW <= 0.0) { // ：
 		int base = neuronnum / int(nodes.size());
 		int rem = neuronnum - base * int(nodes.size());
 		int j = 0;
@@ -384,7 +381,7 @@ int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 		return 0;
 	}
 
-	// 3) Hamilton 最大余数配额
+	// 3) Hamilton
 	int allocated = 0;
 	for (auto &n : nodes) {
 		double exact = neuronnum * (n.w / sumW);
@@ -395,21 +392,21 @@ int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 	}
 	int remainder = neuronnum - allocated;
 
-	// 把余量大的优先补 1
+	//  1
 	std::sort(nodes.begin(), nodes.end(), [](const NodeW &a, const NodeW &b) {
 		return a.frac > b.frac;
 	});
 	for (int i = 0; i < remainder; ++i)
 		nodes[i % nodes.size()].alloc++;
 
-	// 4) 生成具体路由映射（任务 id 连续递增）
+	// 4) （ id ）
 	int j = 0;
 	for (auto &n : nodes) {
 		for (int k = 0; k < n.alloc; ++k)
 			this->mapping_table[n.id].push_back(j++);
 	}
 
-	// 可选：调试输出
+	// ：
 
 	std::cout << "[SAMOS auto]TOTneuronnum=" << neuronnum << " TOTPE="
 			<< nodes.size() << " TOTallocated=" << j << "\n";
@@ -423,9 +420,9 @@ int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
 	return 0;
 }
 
-int MACnet::yzPostSimTravelMapping(int neuronnum) {
+int MACnet::authorPostSimTravelMapping(int neuronnum) {
 
-	cout << " yzPostSimTravelMappingneuronnumis " << neuronnum << " atcycles "
+	cout << " authorPostSimTravelMappingneuronnumis " << neuronnum << " atcycles "
 			<< cycles << endl;
 	this->mapping_table.clear();
 	this->mapping_table.resize(macNum);
@@ -571,7 +568,7 @@ int MACnet::yzPostSimTravelMapping(int neuronnum) {
 			cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
 					<< endl;
 		} else {
-			continue; // 或者 assert(1 == 1);
+			continue; //  assert(1 == 1);
 		}
 
 		for (int k = 0; k < countPerPE; k++) {
@@ -580,7 +577,7 @@ int MACnet::yzPostSimTravelMapping(int neuronnum) {
 			//cout << " mapping  notdone" <<" iis "<<i<< " jis " << j << endl;
 		}
 	}
-	cout << " belowyzPostSimTravelMapping tail " << j << endl;
+	cout << " belowauthorPostSimTravelMapping tail " << j << endl;
 	// Assuming 'neuronnum' and other relevant variables are defined elsewhere
 	int customOrder[] = { 13, 15, 5, 7, 8, 10, 12, 6, 4, 14, 1, 3, 0, 2 }; // Custom order specified
 	int orderSize = sizeof(customOrder) / sizeof(customOrder[0]); // Size of the custom order array
@@ -632,14 +629,14 @@ void MACnet::checkStatus() {
 #ifdef randmapping
 			this->rmapping(o_ch * o_x * o_y);
 #endif
-#ifdef YZrandmapping
-			this->yzrmapping(o_ch * o_x * o_y);
+#ifdef AUTHORrandmapping
+			this->authorrmapping(o_ch * o_x * o_y);
 #endif
-#ifdef YZDistanacemapping
-			this->yzDistancemapping(o_ch * o_x * o_y);
+#ifdef AUTHORDistanacemapping
+			this->authorDistancemapping(o_ch * o_x * o_y);
 #endif
-#ifdef YZSAMOSSampleMapping
-		if ((o_ch * o_x * o_y) / (macNum - YZMEMCount) < samplingTasksPerMAC) {
+#ifdef AUTHORSAMOSSampleMapping
+		if ((o_ch * o_x * o_y) / (macNum - AUTHORMEMCount) < samplingTasksPerMAC) {
 			cout
 					<< " thisLayerIsShorterThan15SamplingWindow！！！noSAMOSMapping！JustRowMapping！！！   "
 					<< endl;
@@ -663,18 +660,18 @@ void MACnet::checkStatus() {
 						<< endl;
 				cout << endl;
 				// if sampling window has not been done in this layer, do sampling window
-				this->xmapping((macNum - YZMEMCount) * samplingTasksPerMAC);
+				this->xmapping((macNum - AUTHORMEMCount) * samplingTasksPerMAC);
 				mappingagain = 1; // normal = 0, doing sampling and need to do body mapping later = 1, doing body mapping =2 (should be set after complete samping )
 
 			} else if (mappingagain == 2) { // if sampling window has been done in this layer, do left parts
 				packet_id = packet_id
-						+ (macNum - YZMEMCount) * samplingTasksPerMAC;
+						+ (macNum - AUTHORMEMCount) * samplingTasksPerMAC;
 				// Debug: Print samplingWindowDelay RIGHT BEFORE calling SAMOS
 				cout << "\n[DEBUG] About to call SAMOS (mappingagain==2), Layer " << current_layerSeq << endl;
 				cout << "[DEBUG] samplingWindowDelay values BEFORE SAMOS:" << endl;
 				for(int i = 0; i < TOT_NUM; i++) {
 					if(samplingWindowDelay[i] > 0) {
-						cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i] 
+						cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i]
 						     << " avg=" << (double)samplingWindowDelay[i]/samplingTasksPerMAC << endl;
 					}
 				}
@@ -685,16 +682,16 @@ void MACnet::checkStatus() {
 						<< endl;
 				// Debug: Check delay before SAMOS
 				cout << "[DEBUG] Right before calling SAMOS: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
-				
-				this->yzFuncSAMOSSampleMapping(
+
+				this->authorFuncSAMOSSampleMapping(
 						o_ch * o_x
-								* o_y- (macNum -YZMEMCount) * samplingTasksPerMAC);
-				
+								* o_y- (macNum -AUTHORMEMCount) * samplingTasksPerMAC);
+
 				// Debug: Check delay after SAMOS
 				cout << "[DEBUG] Right after calling SAMOS: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
-				// 3) ✅ 把局部编号统一转换为“全局编号”（关键修复）
+				// 3) ✅ “”（）
 				{
-					const int offset = (macNum - YZMEMCount)
+					const int offset = (macNum - AUTHORMEMCount)
 							* samplingTasksPerMAC;
 					for (int i = 0; i < macNum; ++i) {
 						for (int &gid : this->mapping_table[i]) {
@@ -703,7 +700,7 @@ void MACnet::checkStatus() {
 					}
 				}
 				cout << " this is second mappi of one layer" << endl;
-				
+
 				// Debug: Check delay before resetting mappingagain
 				cout << "[DEBUG] Before mappingagain=0: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
 				mappingagain = 0; //reset
@@ -716,8 +713,8 @@ void MACnet::checkStatus() {
 		}
 #endif
 
-#ifdef YZPostSimTravelTime
-		this->yzPostSimTravelMapping(o_ch * o_x * o_y);
+#ifdef AUTHORPostSimTravelTime
+		this->authorPostSimTravelMapping(o_ch * o_x * o_y);
 #endif
 		for (int i = 0; i < macNum; i++) {
 			if (mapping_table[i].size() == 0) {
@@ -728,7 +725,7 @@ void MACnet::checkStatus() {
 
 			} else {
 				this->MAC_list[i]->cnn_task_queue.assign(
-						mapping_table[i].begin(), mapping_table[i].end()); //mapping table - 分配输出通道任务
+						mapping_table[i].begin(), mapping_table[i].end()); //mapping table -
 			}
 		}
 		readyflag = 1; // loading complete
@@ -760,13 +757,12 @@ void MACnet::checkStatus() {
 		cout << "[DEBUG] samplingWindowDelay values BEFORE transition:" << endl;
 		for(int i = 0; i < TOT_NUM; i++) {
 			if(samplingWindowDelay[i] > 0) {
-				cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i] 
+				cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i]
 				     << " avg=" << (double)samplingWindowDelay[i]/samplingTasksPerMAC << endl;
 			}
 		}
 		mappingagain = 2;
 
-		// 再次检查
 		    cout << "[DEBUG] After mappingagain 1->2 transition:" << endl;
 		    for(int i = 0; i < TOT_NUM; i++) {
 		        if(samplingWindowDelay[i] > 0) {
@@ -774,18 +770,18 @@ void MACnet::checkStatus() {
 		        }
 		    }
 
-		// 在重置MAC状态前再检查一次
+		// MAC
 		cout << "[DEBUG] Before resetting MAC status:" << endl;
 		cout << "  samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
-		
+
 		for (int i = 0; i < macNum; i++) {
 			MAC_list[i]->selfstatus = 0;
 		}
-		
-		// 重置MAC状态后再检查
+
+		// MAC
 		cout << "[DEBUG] After resetting MAC status:" << endl;
 		cout << "  samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
-		
+
 		return;
 	}
 
@@ -793,7 +789,7 @@ void MACnet::checkStatus() {
 			<< "  current_layerSeq " << current_layerSeq << " " << n_layer
 			<< " leftTasksCount "
 			<< ((o_ch * o_x * o_y)
-					- (TOT_NUM - YZMEMCount) * samplingTasksPerMAC) << endl;
+					- (TOT_NUM - AUTHORMEMCount) * samplingTasksPerMAC) << endl;
 // after layer complete, fetch new layer
 	deque<int> layer_info;
 	in_x = o_x; // in_x
@@ -804,7 +800,7 @@ void MACnet::checkStatus() {
 
 	if (current_layerSeq == n_layer) {
 		cout << " \n All finished! at cycle " << cycles << " packetid "
-				<< packet_id << " yzLastSeenPid " << yzLastSeenPid << endl;
+				<< packet_id << " authorLastSeenPid " << authorLastSeenPid << endl;
 		Layer_latency.push_back(cycles);
 		cout << "Latency for all layers: " << endl;
 
@@ -822,12 +818,12 @@ void MACnet::checkStatus() {
 
 		readyflag = 2;
 		cout << "debug packetid1395 " << packet_id << endl;
-#ifdef YZSAMOSSampleMapping  //last layer
+#ifdef AUTHORSAMOSSampleMapping  //last layer
 		// Always increment packet_id by total tasks to avoid signalid conflicts
 		int total_tasks = o_ch * o_x * o_y;
 		packet_id = packet_id + total_tasks;  // Use full task count for unique signalids
-		cout << "[DEBUG] Last layer, packet_id updated: " << (packet_id - total_tasks) 
-		     << " -> " << packet_id 
+		cout << "[DEBUG] Last layer, packet_id updated: " << (packet_id - total_tasks)
+		     << " -> " << packet_id
 		     << " (added " << total_tasks << " tasks)" << endl;
 #else
 		packet_id = packet_id + o_ch * o_x * o_y;
@@ -842,13 +838,13 @@ void MACnet::checkStatus() {
 		cout << "intermediate Layer finished " << (current_layerSeq - 1)
 				<< " at cycle " << cycles << endl;
 		Layer_latency.push_back(cycles);
-#ifdef YZSAMOSSampleMapping  //pakcetid compensation
+#ifdef AUTHORSAMOSSampleMapping  //pakcetid compensation
 		// Always increment packet_id by total tasks to avoid signalid conflicts
 		int total_tasks = o_ch * o_x * o_y;
 		packet_id = packet_id + total_tasks;  // Use full task count for unique signalids
-		cout << "[DEBUG] Layer " << (current_layerSeq - 1) 
-		     << " completed, packet_id updated: " << (packet_id - total_tasks) 
-		     << " -> " << packet_id 
+		cout << "[DEBUG] Layer " << (current_layerSeq - 1)
+		     << " completed, packet_id updated: " << (packet_id - total_tasks)
+		     << " -> " << packet_id
 		     << " (added " << total_tasks << " tasks)" << endl;
 #else
 		packet_id = packet_id + o_ch * o_x * o_y;
@@ -883,7 +879,7 @@ void MACnet::checkStatus() {
 		cout << " " << endl;
 		cout << " " << endl;
 		cout << "conv print newlayer atcycle " << cycles << " packetd_id "
-				<< packet_id << " yzLastSeenPid " << yzLastSeenPid << " layer"
+				<< packet_id << " authorLastSeenPid " << authorLastSeenPid << " layer"
 				<< current_layerSeq << " "
 				<< cnnmodel->all_layer_type[current_layerSeq] << " in_ch  "
 				<< in_ch << " ofmap " << (o_ch * o_x * o_y) << endl;
@@ -906,7 +902,7 @@ void MACnet::checkStatus() {
 		cout << " " << endl;
 		cout << " " << endl;
 		cout << "cyclesare " << cycles << " packet_id " << packet_id
-				<< " yzLastSeenPid " << yzLastSeenPid << " layer"
+				<< " authorLastSeenPid " << authorLastSeenPid << " layer"
 				<< current_layerSeq << " "
 				<< cnnmodel->all_layer_type[current_layerSeq] << ' ' << in_x
 				<< ' ' << w_x << ' ' << o_x << endl;
@@ -938,7 +934,7 @@ void MACnet::checkStatus() {
 		cout << " " << endl;
 		cout << " " << endl;
 		cout << "cyclesare " << cycles << " packet_id " << packet_id << " layer"
-				<< current_layerSeq << " yzLastSeenPid " << yzLastSeenPid << " "
+				<< current_layerSeq << " authorLastSeenPid " << authorLastSeenPid << " "
 				<< cnnmodel->all_layer_type[current_layerSeq] << ' ' << in_ch
 				<< ' ' << (o_ch * o_x * o_y) << endl;
 	}
@@ -992,7 +988,7 @@ void MACnet::runOneStep() {
 			}
 			src = tmpPacket->message.source_id;
 			pidSignalID = tmpPacket->message.signal_id;
-			yzLastSeenPid = pidSignalID;
+			authorLastSeenPid = pidSignalID;
 			src_mac = tmpPacket->message.mac_id;
 
 #ifdef SoCC_Countlatency
@@ -1083,7 +1079,7 @@ void MACnet::runOneStep() {
 							this->weight_table[tmpMAC->tmpch * in_ch].back()); //bias
 #endif
 
-					// 遍历并输出inbuffer中的所有元素 //  先是功能code，1代表relu。然后in—ch，然后
+					// inbuffer //  code，1relu。in—ch，
 					//for (float value : tmpMAC->inbuffer) {
 					//	std::cout << " macnetcppline1608value: " << value;
 					//}
@@ -1206,7 +1202,7 @@ void MACnet::runOneStep() {
 			}
 			src = tmpPacket->message.source_id;
 			pidSignalID = tmpPacket->message.signal_id;
-			yzLastSeenPid = pidSignalID;
+			authorLastSeenPid = pidSignalID;
 			src_mac = tmpPacket->message.mac_id;
 			// cout << "MEM " << tmpPacket->message.destination <<  " receive type " << tmpPacket->message.msgtype << " from MAC " << src << endl;
 			tmpMAC = MAC_list[src_mac];
@@ -1273,24 +1269,24 @@ void MACnet::runOneStep() {
 			}
 			src_mac = tmpPacket->message.mac_id; //mac
 			pidSignalID = tmpPacket->message.signal_id;
-			yzLastSeenPid = pidSignalID;
+			authorLastSeenPid = pidSignalID;
 #ifdef SoCC_Countlatency
-			DNN_latency[pidSignalID * 3 + 1][4] = tmpPacket->send_out_time; //DNN_yzlatency[x+1][4]
+			DNN_latency[pidSignalID * 3 + 1][4] = tmpPacket->send_out_time; //DNN_authorlatency[x+1][4]
 			int mac_id_resp = DNN_latency[pidSignalID * 3 + 1][2];
 			int delay_add_resp = DNN_latency[pidSignalID * 3 + 1][4] - DNN_latency[pidSignalID * 3 + 1][3];
 			samplingWindowDelay[mac_id_resp] += delay_add_resp;
 
-			DNN_latency[pidSignalID * 3 + 1][7] = cycles; //DNN_yzlatency[x+1][7]
+			DNN_latency[pidSignalID * 3 + 1][7] = cycles; //DNN_authorlatency[x+1][7]
 #endif
 			tmpMAC = MAC_list[src_mac];
 			tmpMAC->cnn_current_layer_task_id = -1;
 
 #ifdef fireAdvance
-			// Fire Advance: 收到response后启动倒计时
+			// Fire Advance: response
 			tmpMAC->responses_received++;
 			tmpMAC->computing_task_id = tmpMAC->cnn_saved_task_id;
 
-			// 如果还有未发送的任务，启动 Fire Advance
+			// ， Fire Advance
 			if (tmpMAC->requests_sent < tmpMAC->total_tasks &&
 			    tmpMAC->cnn_task_queue.size() > 0) {
 				tmpMAC->fire_advance_counter = FIRE_ADVANCE_DELAY;

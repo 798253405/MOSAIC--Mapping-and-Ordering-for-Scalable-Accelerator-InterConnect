@@ -18,12 +18,12 @@ class ROutPort;
 class VCNetwork;
 
 extern unsigned int cycles;
-extern  std::vector<std::vector<int>> yzLeaveOutportPerRouter;
-extern  std::vector<std::vector<int>> yzEnterInportPerRouter;
-extern long long  YZGlobalFlitPass;  // Total hop count (router + NI)
-extern long long YZGlobalRouterHopCount;  // Router-only hop count
-extern long long YZGlobalNIHopCount;  // NI-only hop count
-extern long long   YZGlobalRespFlitPass;
+extern  std::vector<std::vector<int>> authorLeaveOutportPerRouter;
+extern  std::vector<std::vector<int>> authorEnterInportPerRouter;
+extern long long  authorGlobalFlitPass;  // Total hop count (router + NI)
+extern long long authorGlobalRouterHopCount;  // Router-only hop count
+extern long long authorGlobalNIHopCount;  // NI-only hop count
+extern long long   authorGlobalRespFlitPass;
 
 class VCRouter: public NRBase
 {
@@ -58,7 +58,7 @@ public:
   // Network
   VCNetwork* vcNetwork;
   int id[2];
-  int yzRouterID;
+  int authorRouterID;
   int rr_port;
   int port_num;
 

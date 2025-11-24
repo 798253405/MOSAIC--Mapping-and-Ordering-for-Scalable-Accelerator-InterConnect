@@ -1,7 +1,7 @@
 /*
  * flit.cpp
  *
- *  Created on: 2019年8月15日
+ *  Created on: 2019815
  */
 
 #include "Flit.hpp"
@@ -18,7 +18,7 @@ Flit::Flit(int t_seqidInFlit, int t_type, int t_vnet, int t_vc, Packet* t_packet
   packet = t_packet;
   sched_time = t_cycles;
   signalid=t_pid;
-  yzFlitPayload.clear();
+  authorFlitPayload.clear();
 }
 
 

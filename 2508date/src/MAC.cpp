@@ -1,45 +1,4 @@
 
-/**
- * @file MAC.cpp
- * @brief CNN模式下的MAC (Multiply-Accumulate) 计算单元实现
- * 
- * 本文件实现了CNN加速器中的单个MAC计算单元。
- * MAC是CNN硬件加速的基本计算单元，执行乘累加运算：
- * output = Σ(weight[i] * input[i]) + bias
- * 
- * 主要功能：
- * 1. 权重(weight)和输入特征(input feature)的缓存管理
- * 2. 卷积、池化、全连接层的计算执行
- * 3. 与NoC的数据交互（发送请求、接收数据、输出结果）
- * 4. 支持不同的池化策略（最大池化、平均池化）
- * 
- * 数据处理流程：
- * - requestData(): 向内存节点请求weight/input数据
- * - receiveData(): 接收并缓存数据
- * - compute(): 执行MAC运算或池化操作
- * - sendOutput(): 将结果发送到下一层或输出
- * 
- * 内存节点映射：
- * - 根据NI_id自动计算对应的内存节点dest_mem_id
- * - 支持多种内存配置（MemNode2_4X4, MemNode4_4X4, MemNode8_4X4等）
- * - 采用就近原则减少NoC传输距离
- * 
- * 优化特性：
- * - 数据复用：缓存weight减少重复传输
- * - 流水线处理：计算与数据传输重叠
- * - 批量处理：一次处理多个channel提高效率
- * 
- * 与LLMMAC的区别：
- * - MAC处理规则的CNN层数据，LLMMAC处理不规则的attention矩阵
- * - MAC的数据访问模式固定，LLMMAC更加动态
- * - MAC支持多种层类型，LLMMAC专注于transformer计算
- * 
- * @note 本实现中使用了PADDING_RANDOM宏来控制padding策略
- * @note dest_list定义了内存节点的物理位置映射
- *
- * @date 2025
- */
-
 #include "MAC.hpp"
 #include "mc_mapping.hpp"
 
@@ -55,8 +14,8 @@ MAC::MAC(int t_id, MACnet *t_net, int t_NI_id) {
 	fn = -1;
 	tmpch = -1;
 	tmpm = 0;
-	cnn_current_layer_task_id = -1;  // 初始化CNN任务ID为空闲
-	cnn_saved_task_id = -1;           // 初始化保存的任务ID
+	cnn_current_layer_task_id = -1;  // CNNID
+	cnn_saved_task_id = -1;           // ID
 
 	outfeature = 0.0;
 	nextMAC = NULL;
@@ -71,11 +30,11 @@ MAC::MAC(int t_id, MACnet *t_net, int t_NI_id) {
 	n_tmpm.clear();
 
 #ifdef binaryroutingSwitch
-	lastResponseRouting = 1;  // 初始化为1，第一个response packet使用routing 1
+	lastResponseRouting = 1;  // 1，response packetrouting 1
 #endif
 
 #ifdef fireAdvance
-	// 初始化 Fire Advance 计数器
+	//  Fire Advance
 	total_tasks = 0;
 	requests_sent = 0;
 	responses_received = 0;
@@ -86,15 +45,14 @@ MAC::MAC(int t_id, MACnet *t_net, int t_NI_id) {
 #endif
 
 	// find dest id
-	//这里 xid = row（行），yid = col（列）
-	// 使用新的映射函数
+	// xid = row（），yid = col（）
 	dest_mem_id = get_mc_for_pe(NI_id, X_NUM, Y_NUM);
-	
+
 	// Debug output for first few MACs
 	if (selfMACid < 4) {
 		int xid = NI_id / X_NUM;
 		int yid = NI_id % X_NUM;
-		std::cout << "MAC[" << selfMACid << "] at (" << xid << "," << yid 
+		std::cout << "MAC[" << selfMACid << "] at (" << xid << "," << yid
 		          << ") -> MC " << dest_mem_id << std::endl;
 	}
 	cnn_task_queue.clear();
@@ -125,13 +83,13 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 	msg.source_id = NI_id; // NI
 	msg.msgtype = type; // 0 1 2 3
 
-	msg.yzMSGPayload.clear();
+	msg.authorMSGPayload.clear();
 
 	//int tempDataCount = FLIT_LENGTH/valueBytes; //32 bytes /2 bytes per data
-	//msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), inbuffer.begin(), inbuffer.end());
+	//msg.authorMSGPayload.insert(msg.authorMSGPayload.end(), inbuffer.begin(), inbuffer.end());
 	if (msg.msgtype == 0) {
 		// Request message padding
-		msg.yzMSGPayload.assign(payloadElementNum, 0);
+		msg.authorMSGPayload.assign(payloadElementNum, 0);
 
 #ifdef  PADDING_RANDOM
 		// Use random padding instead of zeros
@@ -141,52 +99,52 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 			warning_printed = true;
 		}
 		for (int i = 0; i < payloadElementNum; i++) {
-			msg.yzMSGPayload[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f; // Random [-0.5, 0.5]
+			msg.authorMSGPayload[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f; // Random [-0.5, 0.5]
 		}
 #endif
 	} else if (msg.msgtype == 2){
-		// Response message padding  
-		msg.yzMSGPayload.assign(payloadElementNum, 0);
+		// Response message padding
+		msg.authorMSGPayload.assign(payloadElementNum, 0);
 #ifdef PADDING_RANDOM
 		// Use random padding instead of zeros
-		for (int i = 1; i < payloadElementNum; i++) { // i从1开始，保留[0]位置给t_output
-			msg.yzMSGPayload[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f; // Random [-0.5, 0.5]
+		for (int i = 1; i < payloadElementNum; i++) { // i1，[0]t_output
+			msg.authorMSGPayload[i] = static_cast<float>(rand()) / RAND_MAX - 0.5f; // Random [-0.5, 0.5]
 		}
 #endif
-		msg.yzMSGPayload[0] = t_output;
+		msg.authorMSGPayload[0] = t_output;
 	}
 	else if (msg.msgtype == 1) { //response
-		//msg.yzMSGPayload.assign(FLIT_LENGTH/valueBytes-1, 1); // 替换为 15 个 1    256bit（32byte）/16bit（2byte）-1 = 16 -1 =15 或者7个1 ：256/32 - 1=8-1=7
-		msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), inbuffer.begin() + 3,
+		//msg.authorMSGPayload.assign(FLIT_LENGTH/valueBytes-1, 1); //  15  1    256bit（32byte）/16bit（2byte）-1 = 16 -1 =15 71 ：256/32 - 1=8-1=7
+		msg.authorMSGPayload.insert(msg.authorMSGPayload.end(), inbuffer.begin() + 3,
 				inbuffer.end());		 //inbuffer.end() //inbuffer.begin()+18
-		//cout<<" maccpp check msg.yzMSGPayload.size before grid "<< msg.yzMSGPayload.size()<<endl;
-		//int flitNumSinglePacket = (msg.yzMSGPayload.size()) 		/ (payloadElementNum) + 1;
-		  int flitNumSinglePacket = (msg.yzMSGPayload.size() -1 + payloadElementNum) / (payloadElementNum) ;
-		
+		//cout<<" maccpp check msg.authorMSGPayload.size before grid "<< msg.authorMSGPayload.size()<<endl;
+		//int flitNumSinglePacket = (msg.authorMSGPayload.size()) 		/ (payloadElementNum) + 1;
+		  int flitNumSinglePacket = (msg.authorMSGPayload.size() -1 + payloadElementNum) / (payloadElementNum) ;
+
 		  /*
 		// DEBUG: Fill padding with random values instead of zeros
-		int padding_size = flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size();
+		int padding_size = flitNumSinglePacket * payloadElementNum - msg.authorMSGPayload.size();
 		for (int i = 0; i < padding_size; i++) {
 			float tempRandom = static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - 0.5f;
-		//	msg.yzMSGPayload.push_back(tempRandom);
-			msg.yzMSGPayload.push_back(0.0f);
+		//	msg.authorMSGPayload.push_back(tempRandom);
+			msg.authorMSGPayload.push_back(0.0f);
 		}
 		*/
-		// cout<<" msg.yzMSGPayload.size() "<<msg.yzMSGPayload.size()<<" padding_size "<< padding_size <<" msg.msgdata_length "<<msg.msgdata_length<<endl;
+		// cout<<" msg.authorMSGPayload.size() "<<msg.authorMSGPayload.size()<<" padding_size "<< padding_size <<" msg.msgdata_length "<<msg.msgdata_length<<endl;
 		// Original code - fill with zeros (commented out for debug)
 
-		std::fill_n(std::back_inserter(msg.yzMSGPayload),
+		std::fill_n(std::back_inserter(msg.authorMSGPayload),
 				(flitNumSinglePacket * payloadElementNum
-						 - msg.yzMSGPayload.size()), 0.0f);
+						 - msg.authorMSGPayload.size()), 0.0f);
 
-		//cout<<" maccpp check msg.yzMSGPayload.size after grid "<< msg.yzMSGPayload.size()<<endl;
+		//cout<<" maccpp check msg.authorMSGPayload.size after grid "<< msg.authorMSGPayload.size()<<endl;
 
 
 
-#ifdef YzAffiliatedOrdering
+#ifdef AuthorAffiliatedOrdering
 		if (inbuffer[0] != 8)		 //if(not pooling  )
 				{
-			cnnReshapeFlatToInputWeightMatrix(msg.yzMSGPayload,
+			cnnReshapeFlatToInputWeightMatrix(msg.authorMSGPayload,
 					inbuffer[2] * inbuffer[1]   /* t_inputCount */,
 					inbuffer[2]
 							* inbuffer[1]+1    /*weights used,inbuffer[2]= 5x5=25, inbuffer[1]= inputchannel=3, for example*/,
@@ -196,7 +154,7 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 		}
 		if (inbuffer[0] == 8)		 // pooling, no weights  // pool is only 2x2 so just put in input part (8 floating point value) is ok.
 				{
-			cnnReshapeFlatToInputWeightMatrix(msg.yzMSGPayload,
+			cnnReshapeFlatToInputWeightMatrix(msg.authorMSGPayload,
 					inbuffer[2] * inbuffer[1] /* */, 0 /* 0weight for pooling */,
 					8/*input in one row*/, 8/*weight in one row*/,
 					16 /*total in one row*/,
@@ -206,9 +164,9 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 		}
 		// 32 /4 -1 = 7. 7*8=56>51
 
-		//	cout<<msg.yzMSGPayload.size() << " beforefltordering "<<"msg.yzMSGPayload.front() "<<msg.yzMSGPayload.front()<<" " << msg.yzMSGPayload.back() <<endl;
+		//	cout<<msg.authorMSGPayload.size() << " beforefltordering "<<"msg.authorMSGPayload.front() "<<msg.authorMSGPayload.front()<<" " << msg.authorMSGPayload.back() <<endl;
 
-		//	cout<<msg.yzMSGPayload.size() << " afterfltordering "<<"msg.yzMSGPayload.front() "<<msg.yzMSGPayload.front()<<" " << msg.yzMSGPayload.back() <<endl;
+		//	cout<<msg.authorMSGPayload.size() << " afterfltordering "<<"msg.authorMSGPayload.front() "<<msg.authorMSGPayload.front()<<" " << msg.authorMSGPayload.back() <<endl;
 #endif
 	} else
 		cout << " msg.msgtype wierd " << msg.msgtype << endl;
@@ -251,7 +209,7 @@ bool MAC::inject(int type, int d_id, int t_eleNum, float t_output, NI *t_NI,
 
 
 
-/******888别误动下面的*/
+/******888*/
 void MAC::runOneStep() {
 
 	// output stationary (neuron based calculation)
@@ -265,7 +223,7 @@ void MAC::runOneStep() {
 				pecycle = cycles;
 			} else {
 #ifdef fireAdvance
-				// 记录总任务数（只在第一次记录）
+				// （）
 				if (total_tasks == 0) {
 					total_tasks = cnn_task_queue.size();
 					requests_sent = 0;
@@ -279,8 +237,8 @@ void MAC::runOneStep() {
 		}
 		// request data state
 		else if (selfstatus == 1) {	// now is 1, we need to send request and wait for response. After sending requst and before recv response is status2.
-			cnn_current_layer_task_id = cnn_task_queue.front();  // 从队列取出输出通道索引
-			cnn_saved_task_id = cnn_current_layer_task_id;       // 保存任务ID副本 //taskid
+			cnn_current_layer_task_id = cnn_task_queue.front();
+			cnn_saved_task_id = cnn_current_layer_task_id;       // ID //taskid
 			cnn_task_queue.pop_front();
 			//send_request(), fill inbuffer type 0
 			// Debug: Track Pooling requests
@@ -293,9 +251,9 @@ void MAC::runOneStep() {
 			// Debug: Track signalid allocation
 			int signal_id = packet_id + cnn_current_layer_task_id;
 			if (signal_id == 4704 || (signal_id >= 4700 && signal_id <= 4710)) {
-				cout << "[SIGNALID] MAC " << selfMACid 
+				cout << "[SIGNALID] MAC " << selfMACid
 				     << " using signalid=" << signal_id
-				     << " (packet_id=" << packet_id 
+				     << " (packet_id=" << packet_id
 				     << " + task_id=" << cnn_current_layer_task_id << ")"
 				     << " Layer=" << net->current_layerSeq
 				     << " at cycle " << cycles << endl;
@@ -304,7 +262,7 @@ void MAC::runOneStep() {
 					signal_id, selfMACid); //taskid
 
 #ifdef fireAdvance
-			// Fire Advance: 更新已发送请求计数
+			// Fire Advance:
 			requests_sent++;
 #endif
 
@@ -314,10 +272,10 @@ void MAC::runOneStep() {
 			//statistics
 			stats1SigID = (packet_id + cnn_saved_task_id) * 3;
 
-			DNN_latency[stats1SigID][0] = net->current_layerSeq; //DNN_yzlatency[x][0]	//net->current_layerSeq+1000;
-			DNN_latency[stats1SigID][1] = 0; //DNN_yzlatency[x][1] type 0 req
-			DNN_latency[stats1SigID][2] = selfMACid; //DNN_yzlatency[x][2] macsrcID
-			DNN_latency[stats1SigID][3] = pecycle; //DNN_yzlatency[x][3]	// request(packet1)
+			DNN_latency[stats1SigID][0] = net->current_layerSeq; //DNN_authorlatency[x][0]	//net->current_layerSeq+1000;
+			DNN_latency[stats1SigID][1] = 0; //DNN_authorlatency[x][1] type 0 req
+			DNN_latency[stats1SigID][2] = selfMACid; //DNN_authorlatency[x][2] macsrcID
+			DNN_latency[stats1SigID][3] = pecycle; //DNN_authorlatency[x][3]	// request(packet1)
 
 #endif
 		} else if (selfstatus == 2) {
@@ -332,7 +290,7 @@ void MAC::runOneStep() {
 
 			// inbuffer: [fn]
 			fn = inbuffer[0];
-			//cout << cycles << " yzdebug inbuffer.size  line 218  " << selfMACid
+			//cout << cycles << " authordebug inbuffer.size  line 218  " << selfMACid
 			//		<< " " << inbuffer.size() << endl;
 			if (fn >= 0 && fn <= 3) { // Conv [fn] [ch size] [map size] [inputActivation] [w + b]
 				ch_size = inbuffer[1]; //in_ch
@@ -402,7 +360,7 @@ void MAC::runOneStep() {
 				//statistics
 				stats1SigIDplus2 = (packet_id + cnn_saved_task_id) * 3 + 2;
 				//  here is pooling
-				DNN_latency[stats1SigIDplus2][0] = net->current_layerSeq;//DNN_yzlatency[x+2][2]			// current_layerSeq+3000;
+				DNN_latency[stats1SigIDplus2][0] = net->current_layerSeq;//DNN_authorlatency[x+2][2]			// current_layerSeq+3000;
 				DNN_latency[stats1SigIDplus2][1] = 2;
 				DNN_latency[stats1SigIDplus2][2] = selfMACid;
 				DNN_latency[stats1SigIDplus2][3] = pecycle;
@@ -410,8 +368,8 @@ void MAC::runOneStep() {
 				int delay_add_pool = DNN_latency[stats1SigIDplus2][3] - DNN_latency[stats1SigIDplus2 - 1][7];
 				samplingWindowDelay[mac_id_pool] += delay_add_pool;
 				// Debug print
-				cout << "[LAT_ADD] MAC.cpp:406 Pooling MAC " << mac_id_pool 
-				     << " += " << delay_add_pool 
+				cout << "[LAT_ADD] MAC.cpp:406 Pooling MAC " << mac_id_pool
+				     << " += " << delay_add_pool
 				     << " (total=" << samplingWindowDelay[mac_id_pool] << ")" << endl;
 				samplingAccumlatedCounter += 1;
 
@@ -481,17 +439,17 @@ void MAC::runOneStep() {
 #ifdef SoCC_Countlatency
 			//statistics
 			stats1SigIDplus2 = (packet_id + cnn_saved_task_id) * 3 + 2;		//result
-			DNN_latency[stats1SigIDplus2][0] = net->current_layerSeq;//DNN_yzlatency[x+2][0]			// current_layerSeq+3000;
-			DNN_latency[stats1SigIDplus2][1] = 2; //DNN_yzlatency[x+2][1]
-			DNN_latency[stats1SigIDplus2][2] = selfMACid; //DNN_yzlatency[x+2][2]
-			DNN_latency[stats1SigIDplus2][3] = pecycle; //DNN_yzlatency[x+2][3]
+			DNN_latency[stats1SigIDplus2][0] = net->current_layerSeq;//DNN_authorlatency[x+2][0]			// current_layerSeq+3000;
+			DNN_latency[stats1SigIDplus2][1] = 2; //DNN_authorlatency[x+2][1]
+			DNN_latency[stats1SigIDplus2][2] = selfMACid; //DNN_authorlatency[x+2][2]
+			DNN_latency[stats1SigIDplus2][3] = pecycle; //DNN_authorlatency[x+2][3]
 
 			int mac_id_comp = DNN_latency[stats1SigIDplus2][2];
 			int delay_add_comp = DNN_latency[stats1SigIDplus2][3] - DNN_latency[stats1SigIDplus2 - 1][7];
 			samplingWindowDelay[mac_id_comp] += delay_add_comp;
 			// Debug print
-			cout << "[LAT_ADD] MAC.cpp:482 Compute MAC " << mac_id_comp 
-			     << " += " << delay_add_comp 
+			cout << "[LAT_ADD] MAC.cpp:482 Compute MAC " << mac_id_comp
+			     << " += " << delay_add_comp
 			     << " (total=" << samplingWindowDelay[mac_id_comp] << ")" << endl;
 			samplingAccumlatedCounter += 1;
 #endif
@@ -503,7 +461,7 @@ void MAC::runOneStep() {
 			this->send = 0;
 
 #ifdef fireAdvance
-			// Fire Advance: 更新已完成任务计数
+			// Fire Advance:
 			tasks_completed++;
 			computing_task_id = -1;
 #endif
@@ -527,20 +485,20 @@ void MAC::runOneStep() {
 
 #ifdef fireAdvance
 	// ===== Fire Advance Logic =====
-	// 每个cycle检查fire advance倒计时（即使MAC在睡眠中也要执行）
+	// cyclefire advance（MAC）
 	if (fire_advance_armed && fire_advance_counter > 0) {
 		fire_advance_counter--;
 
 		if (fire_advance_counter == 0) {
-			// 倒计时结束，发送下一个request
+			// ，request
 			fire_advance_armed = false;
 
-			// 检查条件：还有任务、队列非空、不在REQUEST状态
+			// ：、、REQUEST
 			if (requests_sent < total_tasks &&
 			    cnn_task_queue.size() > 0 &&
 			    selfstatus != 1) {
 
-				// 强制进入REQUEST状态，并唤醒MAC
+				// REQUEST，MAC
 				selfstatus = 1;
 				pecycle = cycles;
 			}

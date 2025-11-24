@@ -1,17 +1,15 @@
 #ifndef PARAMETERS_HPP_
 #define PARAMETERS_HPP_
-#define DEFAULT_NNWEIGHT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/weight.txt"
-#define DEFAULT_NNINPUT_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/input2.txt"
-#define DEFAULT_NNMODEL_FILENAME	"/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/newnet2.txt"
+#define DEFAULT_NNWEIGHT_FILENAME	"src/Input/weight.txt"
+#define DEFAULT_NNINPUT_FILENAME	"src/Input/input2.txt"
+#define DEFAULT_NNMODEL_FILENAME	"src/Input/newnet2.txt"
 #define LLM_OUTPUT_PATH "src/output/"
 
 
-//#define randomeval
-#define fulleval
-//#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
 
-// CNN Random Data Test - Replace CNN inbuffer data with random values (same as LLM)
-//#define CNN_RANDOM_DATA_TEST  // Enable this to make CNN use pure random data like LLM
+#define AUTHORLLMSwitchON
+
+#define fulleval
 
 ////////ZONE A: optimization enable  /#define DelayBasedRoutingBalancing
 //#define bianryroutingSwitch // Binary Routing Switch - If enabled, response packets use YX routing, request packets use XY routing
@@ -26,9 +24,9 @@
 //#define NOCSIZEMC128_32X32  // 128 MCs in 32x32 mesh (8x8 tiles)
 
 
-//#define YZLLMSwitchON
-//#define LLM_TOKEN_SIZE 1  // 8tokesn  ~50 seconds on Intel 10700.
-#define LLM_TOKEN_SIZE 2    //128tokens . This takes more than ~20minutes.
+
+#define LLM_TOKEN_SIZE 1  // 8tokesn  ~50 seconds on Intel 10700.
+//#define LLM_TOKEN_SIZE 2    //128tokens . This takes more than ~20minutes.
 
 // Test Case Configuration - Choose one
 //#define case1_default
@@ -42,11 +40,7 @@
 //#define case9_MOSAIC1
 //#define case10_MOSAIC2
 
-//#define  PADDING_RANDOM
 
-
-//#define LLMPADDING_RANDOM
-#define LLM_OPTIMIZED_TYPE03_HANDLING  // Enable optimized Type 0/3 handling (16 elements only)
 
 
 #define LLM_DEBUG_LEVEL 1
@@ -59,21 +53,21 @@
 #if defined(case1_default)
     #define rowmapping
 #elif defined(case2_samos)
-    #define YZSAMOSSampleMapping
+    #define AUTHORSAMOSSampleMapping
 #elif defined(case3_affiliatedordering)
     #define rowmapping
-    #define YzAffiliatedOrdering
+    #define AuthorAffiliatedOrdering
 #elif defined(case4_seperratedordering)
     #define rowmapping
-    #define YzAffiliatedOrdering
-    #define YZSeperatedOrdering_reArrangeInput
+    #define AuthorAffiliatedOrdering
+    #define AUTHORSeperatedOrdering_reArrangeInput
 #elif defined(case5_COMBO1)
-    #define YZSAMOSSampleMapping
-    #define YzAffiliatedOrdering
+    #define AUTHORSAMOSSampleMapping
+    #define AuthorAffiliatedOrdering
 #elif defined(case6_COMBO2)
-    #define YZSAMOSSampleMapping
-    #define YzAffiliatedOrdering
-    #define YZSeperatedOrdering_reArrangeInput
+    #define AUTHORSAMOSSampleMapping
+    #define AuthorAffiliatedOrdering
+    #define AUTHORSeperatedOrdering_reArrangeInput
 
 #elif defined(case7_FireAdvance)
     #define rowmapping
@@ -85,16 +79,16 @@
 
 #elif defined(case9_MOSAIC1)
     // MOSAIC1 = SAMOS + Affiliated + FireAdvance + BinarySwitch
-    #define YZSAMOSSampleMapping
-    #define YzAffiliatedOrdering
+    #define AUTHORSAMOSSampleMapping
+    #define AuthorAffiliatedOrdering
     #define fireAdvance
     #define binaryroutingSwitch
 
 #elif defined(case10_MOSAIC2)
     // MOSAIC2 = SAMOS + Affiliated + Separated + FireAdvance + BinarySwitch
-    #define YZSAMOSSampleMapping
-    #define YzAffiliatedOrdering
-    #define YZSeperatedOrdering_reArrangeInput
+    #define AUTHORSAMOSSampleMapping
+    #define AuthorAffiliatedOrdering
+    #define AUTHORSeperatedOrdering_reArrangeInput
     #define fireAdvance
     #define binaryroutingSwitch
 
@@ -103,17 +97,30 @@
 #endif
 
 
+
+
+
+
+
+
+
 #ifdef fireAdvance
 const int FIRE_ADVANCE_DELAY = 5;
 #endif
-
-
-
+//#define randomeval
 #define samplingTasksPerMAC 10//100 or 10
 #define USE_SCALED_HAMILTONLLM
 //#define FIXED_POINT_SORTING
+//#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
+
+// CNN Random Data Test - Replace CNN inbuffer data with random values (same as LLM)
+//#define CNN_RANDOM_DATA_TEST  // Enable this to make CNN use pure random data like LLM
+
+//#define  PADDING_RANDOM
 
 
+//#define LLMPADDING_RANDOM
+#define LLM_OPTIMIZED_TYPE03_HANDLING  // Enable optimized Type 0/3 handling (16 elements only)
 
 #define only3type
 #define outPortNoInfinite
@@ -126,7 +133,7 @@ const int FIRE_ADVANCE_DELAY = 5;
 #define bitsPerElement 32
 #define payloadElementNum 16
 #define headerPerFlit 0
-#ifndef YZLLMSwitchON  // dnn latency has some problems in LLM mode. Commented it for LLM
+#ifndef AUTHORLLMSwitchON  // dnn latency has some problems in LLM mode. Commented it for LLM
 #define SoCC_Countlatency
 #endif
 #define VN_NUM 1
@@ -146,28 +153,28 @@ const int FIRE_ADVANCE_DELAY = 5;
 	#define X_NUM 4
 	#define Y_NUM 4
 	#define TOT_NUM 16
-	#define YZMEMCount 2
+	#define AUTHORMEMCount 2
 #elif defined NOCSIZEMC8_8X8
 	#define PE_X_NUM 8
 	#define PE_Y_NUM 8
 	#define X_NUM 8
 	#define Y_NUM 8
 	#define TOT_NUM 64
-	#define YZMEMCount 8
+	#define AUTHORMEMCount 8
 #elif defined NOCSIZEMC32_16X16
 	#define PE_X_NUM 16
 	#define PE_Y_NUM 16
 	#define X_NUM 16
 	#define Y_NUM 16
 	#define TOT_NUM 256
-	#define YZMEMCount 32
+	#define AUTHORMEMCount 32
 #elif defined NOCSIZEMC128_32X32
 	#define PE_X_NUM 32
 	#define PE_Y_NUM 32
 	#define X_NUM 32
 	#define Y_NUM 32
 	#define TOT_NUM 1024
-	#define YZMEMCount 128
+	#define AUTHORMEMCount 128
 #endif
 
 #define LINK_TIME 2

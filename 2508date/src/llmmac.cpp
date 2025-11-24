@@ -1,124 +1,122 @@
 /**
  * @file llmmac.cpp
- * @brief LLM MAC计算单元实现 - Attention计算核心
- * 
- * 本文件实现了LLM模式下的单个MAC计算单元，负责执行Transformer的
- * Attention计算。通过状态机控制整个处理流程，并实现数据排序优化。
- * 
+ * @brief LLM MAC - Attention
+ *
+ * LLMMAC，Transformer
+ * Attention。，。
+ *
  * ========================================================================
- * 执行流程对应llmmacnet.cpp的7步骤
+ * llmmacnet.cpp7
  * ========================================================================
- * 
- * Step 0: 初始化（在构造函数中完成）
+ *
+ * Step 0: （）
  * ----------------------------------------
- * 函数：LLMMAC::LLMMAC() [行54-83]
- * - 设置MAC ID和NI接口ID
- * - 初始化dest_mem_id（内存节点映射）
- * - 清空任务队列和数据缓存
- * - selfstatus设为0（IDLE状态）
- * 
- * Step 1: 状态检查与转换【核心状态机】
+ * ：LLMMAC::LLMMAC() [54-83]
+ * - MAC IDNIID
+ * - dest_mem_id（）
+ * -
+ * - selfstatus0（IDLE）
+ *
+ * Step 1: 【】
  * ----------------------------------------
- * 函数：LLMMAC::llmRunOneStep() [行319-479]
- * 
- * 状态机定义：
- *   State 0 (IDLE):    空闲，等待任务
- *   State 1 (REQUEST): 发送数据请求
- *   State 2 (WAIT):    等待数据响应
- *   State 3 (COMPUTE): 执行计算
- * 
- * 状态转换逻辑：
- *   IDLE → REQUEST:    当llmPEExpectedtasktable非空时 [行336-342]
- *   REQUEST → WAIT:    发送请求后立即转换 [行373]
- *   WAIT → COMPUTE:    由processCNNPacket()设置 [行520]
- *   COMPUTE → IDLE:    计算完成后回到空闲 [行476]
- * 
- * Step 2: 数据请求发送（状态1执行）
+ * ：LLMMAC::llmRunOneStep() [319-479]
+ *
+ * ：
+ *   State 0 (IDLE):    ，
+ *   State 1 (REQUEST):
+ *   State 2 (WAIT):
+ *   State 3 (COMPUTE):
+ *
+ * ：
+ *   IDLE → REQUEST:    llmPEExpectedtasktable [336-342]
+ *   REQUEST → WAIT:     [373]
+ *   WAIT → COMPUTE:    processCNNPacket() [520]
+ *   COMPUTE → IDLE:     [476]
+ *
+ * Step 2: （1）
  * ----------------------------------------
- * 函数：LLMMAC::llmInject() [行212-260]
- * 触发条件：selfstatus == 1
- * 关键操作：
- *   - 从llmtasktable取出任务ID [行349]
- *   - 创建type 0请求消息 [行228]
- *   - 计算源和目标坐标 [行229-232]
- *   - 通过NoC注入请求 [行238]
- * 
- * Step 3: 响应包创建与排序（内存节点端）
+ * ：LLMMAC::llmInject() [212-260]
+ * ：selfstatus == 1
+ * ：
+ *   - llmtasktableID [349]
+ *   - type 0 [228]
+ *   -  [229-232]
+ *   - NoC [238]
+ *
+ * Step 3: （）
  * ----------------------------------------
- * 函数：LLMMAC::processCNNPacket() [行262-301]
- * 3.1 创建响应payload：
- *   - 132个float容器 [行278]
- *   - 元数据[0-3]：magic、size、chunk_id、pixel_id
- *   - Query数据[4-67]：64个元素
- *   - Key数据[68-131]：64个元素
- * 
- * 3.2 应用排序优化：
- *   函数：YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix() [yzllmieee754.cpp]
- *   - 分离排序：根据YZSeperatedOrdering_reArrangeInput宏
- *   - 关联排序：根据YzAffiliatedOrdering宏
- * 
- * Step 4: 数据接收处理（状态2执行）
+ * ：LLMMAC::processCNNPacket() [262-301]
+ * 3.1 payload：
+ *   - 132float [278]
+ *   - [0-3]：magic、size、chunk_id、pixel_id
+ *   - Query[4-67]：64
+ *   - Key[68-131]：64
+ *
+ * 3.2 ：
+ *   ：authorLLMIEEE754::llmReshapeFlatToQueryKeyMatrix() [llmieee754.cpp]
+ *   - ：AUTHORSeperatedOrdering_reArrangeInput
+ *   - ：AuthorAffiliatedOrdering
+ *
+ * Step 4: （2）
  * ----------------------------------------
- * 函数：LLMMAC::processCNNPacket() [行487-545]
- * 触发条件：收到type 1响应消息
- * 关键操作：
- *   - 检查消息类型 [行489]
- *   - 提取payload数据 [行507,514]
- *   - 缓存到infeature/weight [行507,514]
- *   - 设置selfstatus = 3准备计算 [行520]
- * 
- * Step 5: 运算执行（状态3执行）
+ * ：LLMMAC::processCNNPacket() [487-545]
+ * ：type 1
+ * ：
+ *   -  [489]
+ *   - payload [507,514]
+ *   - infeature/weight [507,514]
+ *   - selfstatus = 3 [520]
+ *
+ * Step 5: （3）
  * ----------------------------------------
- * 函数：LLMMAC::compute() [行547-608]
- * 触发条件：selfstatus == 3
- * 关键操作：
- *   - MAC运算：outfeature += weight[k] * infeature[i] [行568]
- *   - 激活函数：tanh(outfeature) [行573]
- *   - 检查是否需要更多数据 [行585]
- *   - 准备发送结果：selfstatus = 4 [行577]
- * 
- * Step 6: 结果输出与状态复位
+ * ：LLMMAC::compute() [547-608]
+ * ：selfstatus == 3
+ * ：
+ *   - MAC：outfeature += weight[k] * infeature[i] [568]
+ *   - ：tanh(outfeature) [573]
+ *   -  [585]
+ *   - ：selfstatus = 4 [577]
+ *
+ * Step 6:
  * ----------------------------------------
- * 函数：LLMMAC::sendOutput() [行610-640]
- * 关键操作：
- *   - 创建type 2结果消息 [行615]
- *   - 打包计算结果 [行622]
- *   - 通过NoC发送 [行630]
- *   - 复位到IDLE：selfstatus = 0 [行635]
- * 
+ * ：LLMMAC::sendOutput() [610-640]
+ * ：
+ *   - type 2 [615]
+ *   -  [622]
+ *   - NoC [630]
+ *   - IDLE：selfstatus = 0 [635]
+ *
  * ========================================================================
- * 排序优化算法详解
  * ========================================================================
- * 
- * 分离排序（Separated Ordering）：
- * - Query和Key独立排序，每列按1-bit数递增
- * - 优点：最大化减少bit翻转
- * - 缺点：破坏Query-Key语义关联
- * 
- * 关联排序（Affiliated Ordering）：
- * - Key排序，Query保持配对关系
- * - 优点：保持attention语义
- * - 缺点：bit翻转减少效果略差
- * 
+ *
+ * （Separated Ordering）：
+ * - QueryKey，1-bit
+ * - ：bit
+ * - ：Query-Key
+ *
+ * （Affiliated Ordering）：
+ * - Key，Query
+ * - ：attention
+ * - ：bit
+ *
  * ========================================================================
- * 关键数据结构
  * ========================================================================
- * 
- * - llmtasktable: 任务队列，存储待处理任务ID
- * - infeature: 输入特征缓存（Query数据）
- * - weight: 权重缓存（Key数据）
- * - outfeature: 输出结果
- * - selfstatus: 当前状态（0-3）
- * - pecycle: PE执行周期计数
+ *
+ * - llmtasktable: ，ID
+ * - infeature: （Query）
+ * - weight: （Key）
+ * - outfeature:
+ * - selfstatus: （0-3）
+ * - pecycle: PE
  *
  * @date 2025
  */
 
-// 小矩阵版本的 llmmac.cpp - 4x4可调试
+//  llmmac.cpp - 4x4
 #include "llmmac.hpp"
 #include "llmmacnet.hpp"
 #include "mc_mapping.hpp"
-#include "yzIEEE754.hpp"  // For bit-count sorting functions
+#include "IEEE754.hpp"  // For bit-count sorting functions
 #include <ctime>
 #include <iomanip>
 #include <cstdlib>
@@ -138,7 +136,7 @@ static inline std::string getCurrentTimeStr() {
     return std::string(buffer);
 }
 
-// With cycle info and system time (for runtime use) 
+// With cycle info and system time (for runtime use)
 #define LLM_INFO(x) do { \
     if (LLM_DEBUG_LEVEL >= 1) { \
         std::cout << "[" << getCurrentTimeStr() << "] [MAC-INFO @" << cycles << "] " << x << std::endl; \
@@ -177,11 +175,11 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 
 	input_data.clear();
 	query_data.clear();
-	// Key已移除
+	// Key
 	input_buffer.clear();
 
 	fn = -1;
-	currentRequestedTaskIDd = -1;  // 初始化为空闲状态
+	currentRequestedTaskIDd = -1;
 	nextLLMMAC = NULL;
 	pecycle = 0;
 	selfstatus = 0;
@@ -189,13 +187,12 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	current_pixel_id = -1;
 	current_subchunk_id = -1;
 	pixel_partial_sums.clear();
-	
+
 	current_subchunk_id = 0;
 
 	// Find destination memory ID
-	// 使用新的映射函数
 	dest_mem_id = get_mc_for_pe(NI_id, X_NUM, Y_NUM);
-	
+
 	// Debug output for first few MACs
 	if (selfMACid < 16) {
 		int xid = NI_id / X_NUM;
@@ -210,7 +207,7 @@ LLMMAC::LLMMAC(int t_id, LLMMACnet *t_net, int t_NI_id) {
 	latency_monitor = LatencyMonitoring();
 
 #ifdef binaryroutingSwitch
-	lastResponseRouting = 1;  // 初始化为1，第一个response packet使用routing 1
+	lastResponseRouting = 1;  // 1，response packetrouting 1
 #endif
 
 #ifdef fireAdvance
@@ -240,39 +237,39 @@ bool LLMMAC::llmMemNodeInject(int type, int d_id, int  tllm_eleNum, float t_outp
 	msg.slave_id = d_id;
 	msg.source_id = NI_id;
 	msg.msgtype = type;
-	msg.yzMSGPayload.clear();
+	msg.authorMSGPayload.clear();
 	current_pixel_id = task_id / LLM_SUBCHUNKS_PER_PIXEL;
 	current_subchunk_id = task_id % LLM_SUBCHUNKS_PER_PIXEL;
 
-  if (msg.msgtype == 1) { // Response with data - 从all_tasks读取真实数据
-		msg.yzMSGPayload.clear();
-		// 从net的all_tasks获取真实数据而非随机生成
+  if (msg.msgtype == 1) { // Response with data - all_tasks
+		msg.authorMSGPayload.clear();
+		// netall_tasks
 		if (net && task_id >= 0 && task_id < static_cast<int>(net->all_tasks.size())) {
 			const LLMMACnet::LLMTask& task = net->all_tasks[task_id];
-			// 添加Input数据
-			msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), 
-									task.input_data.begin(), 
+			// Input
+			msg.authorMSGPayload.insert(msg.authorMSGPayload.end(),
+									task.input_data.begin(),
 									task.input_data.end());
-			// 添加Query权重数据
-			msg.yzMSGPayload.insert(msg.yzMSGPayload.end(), 
-									task.query_data.begin(), 
+			// Query
+			msg.authorMSGPayload.insert(msg.authorMSGPayload.end(),
+									task.query_data.begin(),
 									task.query_data.end());
 		} else {
 
 			assert(false && "ERROR: Invalid task_id - task not found in all_tasks!");
 		}
 
-		// 计算flit数量并添加padding以对齐flit边界
-		int flitNumSinglePacket = (msg.yzMSGPayload.size() - 1 + payloadElementNum) / payloadElementNum;
-		//cout <<"int flitNumSinglePacket "<<  flitNumSinglePacket<<" msg.yzMSGPayload.size( "<<msg.yzMSGPayload.size() <<" msg.msgdata_length " <<  msg.msgdata_length <<endl;
-		// 添加padding对齐到flit边界（与CNN相同的方法）
-		std::fill_n(std::back_inserter(msg.yzMSGPayload),
-					(flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size()),
+		// flitpaddingflit
+		int flitNumSinglePacket = (msg.authorMSGPayload.size() - 1 + payloadElementNum) / payloadElementNum;
+		//cout <<"int flitNumSinglePacket "<<  flitNumSinglePacket<<" msg.authorMSGPayload.size( "<<msg.authorMSGPayload.size() <<" msg.msgdata_length " <<  msg.msgdata_length <<endl;
+		// paddingflit（CNN）
+		std::fill_n(std::back_inserter(msg.authorMSGPayload),
+					(flitNumSinglePacket * payloadElementNum - msg.authorMSGPayload.size()),
 					0.0f);
 
-		// 应用排序优化（对所有消息类型）
+		// （）
 		static int inject_count = 0;
-		YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix(msg.yzMSGPayload);
+		authorLLMIEEE754::llmReshapeFlatToQueryKeyMatrix(msg.authorMSGPayload);
 	}
 
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);
@@ -301,34 +298,34 @@ bool LLMMAC::llmPEInject(int type, int d_id, int  tllm_eleNum, float t_output, N
 	msg.mac_id = mac_src;
 	msg.msgdata_length =  tllm_eleNum -4 ;// 132 or 128
 	msg.QoS = 0;
-	// 从 task_id 计算 pixel_id 和 subchunk_id
+	//  task_id  pixel_id  subchunk_id
 	current_pixel_id = task_id / LLM_SUBCHUNKS_PER_PIXEL;
 	current_subchunk_id = task_id % LLM_SUBCHUNKS_PER_PIXEL;
-	if ( type == 3) { //type == 2 不发result。
-		// 对于结果消息（type 2中间结果 或 type 3最终结果），获取正确的像素坐标
-		// 从current_pixel_id计算坐标
-		// 输出矩阵是 8×128 (8行×128列)
-		// pixel_id范围: 0-1023 (总共8*128=1024个像素)
+	if ( type == 3) { //type == 2 result。
+		// （type 2  type 3），
+		// current_pixel_id
+		//  8×128 (8×128)
+		// pixel_id: 0-1023 (8*128=1024)
 
-		int pixel_x = current_pixel_id % net->matrixOutputPixels_queryoutputdim;  // 列坐标 (0-127)
-		int pixel_y = current_pixel_id / net->matrixOutputPixels_queryoutputdim;  // 行坐标 (0-7)
+		int pixel_x = current_pixel_id % net->matrixOutputPixels_queryoutputdim;  //  (0-127)
+		int pixel_y = current_pixel_id / net->matrixOutputPixels_queryoutputdim;  //  (0-7)
 		msg.data.assign(1, t_output);
 		msg.data.push_back( pixel_x);
 		msg.data.push_back( pixel_y);
-		// current_subchunk_id 已经在 State 1 中从 task_id 正确计算
+		// current_subchunk_id  State 1  task_id
 		msg.data.push_back( current_subchunk_id);  // Use subchunk_id instead of ts
 
 	} else if (type == 0) {
 		// Type 0: Request message - msg.data[0] must contain task_id for Memory node to retrieve the correct task
-		msg.data.assign(1, task_id);  // msg.data[0] = task_id (不是0！)
-		int pixel_x = current_pixel_id % net->matrixOutputPixels_queryoutputdim;  // 列坐标 (0-127)
-		int pixel_y = current_pixel_id / net->matrixOutputPixels_queryoutputdim;  // 行坐标 (0-7)
+		msg.data.assign(1, task_id);  // msg.data[0] = task_id (0！)
+		int pixel_x = current_pixel_id % net->matrixOutputPixels_queryoutputdim;  //  (0-127)
+		int pixel_y = current_pixel_id / net->matrixOutputPixels_queryoutputdim;  //  (0-7)
 		msg.data.push_back(pixel_x);
 		msg.data.push_back(pixel_y);
-		// current_subchunk_id 已经在 State 1 中从 task_id 正确计算
-		msg.data.push_back(current_subchunk_id);      //  时间片
+		// current_subchunk_id  State 1  task_id
+		msg.data.push_back(current_subchunk_id);
 	} else {
-		assert(false && "ERROR:PE LLM2不发，1则应该是Mem");
+		assert(false && "ERROR:PE LLM2，1Mem");
 	}
 
 
@@ -340,53 +337,53 @@ bool LLMMAC::llmPEInject(int type, int d_id, int  tllm_eleNum, float t_output, N
 	msg.slave_id = d_id;
 	msg.source_id = NI_id;
 	msg.msgtype = type;
-	msg.yzMSGPayload.clear();
-	
+	msg.authorMSGPayload.clear();
+
 #ifdef LLM_OPTIMIZED_TYPE03_HANDLING
-	// 优化版本：Type 0/3 消息正确处理为16个元素
+	// ：Type 0/3 16
 	if (msg.msgtype == 0) { // Request
-		// Request message: 16个元素，第0位是task_id（但这里不设置，由调用者处理）
-		msg.yzMSGPayload.assign(payloadElementNum, 0);
-		// 使用专门的Type 0/3处理函数
-		YzLLMIEEE754::llmReqRestReorderingFunc(msg.yzMSGPayload, 0.0f);
-	} else if (msg.msgtype == 3) { // Result (type 2 intermediate不发, type 3 final)
-		// Result message: 16个元素，第0位是结果值
-		msg.yzMSGPayload.assign(payloadElementNum, 0);
-		// 使用专门的Type 0/3处理函数，设置结果值
-		YzLLMIEEE754::llmReqRestReorderingFunc(msg.yzMSGPayload, t_output);
-		// std::cout << "[LLM-INJECT-TYPE3] Injecting Type 3 to NI " << NI_id 
+		// Request message: 16，0task_id（，）
+		msg.authorMSGPayload.assign(payloadElementNum, 0);
+		// Type 0/3
+		authorLLMIEEE754::llmReqRestReorderingFunc(msg.authorMSGPayload, 0.0f);
+	} else if (msg.msgtype == 3) { // Result (type 2 intermediate, type 3 final)
+		// Result message: 16，0
+		msg.authorMSGPayload.assign(payloadElementNum, 0);
+		// Type 0/3，
+		authorLLMIEEE754::llmReqRestReorderingFunc(msg.authorMSGPayload, t_output);
+		// std::cout << "[LLM-INJECT-TYPE3] Injecting Type 3 to NI " << NI_id
 		//           << " dest=" << d_id << " value=" << t_output << std::endl;
 	}
 	else {
-		assert(false && "ERROR:PE LLM2不发，1则应该是Mem");
+		assert(false && "ERROR:PE LLM2，1Mem");
 	}
-	// Type 0和Type 3消息已经是正确大小（16个元素），无需额外padding
-	
+	// Type 0Type 3（16），padding
+
 #else
-	// 原版本：错误地对所有消息类型应用128元素排序
+	// ：128
 	if (msg.msgtype == 0) { // Request
 		// Request message padding
-		msg.yzMSGPayload.assign(payloadElementNum, 0);
-	} else if (msg.msgtype == 3) { // Result (type 2 intermediate不发, type 3 final)
-		msg.yzMSGPayload.assign(payloadElementNum, 0);
-		msg.yzMSGPayload[0] = t_output;
-		// std::cout << "[LLM-INJECT-TYPE3] Injecting Type 3 to NI " << NI_id 
+		msg.authorMSGPayload.assign(payloadElementNum, 0);
+	} else if (msg.msgtype == 3) { // Result (type 2 intermediate, type 3 final)
+		msg.authorMSGPayload.assign(payloadElementNum, 0);
+		msg.authorMSGPayload[0] = t_output;
+		// std::cout << "[LLM-INJECT-TYPE3] Injecting Type 3 to NI " << NI_id
 		//           << " dest=" << d_id << " value=" << t_output << std::endl;
 	}
 	else {
-		assert(false && "ERROR:PE LLM2不发，1则应该是Mem");
+		assert(false && "ERROR:PE LLM2，1Mem");
 	}
-	
-	// 计算flit数量并添加padding以对齐flit边界
-	int flitNumSinglePacket = (msg.yzMSGPayload.size() - 1 + payloadElementNum) / payloadElementNum;
-	// 添加padding对齐到flit边界（与CNN相同的方法）
-	std::fill_n(std::back_inserter(msg.yzMSGPayload),
-				(flitNumSinglePacket * payloadElementNum - msg.yzMSGPayload.size()),
+
+	// flitpaddingflit
+	int flitNumSinglePacket = (msg.authorMSGPayload.size() - 1 + payloadElementNum) / payloadElementNum;
+	// paddingflit（CNN）
+	std::fill_n(std::back_inserter(msg.authorMSGPayload),
+				(flitNumSinglePacket * payloadElementNum - msg.authorMSGPayload.size()),
 				0.0f);
-	// 应用排序优化（如果启用了排序宏）
-	// 对所有类型消息进行排序，保持代码通用性
+	// （）
+	// ，
 	// Type 3 messages only have 1 element, but sorting won't hurt
-	YzLLMIEEE754::llmReshapeFlatToQueryKeyMatrix(msg.yzMSGPayload);
+	authorLLMIEEE754::llmReshapeFlatToQueryKeyMatrix(msg.authorMSGPayload);
 #endif
 
 	Packet *packet = new Packet(msg, X_NUM, t_NI->NI_num);
@@ -421,7 +418,7 @@ void LLMMAC::llmRunOneStep() {
 	if ((int)pecycle < (int)cycles) {
 		// State 0: IDLE
 		if (selfstatus == 0) {
-			if (llmPEExpectedtasktable.size() == 0) { //一般是跑完了就一直等。比如快的pe跑完了。
+			if (llmPEExpectedtasktable.size() == 0) { //。pe。
 				selfstatus = 0;
 				pecycle = cycles;
 			} else {
@@ -433,24 +430,24 @@ void LLMMAC::llmRunOneStep() {
 		// - Purpose: Send a request (Type 0) to the memory controller for the current task's data.
 		// - Duration: 1 cycle. This state is transitional.
 		else if (selfstatus == 1) {
-			currentRequestedTaskIDd = llmPEExpectedtasktable.front();  // 从队列取出任务ID
+			currentRequestedTaskIDd = llmPEExpectedtasktable.front();  // ID
 			llmPEExpectedtasktable.pop_front();
 			//if (selfMACid == 0 && currentRequestedTaskIDd < 100) {
-			//	cout << "Line471: MAC 0 processing task_id=" << currentRequestedTaskIDd 
+			//	cout << "Line471: MAC 0 processing task_id=" << currentRequestedTaskIDd
 			//	     << " at cycle=" << cycles << endl;
 			//}
-			
-			// 从 task_id 计算 pixel_id 和 subchunk_id
+
+			//  task_id  pixel_id  subchunk_id
 			current_pixel_id = currentRequestedTaskIDd / LLM_SUBCHUNKS_PER_PIXEL;
 			current_subchunk_id = currentRequestedTaskIDd % LLM_SUBCHUNKS_PER_PIXEL;
-			
+
 			// Start timing for new task
 			current_task_timing = TaskTiming();
 			current_task_timing.task_id = currentRequestedTaskIDd;
 			current_task_timing.request_send_cycle = cycles;
 			int signal_id_to_send = packet_id + currentRequestedTaskIDd;
 			//if (currentRequestedTaskIDd == 34880 || currentRequestedTaskIDd == 43840) {
-			//	cout << "Line481: MAC " << selfMACid << " sending request: currentRequestedTaskIDd=" << currentRequestedTaskIDd 
+			//	cout << "Line481: MAC " << selfMACid << " sending request: currentRequestedTaskIDd=" << currentRequestedTaskIDd
 			//	     << " packet_id=" << packet_id << " signal_id=" << signal_id_to_send << endl;
 			//}
 			llmPEInject(0, dest_mem_id, 1, 0/*output is 0*/, net->vcNetwork->NI_list[NI_id],
@@ -483,9 +480,9 @@ void LLMMAC::llmRunOneStep() {
 				return;
 			}
 #else
-			// Fire advance模式：检查是否有response到达
+			// Fire advance：response
 			if (computing_task_id < 0) {
-				// 还没有收到response，继续等待
+				// response，
 				pecycle = cycles;
 				selfstatus = 2;
 				return;
@@ -498,17 +495,16 @@ void LLMMAC::llmRunOneStep() {
 			return;
 		}
 		// State 3: COMPUTE
-		else if (selfstatus == 3) { // currentRequestedTaskIDd 有值的时候，跳转到state3了。
+		else if (selfstatus == 3) { // currentRequestedTaskIDd ，state3。
 			// Track computation start
 			current_task_timing.compute_start_cycle = cycles;
-			
-			// Partial sum 已经在 llmPEReceiveResp 中计算并存储
-			// 这里只需要模拟计算延迟
+
+			// Partial sum  llmPEReceiveResp
 
 			int calc_time = ((query_data.size()-1) / PE_NUM_OP + 1) * 20;
 			selfstatus = 4;
 			pecycle = cycles + calc_time;
-			
+
 			// Track computation end and result send
 			current_task_timing.compute_end_cycle = cycles + calc_time;
 			current_task_timing.result_send_cycle = cycles + calc_time;
@@ -516,17 +512,17 @@ void LLMMAC::llmRunOneStep() {
 
 
 			// Check if all subchunks for this pixel are complete
-			// 方案1：假设按顺序处理，最后一个子块(63)到达时聚合
+			// 1：，(63)
 			if (current_subchunk_id == LLM_SUBCHUNKS_PER_PIXEL-1) {
 				// Aggregate all partial sums
 				float total_sum = 0.0f;
 				int valid_count = 0;
-				
+
 				// Debug: Print all partial sums for pixel[0][0]
 				// if (current_pixel_id == 0) {
 				// std::cout << "[DEBUG-PIXEL0-AGGREGATION] Aggregating pixel[0][0]:" << std::endl;
 				// }
-				
+
 				for (int i = 0; i < LLM_SUBCHUNKS_PER_PIXEL; i++) {
 					if (pixel_partial_sums[current_pixel_id].size() > i) {
 						float partial = pixel_partial_sums[current_pixel_id][i];
@@ -534,35 +530,35 @@ void LLMMAC::llmRunOneStep() {
 						valid_count++;
 					}
 				}
-				
+
 
 				// Calculate pixel coordinates for debug output
 				int pixel_x = current_pixel_id % net->query_output_dim;
 				int pixel_y = current_pixel_id / net->query_output_dim;
-				
+
 				// Send Type 3 final aggregated result
-				// std::cout << "[LLM-AGGREGATION] MAC " << selfMACid 
-				//           << " sending Type 3 for pixel " << current_pixel_id 
-				//           << " (x=" << pixel_x << ",y=" << pixel_y 
-				//           << ") with sum=" << total_sum 
+				// std::cout << "[LLM-AGGREGATION] MAC " << selfMACid
+				//           << " sending Type 3 for pixel " << current_pixel_id
+				//           << " (x=" << pixel_x << ",y=" << pixel_y
+				//           << ") with sum=" << total_sum
 				//           << " from NI " << NI_id << " to dest " << dest_mem_id << std::endl;
-				
+
 				llmPEInject(3, dest_mem_id, 1, total_sum,
 						  net->vcNetwork->NI_list[NI_id], packet_id + inPETaskIDFromResp, selfMACid, inPETaskIDFromResp);
-				
+
 				// Clean up aggregation data for this pixel
 				pixel_partial_sums.erase(current_pixel_id);
 			}  // End of "if all subchunks complete"
-			
+
 			// Calculate result packet hops (same as request)
 			current_task_timing.result_hops = current_task_timing.request_hops;
 
-			// Fire advance会跳过state 4，所以在这里就完成统计
+			// Fire advancestate 4，
 			// Save completed task timing (moved from state 4)
 			task_timings.push_back(current_task_timing);
 
 			// Update sampling window delay and monitoring for SAMOS mapping
-			#ifdef YZSAMOSSampleMapping
+			#ifdef AUTHORSAMOSSampleMapping
 			if (net && net->mapping_again == 1) {  // Only during sampling phase
 				// Calculate total latency for this task
 				int total_latency = current_task_timing.compute_end_cycle - current_task_timing.request_send_cycle;
@@ -588,7 +584,7 @@ void LLMMAC::llmRunOneStep() {
 
 #ifdef fireAdvance
 			tasks_completed++;
-			computing_task_id = -1;  // 清空，表示计算完成
+			computing_task_id = -1;  // ，
 #endif
 
 			return;
@@ -597,22 +593,22 @@ void LLMMAC::llmRunOneStep() {
 		// - Purpose: Finalize a single sub-task's computation and decide the next state.
 		// - Duration: 1 cycle. This state is transitional.
 		else if (selfstatus == 4) {
-			// 注意：统计代码已经移到State 3执行（line 561-593），因为Fire Advance会跳过State 4
+			// ：State 3（line 561-593），Fire AdvanceState 4
 			// Statistics code moved to State 3 (lines 561-593) because Fire Advance bypasses State 4
-			// 删除重复的统计代码以避免double-counting（这导致了514 vs 512的差异）
+			// double-counting（514 vs 512）
 			// Removed duplicate statistics to avoid double-counting (which caused the 514 vs 512 discrepancy)
 
 			this->send = 0;
 
 #ifndef fireAdvance
-			// 原逻辑：检查任务队列
+			// ：
 			if (this->llmPEExpectedtasktable.size() == 0) {
 				// State 5: FINISHED
 				// - Purpose: A final, static state indicating this MAC has completed all its tasks.
 				// - Duration: Stays in this state until the simulation ends.
 				this->selfstatus = 5;
 
-				#ifdef YZSAMOSSampleMapping
+				#ifdef AUTHORSAMOSSampleMapping
 				// Print final summary when MAC finishes all tasks
 				if (latency_monitor.task_count > 0) {
 					double actual_avg = latency_monitor.actual_latency_sum / latency_monitor.task_count;
@@ -639,11 +635,11 @@ void LLMMAC::llmRunOneStep() {
 				this->selfstatus = 0;
 			}
 #else
-			// Fire advance模式：检查是否所有任务都完成
+			// Fire advance：
 			if (tasks_completed >= total_tasks) {
 				this->selfstatus = 5;
 
-				#ifdef YZSAMOSSampleMapping
+				#ifdef AUTHORSAMOSSampleMapping
 				// Print final summary when MAC finishes all tasks
 				if (latency_monitor.task_count > 0) {
 					double actual_avg = latency_monitor.actual_latency_sum / latency_monitor.task_count;
@@ -666,7 +662,7 @@ void LLMMAC::llmRunOneStep() {
 				}
 				#endif
 
-				// Fire advance统计
+				// Fire advance
 				std::cout << "[FIRE-ADVANCE-FINAL] MAC " << selfMACid
 				          << " stats: sent=" << requests_sent
 				          << " received=" << responses_received
@@ -674,13 +670,12 @@ void LLMMAC::llmRunOneStep() {
 				          << " (total=" << total_tasks << ")" << std::endl;
 
 			} else if (computing_task_id >= 0) {
-				// 还在计算中
 				this->selfstatus = 4;
 			} else if (responses_received < requests_sent) {
-				// 有outstanding requests，回到WAITING
+				// outstanding requests，WAITING
 				this->selfstatus = 2;
 			} else {
-				// 回到IDLE发送更多requests
+				// IDLErequests
 				this->selfstatus = 0;
 			}
 #endif
@@ -693,12 +688,12 @@ void LLMMAC::llmRunOneStep() {
 
 #ifdef fireAdvance
 	// ===== Fire Advance Logic =====
-	// 每个cycle检查fire advance倒计时（即使MAC在睡眠中也要执行）
+	// cyclefire advance（MAC）
 	if (fire_advance_armed && fire_advance_counter > 0) {
 		fire_advance_counter--;
 
 		if (fire_advance_counter == 0) {
-			// 倒计时结束，发送下一个request
+			// ，request
 			fire_advance_armed = false;
 
 //			std::cout << "[FIRE-ADVANCE-TRIGGER] MAC " << selfMACid
@@ -711,7 +706,7 @@ void LLMMAC::llmRunOneStep() {
 //			          << " pecycle=" << pecycle
 //			          << std::endl;
 
-			// 检查条件：还有任务、不在REQUEST状态
+			// ：、REQUEST
 			if (requests_sent < total_tasks &&
 			    llmPEExpectedtasktable.size() > 0 &&
 			    selfstatus != 1) {
@@ -721,7 +716,7 @@ void LLMMAC::llmRunOneStep() {
 //				          << " (was scheduled for cycle " << pecycle << ")"
 //				          << std::endl;
 
-				// 强制进入REQUEST状态，并唤醒MAC
+				// REQUEST，MAC
 				selfstatus = 1;
 				pecycle = cycles;
 			} else {
@@ -749,39 +744,39 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 #ifndef fireAdvance
 		assert(inPETaskIDFromResp ==currentRequestedTaskIDd && "currentRequestedTaskIDd shouldsame inPETaskIDFromRespSigID");
 #else
-		// Fire advance模式：更新统计
+		// Fire advance：
 		responses_received++;
 
-		// 从task_id解码pixel和subchunk信息
+		// task_idpixelsubchunk
 		current_pixel_id = inPETaskIDFromResp / LLM_SUBCHUNKS_PER_PIXEL;
 		current_subchunk_id = inPETaskIDFromResp % LLM_SUBCHUNKS_PER_PIXEL;
 #endif
 
-		// 从响应消息中提取 input 和 query 数据
+		//  input  query
 		input_data.clear();
 		query_data.clear();
-		
-		// Memory直接发送数据，没有header！
-		// Payload格式: [64个input数据] + [64个query数据]
-		int data_size = 64;  // 每个subchunk包含64个元素
+
+		// Memory，header！
+		// Payload: [64input] + [64query]
+		int data_size = 64;  // subchunk64
 		int indexPayload=0;
 		for(int i = 0; i < 8;i++ ){
 			for(int j = 0; j < 8; j++ ){
-				input_data.push_back(re_msg->yzMSGPayload[indexPayload]);
+				input_data.push_back(re_msg->authorMSGPayload[indexPayload]);
 				indexPayload ++;
 			}
 			for(int j = 0; j < 8; j++ ){
-				query_data.push_back(re_msg->yzMSGPayload[indexPayload]);
+				query_data.push_back(re_msg->authorMSGPayload[indexPayload]);
 				indexPayload ++;
 			}
 		}
-		
-		// 直接在这里计算 partial sum
+
+		//  partial sum
 		float partial_sum = 0.0f;
 		for (int i = 0; i < input_data.size() && i < query_data.size(); i++) {
 			partial_sum += input_data[i] * query_data[i];
 		}
-		
+
 		// Debug: Print computation details for first few pixels
 		if (current_pixel_id <= 2) {  // Print for pixel[0][0], [0][1], [0][2]
 			int px = current_pixel_id % net->query_output_dim;
@@ -799,7 +794,7 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 					std::cout << std::fixed << std::setprecision(6) << query_data[i] << " ";
 				}
 				std::cout << std::endl;
-				
+
 				// Manual calculation of first few products
 				std::cout << "  First 5 products: ";
 				for (int i = 0; i < 5 && i < input_data.size() && i < query_data.size(); i++) {
@@ -809,28 +804,28 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 				std::cout << std::endl;
 			}
 		}
-		
-		// 存储 partial sum 用于聚合
+
+		//  partial sum
 		if (pixel_partial_sums[current_pixel_id].size() < LLM_SUBCHUNKS_PER_PIXEL) {
 			pixel_partial_sums[current_pixel_id].resize(LLM_SUBCHUNKS_PER_PIXEL, 0.0f);
 		}
 		pixel_partial_sums[current_pixel_id][current_subchunk_id] = partial_sum;
 
 #ifndef fireAdvance
-		currentRequestedTaskIDd = -1;  // 清空当前任务ID，回到空闲状态//准确的说应该是currentrequestedtask到了
+		currentRequestedTaskIDd = -1;  // ID，//currentrequestedtask
 #else
-		// 设置computing_task_id，准备计算
+		// computing_task_id，
 		computing_task_id = inPETaskIDFromResp;
 		currentRequestedTaskIDd = -1;
 
-		// 启动fire advance：如果还有未发送的request
-		// 修改：采样阶段也启用fire advance，优先考虑总体性能而非测量精度
+		// fire advance：request
+		// ：fire advance，
 		if (requests_sent < total_tasks) {
 			fire_advance_counter = FIRE_ADVANCE_DELAY;
 			fire_advance_armed = true;
 
-			#ifdef YZSAMOSSampleMapping
-			// 检测采样阶段用于debug输出
+			#ifdef AUTHORSAMOSSampleMapping
+			// debug
 			// bool in_sampling_phase = (net && net->mapping_again == 1);
 //			std::cout << "[FIRE-ADVANCE-ARM] MAC " << selfMACid
 //			          << " @cycle=" << cycles
@@ -851,7 +846,7 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 #endif
 	}
 	else {
-		// 错误：期望Type 1响应，但收到了其他类型
+		// ：Type 1，
 
 		assert(false && "LLMMAC received unexpected message type when expecting Type 1 response");
 	}
@@ -879,7 +874,7 @@ void LLMMAC::llmResetForNextTask() {
 
 
 
-// 注意: llmPrintDetailedData 函数已移至 yzllmieee754.cpp
+// : llmPrintDetailedData  llmieee754.cpp
 
 
 // Destructor

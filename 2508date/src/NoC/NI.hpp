@@ -1,7 +1,7 @@
 /*
  * NI.hpp
  *
- *  Created on: 2019年8月23日
+ *  Created on: 2019823
  */
 
 #ifndef NI_HPP_
@@ -35,7 +35,7 @@ class Flit;
 
 //added packet id
 extern long long packet_id;
-extern long long  YZGlobalFlit_id;
+extern long long  authorGlobalFlit_id;
 extern std::vector<std::vector<int>> LCS_packet_delay;
 extern std::vector<std::vector<int>> URS_packet_delay;
 extern std::ofstream flit_trace;

@@ -38,9 +38,9 @@ public:
   std::vector<int> trace_time;
 
   Packet * packet;
-  deque<float> yzFlitPayload;//real data
+  deque<float> authorFlitPayload;//real data
 
-  int YZGlobalFlit_idInFlit;
+  int authorGlobalFlit_idInFlit;
 };
 
 

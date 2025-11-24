@@ -1,39 +1,39 @@
 /**
  * @file llmmac.hpp
- * @brief LLM MAC计算单元头文件 - Transformer Attention处理器
- * 
- * 定义了LLM模式下的MAC计算单元类，实现Transformer架构的Attention计算。
- * 与CNN MAC不同，LLM MAC采用状态机驱动的异步处理模式。
- * 
- * 状态机定义：
+ * @brief LLM MAC - Transformer Attention
+ *
+ * LLMMAC，TransformerAttention。
+ * CNN MAC，LLM MAC。
+ *
+ * ：
  * -----------
- * State 0 (IDLE):    空闲状态，检查任务队列
- * State 1 (REQUEST): 请求状态，发送type 0消息获取数据
- * State 2 (WAIT):    等待状态，等待type 1响应数据
- * State 3 (COMPUTE): 计算状态，执行attention计算
- * 
- * 消息类型定义：
+ * State 0 (IDLE):    ，
+ * State 1 (REQUEST): ，type 0
+ * State 2 (WAIT):    ，type 1
+ * State 3 (COMPUTE): ，attention
+ *
+ * ：
  * ------------
- * Type 0: 数据请求 - MAC向内存节点请求Query/Key数据
- * Type 1: 数据响应 - 内存节点返回排序后的数据
- * Type 2: 中间结果 - LLM模式中未使用
- * Type 3: 最终结果 - Attention计算的最终输出
- * 
- * 主要功能：
+ * Type 0:  - MACQuery/Key
+ * Type 1:  -
+ * Type 2:  - LLM
+ * Type 3:  - Attention
+ *
+ * ：
  * ---------
- * - 任务队列管理：维护待处理的attention任务
- * - 数据请求发送：向内存节点请求所需数据
- * - 排序优化处理：对数据应用bit翻转优化排序
- * - Attention计算：Q*K^T/sqrt(d_k)及softmax
- * - 结果输出管理：将计算结果发送到目标节点
- * 
- * 排序策略：
+ * - ：attention
+ * - ：
+ * - ：bit
+ * - Attention：Q*K^T/sqrt(d_k)softmax
+ * - ：
+ *
+ * ：
  * ---------
- * - 分离排序：Query和Key独立排序，最大化减少bit翻转
- * - 关联排序：保持Query-Key配对，维护语义关联
- * 
- * @see llmmacnet.hpp - LLM网络管理器
- * @see yzIEEE754.hpp - IEEE754位操作函数
+ * - ：QueryKey，bit
+ * - ：Query-Key，
+ *
+ * @see llmmacnet.hpp - LLM
+ * @see authorIEEE754.hpp - IEEE754
  *
  * @date 2024-12-19 (original), 2025 (updated)
  */
@@ -62,13 +62,13 @@
 #include <deque>
 #include <cmath>
 #include <cassert>
-#include <algorithm>  // 添加 std::min
-#include <map>        // 添加 std::map
+#include <algorithm>  //  std::min
+#include <map>        //  std::map
 #include "parameters.hpp"
 #include "NoC/Packet.hpp"
 #include "NoC/NI.hpp"
-#include "yzllmieee754.hpp"  // LLM专用IEEE754排序优化
-// 注意: llmmacnet.hpp 会在 .cpp 文件中包含，避免循环依赖
+#include "llmieee754.hpp"  // LLMIEEE754
+// : llmmacnet.hpp  .cpp ，
 
 #if defined NOCSIZEMC2_4X4
 	#define MEM_NODES 2
@@ -136,7 +136,7 @@ extern unsigned int cycles;
 extern vector<vector<int>> DNN_latency;
 extern double samplingWindowDelay[TOT_NUM];
 
-class LLMMACnet;  // 前向声明
+class LLMMACnet;
 class Packet;
 
 class LLMMAC
@@ -155,85 +155,85 @@ class LLMMAC
 		 * LLMMAC State Machine Explanation:
 		 * The `selfstatus` variable controls the state of a single MAC unit.
 		 *
-		 * State | Name (名称)    | Duration (周期)                  | Description (描述)
+		 * State | Name ()    | Duration ()                  | Description ()
 		 * ------|----------------|----------------------------------|------------------------------------------------------------------------------------------------
-		 *   0   | IDLE (空闲)    | 1 cycle                          | Transitional state. If tasks are available, moves to REQUEST.
-		 *       |                |                                  | (过渡状态。若任务可用，则切换到REQUEST状态。)
-		 *   1   | REQUEST (请求) | 1 cycle                          | Transitional state. Sends a Type 0 data request to memory.
-		 *       |                |                                  | (过渡状态。向内存发送Type 0数据请求。)
-		 *   2   | WAITING (等待) | Variable (Network-dependent)     | Waits for the Type 1 response packet from memory. Duration depends on NoC latency.
-		 *       |                |                                  | (可变长状态,网络依赖。等待内存返回Type 1响应包。时长取决于NoC延迟。)
-		 *   3   | COMPUTE (计算) | 1 cycle + computation delay      | Transitional state. Calculates partial sum, then moves to state 4 while setting
-		 *       |                | (1周期 + 计算延迟)               | a `pecycle` timer that stalls the MAC (~40 cycles).
-		 *       |                |                                  | (过渡状态。计算部分和，然后切换到状态4，同时设置一个pecycle定时器来暂停MAC。)
-		 *   4   | COMPLETE (完成)| 1 cycle                          | Transitional state after computation delay. Decides whether to move to IDLE (0) or FINISHED (5).
-		 *       |                |                                  | (计算延迟后的过渡状态。决策是切换到IDLE(0)还是FINISHED(5)。)
-		 *   5   | FINISHED (结束)| Permanent (永久)                 | Terminal state. The MAC has completed all tasks and remains inactive.
-		 *       |                |                                  | (终点状态。MAC已完成所有任务并保持非活动状态。)
+		 *   0   | IDLE ()    | 1 cycle                          | Transitional state. If tasks are available, moves to REQUEST.
+		 *       |                |                                  | (。，REQUEST。)
+		 *   1   | REQUEST () | 1 cycle                          | Transitional state. Sends a Type 0 data request to memory.
+		 *       |                |                                  | (。Type 0。)
+		 *   2   | WAITING () | Variable (Network-dependent)     | Waits for the Type 1 response packet from memory. Duration depends on NoC latency.
+		 *       |                |                                  | (,。Type 1。NoC。)
+		 *   3   | COMPUTE () | 1 cycle + computation delay      | Transitional state. Calculates partial sum, then moves to state 4 while setting
+		 *       |                | (1 + )               | a `pecycle` timer that stalls the MAC (~40 cycles).
+		 *       |                |                                  | (。，4，pecycleMAC。)
+		 *   4   | COMPLETE ()| 1 cycle                          | Transitional state after computation delay. Decides whether to move to IDLE (0) or FINISHED (5).
+		 *       |                |                                  | (。IDLE(0)FINISHED(5)。)
+		 *   5   | FINISHED ()| Permanent ()                 | Terminal state. The MAC has completed all tasks and remains inactive.
+		 *       |                |                                  | (。MAC。)
 		 *
 		 */
 		int selfstatus;
-		
+
 		/**
-		 * @brief 当前正在处理的任务ID（原名request）
-		 * 
-		 * 数据流程详解：
+		 * @brief ID（request）
+		 *
+		 * ：
 		 * ================
-		 * 
-		 * 1. 任务ID的来源 (State 1: REQUEST)
+		 *
+		 * 1. ID (State 1: REQUEST)
 		 * ------------------------------------
-		 * - 从llmtasktable队列中取出: currentRequestedTaskIDd = llmtasktable.front()
-		 * - 任务ID范围: 0 到 1,048,575 (总共262,144像素 × 4个子块)
-		 * - 任务ID编码: pixel_id * LLM_SUBCHUNKS_PER_PIXEL + subchunk_id
-		 *   例如: 任务ID 1025 = 像素256的第1个子块 (256*4+1)
-		 * 
-		 * 2. 发送数据请求 (State 1: REQUEST)
+		 * - llmtasktable: currentRequestedTaskIDd = llmtasktable.front()
+		 * - ID: 0  1,048,575 (262,144 × 4)
+		 * - ID: pixel_id * LLM_SUBCHUNKS_PER_PIXEL + subchunk_id
+		 *   : ID 1025 = 2561 (256*4+1)
+		 *
+		 * 2.  (State 1: REQUEST)
 		 * ------------------------------------
-		 * - 将任务ID作为请求包发送到内存节点
+		 * - ID
 		 * - llmInject(type=0, ..., currentRequestedTaskIDd, ...)
-		 * - 内存节点收到后，根据ID查找对应数据
-		 * 
-		 * 3. 内存节点处理 (Memory Node)
+		 * - ，ID
+		 *
+		 * 3.  (Memory Node)
 		 * -------------------------------
-		 * - 接收type 0请求，提取任务ID
-		 * - 从all_tasks数组中查找: task = all_tasks[task_id]
-		 * - 提取该任务的Query和Key数据(各64个float)
-		 * - 应用排序优化(如果启用)
-		 * - 创建type 1响应包，包含排序后的数据
-		 * 
-		 * 4. 接收响应数据 (State 2: WAIT)
+		 * - type 0，ID
+		 * - all_tasks: task = all_tasks[task_id]
+		 * - QueryKey(64float)
+		 * - ()
+		 * - type 1，
+		 *
+		 * 4.  (State 2: WAIT)
 		 * ---------------------------------
-		 * - 收到type 1响应后，设置currentRequestedTaskIDd = -1
-		 * - 表示数据已到达，进入计算阶段
-		 * 
-		 * 5. 任务ID的编解码
+		 * - type 1，currentRequestedTaskIDd = -1
+		 * - ，
+		 *
+		 * 5. ID
 		 * -----------------
-		 * - 解码: pixel_id = task_id / LLM_SUBCHUNKS_PER_PIXEL, subchunk_id = task_id % LLM_SUBCHUNKS_PER_PIXEL
-		 * - 每个像素需要4个任务完成才能得到最终结果
-		 * - 用于聚合4个子块的部分和
+		 * - : pixel_id = task_id / LLM_SUBCHUNKS_PER_PIXEL, subchunk_id = task_id % LLM_SUBCHUNKS_PER_PIXEL
+		 * - 4
+		 * - 4
 		 */
-		int currentRequestedTaskIDd;  // 当前正在处理的任务ID，-1表示空闲
-		int inPETaskIDFromResp;  // 当前正在处理的任务ID，-1表示空闲
+		int currentRequestedTaskIDd;  // ID，-1
+		int inPETaskIDFromResp;  // ID，-1
 		/**
-		 * @brief 保存的任务ID，用于发送结果（原名tmp_requestID）
-		 * 
-		 * 作用：
-		 * - 在State 3/4使用此ID发送结果和更新输出表
-		 * - 保持任务ID贯穿整个处理流程
+		 * @brief ID，（tmp_requestID）
+		 *
+		 * ：
+		 * - State 3/4ID
+		 * - ID
 		 */
 		int send;
 		int NI_id;
 
-		// LLM-specific data structures - 只有Input和Query
-		deque<float> input_data;     // Input vectors (输入数据)
-		deque<float> query_data;     // Query weight vectors (Query权重)
+		// LLM-specific data structures - InputQuery
+		deque<float> input_data;     // Input vectors ()
+		deque<float> query_data;     // Query weight vectors (Query)
 		deque<float> input_buffer;   // Input buffer for received data
 
 		// LLM attention parameters
 
 		int current_subchunk_id;                  // Current time slice  == Current subchunk being processed
 		int dest_mem_id;                 // Memory node ID
-		
+
 		// Partial sum aggregation for pixels
 		std::map<int, std::vector<float>> pixel_partial_sums;    // pixel_id -> [LLM_SUBCHUNKS_PER_PIXEL partial sums]
 		int current_pixel_id;                          // Current pixel being processed
@@ -268,54 +268,54 @@ class LLMMAC
 		deque<int> llmPEExpectedtasktable;
 
 #ifdef binaryroutingSwitch
-		int lastResponseRouting;  // 记录上一次response packet的routing状态 (1 or 2)
+		int lastResponseRouting;  // response packetrouting (1 or 2)
 #endif
 
 #ifdef fireAdvance
-		// Fire advance功能：提前发送下一个request
-		int total_tasks;              // 总任务数（初始队列大小）
-		int requests_sent;            // 已发送request的数量
-		int responses_received;       // 已收到response的数量
-		int tasks_completed;          // 已完成计算的数量
+		// Fire advance：request
+		int total_tasks;              // （）
+		int requests_sent;            // request
+		int responses_received;       // response
+		int tasks_completed;
 
-		int fire_advance_counter;     // 倒计时：收到response后等多久发下一个request
-		bool fire_advance_armed;      // 是否已启动fire advance
+		int fire_advance_counter;     // ：responserequest
+		bool fire_advance_armed;      // fire advance
 
-		int computing_task_id;        // 当前正在计算的task ID（-1表示无）
+		int computing_task_id;        // task ID（-1）
 #endif
 
 		LLMMAC* nextLLMMAC;
-		
+
 		// Timing tracking for task phases with packet travel details
 		struct TaskTiming {
 			int task_id;
-			
+
 			// Request packet timing
 			int request_send_cycle;      // When request was sent
 			int request_arrive_cycle;    // When request arrived at memory
 			int request_hops;            // Number of hops for request
-			
-			// Response packet timing  
+
+			// Response packet timing
 			int response_send_cycle;     // When memory sent response
 			int response_arrive_cycle;   // When response arrived at MAC
 			int response_hops;           // Number of hops for response
-			
+
 			// Computation timing
 			int compute_start_cycle;
 			int compute_end_cycle;
-			
+
 			// Result packet timing
 			int result_send_cycle;       // When result was sent
 			int result_arrive_cycle;     // When result arrived at memory (if tracked)
 			int result_hops;            // Number of hops for result
-			
-			TaskTiming() : task_id(-1), 
+
+			TaskTiming() : task_id(-1),
 			               request_send_cycle(0), request_arrive_cycle(0), request_hops(0),
 			               response_send_cycle(0), response_arrive_cycle(0), response_hops(0),
 			               compute_start_cycle(0), compute_end_cycle(0),
 			               result_send_cycle(0), result_arrive_cycle(0), result_hops(0) {}
 		};
-		
+
 		std::vector<TaskTiming> task_timings;
 		TaskTiming current_task_timing;
 
@@ -331,7 +331,7 @@ class LLMMAC
 		// State management
 		bool llmIsWaitingForData();
 		void llmResetForNextTask();
-		// 注意: llmReshapeFlatToQueryKeyMatrix 已移至 yzllmieee754.hpp/cpp
+		// : llmReshapeFlatToQueryKeyMatrix  llmieee754.hpp/cpp
 
 		~LLMMAC();
 };

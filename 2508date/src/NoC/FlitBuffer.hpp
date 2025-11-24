@@ -1,7 +1,7 @@
 /*
  * flit_buffer.hpp
  *
- *  Created on: 2019年8月15日
+ *  Created on: 2019815
  */
 
 #ifndef VC_FLITBUFFER_HPP_

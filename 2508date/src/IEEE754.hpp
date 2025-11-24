@@ -1,12 +1,12 @@
-#ifndef YZIEEE754_HPP
-#define YZIEEE754_HPP
+#ifndef AUTHORIEEE754_HPP
+#define AUTHORIEEE754_HPP
 #include <cassert>
 #include <iostream>
 #include <bitset>
 #include <deque>
 #include <algorithm>
 #include <vector>
-#include <iomanip>  // 包含 std::setw
+#include <iomanip>  //  std::setw
 #include "parameters.hpp"
 
 #include <numeric> // For std::iota
@@ -33,5 +33,5 @@ void  print_FlitPayload(const std::deque<float>& floatDeque);
 void sortMatrix_CNNAffiliated(std::deque<float> &inputData, std::deque<float> &weightData, int colnum_per_row, int rownum_per_col);
 
 
-#endif // YZIEEE754_HPP
+#endif // AUTHORIEEE754_HPP
 

@@ -1,31 +1,31 @@
 /**
  * @file MAC.hpp
- * @brief CNN MAC计算单元头文件
- * 
- * 定义了CNN模式下的单个MAC (Multiply-Accumulate) 计算单元。
- * MAC是CNN硬件加速器的基础计算单元，负责执行卷积、池化等操作。
- * 
- * 内存节点配置：
- * - MemNode2_4X4: 2个内存节点，位于{9, 11}
- * - MemNode4_4X4: 4个内存节点，位于{5, 6, 9, 10}
- * - MemNode8_4X4: 8个内存节点，分布在网格中
- * - MemNode16_4X4: 16个内存节点，每个节点都是内存
- * 
- * MAC单元状态：
- * - selfstatus: 0(空闲), 1(请求数据), 2(计算中), 3(发送结果)
- * - pecycle: PE计算周期计数
- * - send: 发送控制标志
- * 
- * 数据缓存：
- * - weight: 权重缓存，支持权重复用
- * - infeature: 输入特征缓存
- * - inbuffer: 输入数据缓冲区
- * - outfeature: 输出特征值
- * 
- * 支持的操作：
- * - 卷积计算: weight * input的累加
- * - 池化操作: 最大池化、平均池化
- * - 数据传输: 通过NoC请求和发送数据
+ * @brief CNN MAC
+ *
+ * CNNMAC (Multiply-Accumulate) 。
+ * MACCNN，、。
+ *
+ * ：
+ * - MemNode2_4X4: 2，{9, 11}
+ * - MemNode4_4X4: 4，{5, 6, 9, 10}
+ * - MemNode8_4X4: 8，
+ * - MemNode16_4X4: 16，
+ *
+ * MAC：
+ * - selfstatus: 0(), 1(), 2(), 3()
+ * - pecycle: PE
+ * - send:
+ *
+ * ：
+ * - weight: ，
+ * - infeature:
+ * - inbuffer:
+ * - outfeature:
+ *
+ * ：
+ * - : weight * input
+ * - : 、
+ * - : NoC
  *
  * @date 2022-12-19 (original), 2025 (updated)
  */
@@ -140,31 +140,31 @@ class MAC
 	int fn;
 	int pecycle;
 	int selfstatus;
-	
+
 	/**
-	 * @brief CNN当前处理的层计算任务ID（原名request）
-	 * 
-	 * CNN任务ID含义：
-	 * - 表示当前层的第几个输出通道/特征图
-	 * - 从routing_table队列中取出
-	 * - 范围：0 到 该层输出通道数-1
-	 * - -1表示MAC空闲，无任务处理
-	 * 
-	 * 与LLM的区别：
-	 * - CNN: 任务ID = 输出通道索引，用于索引权重
-	 * - LLM: 任务ID = pixel_id*4 + subchunk_id，用于索引矩阵块
+	 * @brief CNNID（request）
+	 *
+	 * CNNID：
+	 * - /
+	 * - routing_table
+	 * - ：0  -1
+	 * - -1MAC，
+	 *
+	 * LLM：
+	 * - CNN: ID = ，
+	 * - LLM: ID = pixel_id*4 + subchunk_id，
 	 */
-	int cnn_current_layer_task_id;  // CNN当前处理的层任务ID（原名request）
-	
+	int cnn_current_layer_task_id;  // CNNID（request）
+
 	/**
-	 * @brief CNN保存的任务ID副本（原名tmp_requestID）
-	 * 
-	 * 作用：
-	 * - 在发送请求时保存: tmp_requestID = request
-	 * - 用于统计延迟: DNN_latency[packet_id + tmp_requestID]
-	 * - 用于发送结果包时的packet ID计算
+	 * @brief CNNID（tmp_requestID）
+	 *
+	 * ：
+	 * - : tmp_requestID = request
+	 * - : DNN_latency[packet_id + tmp_requestID]
+	 * - packet ID
 	 */
-	int cnn_saved_task_id;  // CNN保存的任务ID副本（原名tmp_requestID）
+	int cnn_saved_task_id;  // CNNID（tmp_requestID）
 
 	int send;
 	int NI_id;
@@ -180,13 +180,12 @@ class MAC
 	float outfeature{}; //from MRL
 
 	/**
-	 * @brief CNN任务队列（原名routing_table）
-	 * 
-	 * 存储待处理的输出通道索引
-	 * 例如：对于有64个输出通道的卷积层，队列包含[0,1,2,...,63]
-	 * MAC从队列取出任务ID，计算对应的输出特征图
+	 * @brief CNN（routing_table）
+	 *
+	 * ：64，[0,1,2,...,63]
+	 * MACID，
 	 */
-	deque <int> cnn_task_queue;  // CNN待处理任务队列（原名routing_table）
+	deque <int> cnn_task_queue;  // CNN（routing_table）
 
 	// for new pooling
 	int npoolflag;
@@ -194,20 +193,20 @@ class MAC
 	deque<int> n_tmpm;
 
 #ifdef binaryroutingSwitch
-	int lastResponseRouting;  // 记录上一次response packet的routing状态 (1 or 2)
+	int lastResponseRouting;  // response packetrouting (1 or 2)
 #endif
 
 #ifdef fireAdvance
-	// Fire advance功能：提前发送下一个request (CNN版本)
-	int total_tasks;              // 总任务数（初始队列大小）
-	int requests_sent;            // 已发送request的数量
-	int responses_received;       // 已收到response的数量
-	int tasks_completed;          // 已完成计算的数量
+	// Fire advance：request (CNN)
+	int total_tasks;              // （）
+	int requests_sent;            // request
+	int responses_received;       // response
+	int tasks_completed;
 
-	int fire_advance_counter;     // 倒计时：收到response后等多久发下一个request
-	bool fire_advance_armed;      // 是否已启动fire advance
+	int fire_advance_counter;     // ：responserequest
+	bool fire_advance_armed;      // fire advance
 
-	int computing_task_id;        // 当前正在计算的task ID（-1表示无）
+	int computing_task_id;        // task ID（-1）
 #endif
 
 	MAC* nextMAC;

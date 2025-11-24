@@ -117,7 +117,7 @@ bool NI::flitize(Packet *packet, int vn) {
 #endif
 					flit->packet->in_net_time = cycles;
 					buffer_list[i]->enqueue(flit);
-					//YZGlobalFlit_id++;
+					//authorGlobalFlit_id++;
 				} else {
 					for (int id = 0; id < lengthflitNum; id++) {
 						if (id == 0) {
@@ -129,7 +129,7 @@ bool NI::flitize(Packet *packet, int vn) {
 #endif
 							flit->packet->in_net_time = cycles;
 							buffer_list[i]->enqueue(flit);
-							//YZGlobalFlit_id++;
+							//authorGlobalFlit_id++;
 						} else if (id == lengthflitNum - 1) {
 							Flit *flit = new Flit(id, 1, vn, i, packet, cycles,
 									pid);
@@ -139,7 +139,7 @@ bool NI::flitize(Packet *packet, int vn) {
 #endif
 							flit->packet->in_net_time = cycles;
 							buffer_list[i]->enqueue(flit);
-							//YZGlobalFlit_id++;
+							//authorGlobalFlit_id++;
 						} else {
 							Flit *flit = new Flit(id, 2, vn, i, packet, cycles,
 									pid);
@@ -149,7 +149,7 @@ bool NI::flitize(Packet *packet, int vn) {
 #endif
 							flit->packet->in_net_time = cycles;
 							buffer_list[i]->enqueue(flit);
-							//YZGlobalFlit_id++;
+							//authorGlobalFlit_id++;
 							//cout<<"bodyflit"<<endl;
 						}
 					}
@@ -185,8 +185,8 @@ bool NI::flitize(Packet *packet, int vn) {
 #endif
 					flit->packet->in_net_time = cycles;
 					buffer_list[i]->enqueue(flit);
-					 YZGlobalFlit_id++;
-					 flit->YZGlobalFlit_idInFlit =YZGlobalFlit_id;
+					 authorGlobalFlit_id++;
+					 flit->authorGlobalFlit_idInFlit =authorGlobalFlit_id;
 					if (flit->packet->message.QoS == 1) {
 						priority_vc.push_back(i);
 						priority_switch.push_back(i);
@@ -203,8 +203,8 @@ bool NI::flitize(Packet *packet, int vn) {
 #endif
 							flit->packet->in_net_time = cycles;
 							buffer_list[i]->enqueue(flit);
-							 YZGlobalFlit_id++;
-							 flit->YZGlobalFlit_idInFlit =YZGlobalFlit_id;
+							 authorGlobalFlit_id++;
+							 flit->authorGlobalFlit_idInFlit =authorGlobalFlit_id;
 							if (flit->packet->message.QoS == 1) {
 								priority_vc.push_back(i);
 								priority_switch.push_back(i);
@@ -219,8 +219,8 @@ bool NI::flitize(Packet *packet, int vn) {
 #endif
 							flit->packet->in_net_time = cycles;
 							buffer_list[i]->enqueue(flit);
-							 YZGlobalFlit_id++;
-							 flit->YZGlobalFlit_idInFlit =YZGlobalFlit_id;
+							 authorGlobalFlit_id++;
+							 flit->authorGlobalFlit_idInFlit =authorGlobalFlit_id;
 						} else {
 							Flit *flit = new Flit(id, 2, vn, i, packet, cycles,
 									pid);
@@ -230,13 +230,13 @@ bool NI::flitize(Packet *packet, int vn) {
 #endif
 							flit->packet->in_net_time = cycles;
 							buffer_list[i]->enqueue(flit);
-							 YZGlobalFlit_id++;
-							 flit->YZGlobalFlit_idInFlit =YZGlobalFlit_id;
+							 authorGlobalFlit_id++;
+							 flit->authorGlobalFlit_idInFlit =authorGlobalFlit_id;
 						}
 					}
 				}
 				//if(cycles>2560000)
-				// cout<<"debugyzzz flitizefltizesuccess " <<cycles<<" "<<id<<" "<<pid<<endl;
+				// cout<<"debugauthor flitizefltizesuccess " <<cycles<<" "<<id<<" "<<pid<<endl;
 				state[i] = 1;  // wait for VC allocation
 				return true;
 			}
@@ -276,7 +276,7 @@ bool NI::flitize(Packet *packet, int vn) {
 	  }
       }
 #endif
-		//cout<<"debugyzzz flitizefail " <<cycles<<" "<<id<<endl;
+		//cout<<"debugauthor flitizefail " <<cycles<<" "<<id<<endl;
 		return false;
 
 	}
@@ -556,7 +556,7 @@ void NI::dequeue() {
 #ifdef SoCC_Countlatency
 			//statistics for head flit in all types
 			DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][5] =
-					cycles;//DNN_yzlatency[x+type][5]
+					cycles;//DNN_authorlatency[x+type][5]
 #endif
 #ifdef SHARED_VC
 		  if(flit->packet->signal->QoS == 1){
@@ -598,11 +598,11 @@ void NI::inputCheck() {
 				if (DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6]
 						== 0) {
 					DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6] =
-							cycles; ///DNN_yzlatency[x+type][6]
+							cycles; ///DNN_authorlatency[x+type][6]
 					//0 and 1 is in samping window
 					if (flit->packet->message.msgtype == 0) { //request  for req/response/ack
 						samplingAccumlatedCounter += 1;
-						#ifndef YZLLMSwitchON  // Don't accumulate in LLM mode
+						#ifndef AUTHORLLMSwitchON  // Don't accumulate in LLM mode
 						// Debug: Check if this is a pooling request
 						if (DNN_latency[flit->signalid * 3][0] == 2 || DNN_latency[flit->signalid * 3][0] == 4) {
 							cout << "[DEBUG] NI.cpp POOLING Request arrived at memory!" << endl;
@@ -628,7 +628,7 @@ void NI::inputCheck() {
 						#endif
 
 					} else if (flit->packet->message.msgtype == 1) { //response  for req/response/ack
-						#ifndef YZLLMSwitchON  // Don't accumulate in LLM mode
+						#ifndef AUTHORLLMSwitchON  // Don't accumulate in LLM mode
 						int mac_id_i = DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][2];
 						int delay_add_i = DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6]
 										- DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][5];
@@ -723,7 +723,7 @@ void NI::runOneStep() {
 	dequeue();
 	inputCheck();
 	//if(cycles>2560000)
-	// cout<<cycles<<" "<<id<<" "<<" debugyzzzNIpacketBuffer_list[0]->packet_queue.size "<<packetBuffer_list[0]->packet_queue.size()<<endl;
+	// cout<<cycles<<" "<<id<<" "<<" debugauthorNIpacketBuffer_list[0]->packet_queue.size "<<packetBuffer_list[0]->packet_queue.size()<<endl;
 }
 
 NI::~NI() {

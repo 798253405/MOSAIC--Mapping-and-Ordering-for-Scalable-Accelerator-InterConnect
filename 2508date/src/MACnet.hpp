@@ -1,25 +1,25 @@
 
 /**
  * @file MACnet.hpp
- * @brief CNN MAC网络管理器头文件
- * 
- * 定义了CNN模式下的MAC网络管理器类，负责协调多个MAC单元进行CNN推理。
- * 
- * 类层次结构：
- * - MACnet: 网络管理器，控制所有MAC单元
- *   - MAC_list: 包含所有MAC计算单元
- *   - VCNetwork: NoC通信网络接口
- *   - Model: CNN模型定义
- * 
- * 关键数据结构：
- * - input_table: 输入特征图缓存
- * - output_table: 输出特征图缓存
- * - weight_table: 权重参数缓存
- * - pe_allocation: PE资源分配表
- * 
- * @see MAC.hpp - MAC计算单元定义
- * @see VCNetwork.hpp - NoC网络接口
- * @see Model.hpp - CNN模型定义
+ * @brief CNN MAC
+ *
+ * CNNMAC，MACCNN。
+ *
+ * ：
+ * - MACnet: ，MAC
+ *   - MAC_list: MAC
+ *   - VCNetwork: NoC
+ *   - Model: CNN
+ *
+ * ：
+ * - input_table:
+ * - output_table:
+ * - weight_table:
+ * - pe_allocation: PE
+ *
+ * @see MAC.hpp - MAC
+ * @see VCNetwork.hpp - NoC
+ * @see Model.hpp - CNN
  */
 
 #ifndef MACNET_HPP_
@@ -40,7 +40,7 @@
 
 #include <map>        // std::map //20250826
 
-#include "yzIEEE754.hpp"
+#include "IEEE754.hpp"
 
 using namespace std;
 
@@ -74,17 +74,17 @@ public:
 	void xmapping(int neuronnum);
 	void ymapping(int neuronnum);
 	void rmapping(int neuronnum);
-	void yzrmapping(int neuronnum);
-	int yzDistancemapping(int neuronnum);
-	int yzFuncSAMOSSampleMapping(int neuronnum);
-	int yzPostSimTravelMapping(int neuronnum);
+	void authorrmapping(int neuronnum);
+	int authorDistancemapping(int neuronnum);
+	int authorFuncSAMOSSampleMapping(int neuronnum);
+	int authorPostSimTravelMapping(int neuronnum);
 
 
 
 	int breakDownTime[TOT_NUM][4][11];//all nodes ->sum, travel1 travel2 create3 travel3 -> 1 average + 10 recorded values
 	int lastLayerPacketID;
 	int mappingagain;
-	int yzLastSeenPid = 0;
+	int authorLastSeenPid = 0;
 
 	void runOneStep();
 	void checkStatus();
@@ -122,14 +122,14 @@ public:
 
 
 	int w_ch; // for filter
-	int w_x; 
+	int w_x;
 	int w_y;
 	int st_w;
 	int pad;
 	int stride;
 
 	int o_ch; // for output
-	int o_x; 
+	int o_x;
 	int o_y;
 
 	int o_fnReluOrPool; // for function

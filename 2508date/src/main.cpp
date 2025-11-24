@@ -31,19 +31,19 @@ using namespace std;
 class VCNetwork;
 
 long long  packet_id;
-long long  YZGlobalFlit_id;
-long long  YZGlobalFlitPass = 0;  // Total hop count (router + NI)
-long long YZGlobalRouterHopCount = 0;  // Router-only hop count
-long long YZGlobalNIHopCount = 0;  // NI-only hop count
-long long YZGlobalRespFlitPass = 0;
-long long yzFlitCollsionCountSum = 0;
+long long  authorGlobalFlit_id;
+long long  authorGlobalFlitPass = 0;  // Total hop count (router + NI)
+long long authorGlobalRouterHopCount = 0;  // Router-only hop count
+long long authorGlobalNIHopCount = 0;  // NI-only hop count
+long long authorGlobalRespFlitPass = 0;
+long long authorFlitCollsionCountSum = 0;
 
 // Statistics
 vector<vector<int>> DNN_latency;
-std::vector<std::vector<int>> yzEnterInportPerRouter(TOT_NUM);
-std::vector<std::vector<int>> yzEnterOutportPerRouter(TOT_NUM);
-std::vector<std::vector<int>> yzLeaveInportPerRouter(TOT_NUM);
-std::vector<std::vector<int>> yzLeaveOutportPerRouter(TOT_NUM);
+std::vector<std::vector<int>> authorEnterInportPerRouter(TOT_NUM);
+std::vector<std::vector<int>> authorEnterOutportPerRouter(TOT_NUM);
+std::vector<std::vector<int>> authorLeaveInportPerRouter(TOT_NUM);
+std::vector<std::vector<int>> authorLeaveOutportPerRouter(TOT_NUM);
 double samplingWindowDelay[TOT_NUM] = { 0 }; //sum all and divide by sampling length to get each single value for each nodes.
 int samplingAccumlatedCounter;
 
@@ -77,7 +77,7 @@ void parseCmdLine(int arg_num, char *arg_vet[]) {
 
 	}
 }
-#ifndef YZLLMSwitchON
+#ifndef AUTHORLLMSwitchON
 int main(int arg_num, char *arg_vet[]) {
 	clock_t start, end;
 	/// clock for start
@@ -95,7 +95,7 @@ int main(int arg_num, char *arg_vet[]) {
 
 	cnnmodel->randomin();
 	cnnmodel->randomweight();
-#endif	
+#endif
 
 	// statistics
 	// refer to output neuron id (tmpch * ox * oy + tmpm)
@@ -185,16 +185,16 @@ int main(int arg_num, char *arg_vet[]) {
 	// File writing disabled for speed - statistics still collected in memory
 	/*
 	ofstream file(
-			"/home/yz/myprojects/2025/ESWEEKFlipping_250315/250315/src/output/yzLeaveOutportPerRouter.txt");
+			"/home/yz/myprojects/2025/ESWEEKFlipping_250315/250315/src/output/authorLeaveOutportPerRouter.txt");
 	if (!file.is_open()) {
-		std::cerr << "Failed to open " << "  yzLeaveOutportPerRouter.txt"
+		std::cerr << "Failed to open " << "  authorLeaveOutportPerRouter.txt"
 				<< std::endl;
 	}
-	for (const auto &row : yzLeaveOutportPerRouter) {
+	for (const auto &row : authorLeaveOutportPerRouter) {
 		for (const auto &elem : row) {
 			file << elem << " ";
 		}
-		file << "\n"; // 换行，准备写入下一个内部vector
+		file << "\n"; // ，vector
 	}
 	file.close();
 	*/
@@ -203,11 +203,11 @@ int main(int arg_num, char *arg_vet[]) {
 
 	// Network statistics (similar to original main)
 
-	long long tempyzWeightCollsionInRouterCountSum = 0;
-	long long tempyzWeightCollsionInNICountSum = 0;
-	long long mainyzRouterZeroBTHopTotalCount = 0;
-	long long yzWeightCollsionInRouterCountSum = 0;
-	long long yzWeightCollsionInNICountSum = 0;
+	long long tempauthorWeightCollsionInRouterCountSum = 0;
+	long long tempauthorWeightCollsionInNICountSum = 0;
+	long long mainauthorRouterZeroBTHopTotalCount = 0;
+	long long authorWeightCollsionInRouterCountSum = 0;
+	long long authorWeightCollsionInNICountSum = 0;
 	long long tempRouterNetWholeFlipCount = 0;
 	long long tempRouterNetWholeFlipCount_fix35 = 0;
 	long long reqRouterFlip = 0;
@@ -220,70 +220,70 @@ int main(int arg_num, char *arg_vet[]) {
 		for (int j = 0; j < 5; j++) {
 			tempRouterNetWholeFlipCount =
 					tempRouterNetWholeFlipCount
-							+ vcNetwork->router_list[i]->in_port_list[j]->totalyzInportFlipping;
+							+ vcNetwork->router_list[i]->in_port_list[j]->totalauthorInportFlipping;
 			tempRouterNetWholeFlipCount_fix35 =
 					tempRouterNetWholeFlipCount_fix35
-							+ vcNetwork->router_list[i]->in_port_list[j]->totalyzInportFixFlipping;
+							+ vcNetwork->router_list[i]->in_port_list[j]->totalauthorInportFixFlipping;
 
-			yzWeightCollsionInRouterCountSum = yzWeightCollsionInRouterCountSum
-					+ vcNetwork->router_list[i]->in_port_list[j]->yzweightCollsionCountInportCount;
-			mainyzRouterZeroBTHopTotalCount  = mainyzRouterZeroBTHopTotalCount  +vcNetwork->router_list[i]->in_port_list[j]->zeroBTHopCount;
-			
-			reqRouterFlip = reqRouterFlip 
+			authorWeightCollsionInRouterCountSum = authorWeightCollsionInRouterCountSum
+					+ vcNetwork->router_list[i]->in_port_list[j]->authorweightCollsionCountInportCount;
+			mainauthorRouterZeroBTHopTotalCount  = mainauthorRouterZeroBTHopTotalCount  +vcNetwork->router_list[i]->in_port_list[j]->zeroBTHopCount;
+
+			reqRouterFlip = reqRouterFlip
 					+ vcNetwork->router_list[i]->in_port_list[j]->reqRouterFlipInport;
-			respRouterFlip = respRouterFlip 
+			respRouterFlip = respRouterFlip
 					+ vcNetwork->router_list[i]->in_port_list[j]->respRouterFlipInport;
-			resRouterFlip = resRouterFlip 
+			resRouterFlip = resRouterFlip
 					+ vcNetwork->router_list[i]->in_port_list[j]->resRouterFlipInport;
-			
-			reqRouterHop = reqRouterHop 
+
+			reqRouterHop = reqRouterHop
 					+ vcNetwork->router_list[i]->in_port_list[j]->reqRouterHopInport;
-			respRouterHop = respRouterHop 
+			respRouterHop = respRouterHop
 					+ vcNetwork->router_list[i]->in_port_list[j]->respRouterHopInport;
-			resRouterHop = resRouterHop 
+			resRouterHop = resRouterHop
 					+ vcNetwork->router_list[i]->in_port_list[j]->resRouterHopInport;
 		}
-		yzWeightCollsionInNICountSum = yzWeightCollsionInNICountSum
-				+ vcNetwork->NI_list[i]->in_port-> yzweightCollsionCountInportCount;
+		authorWeightCollsionInNICountSum = authorWeightCollsionInNICountSum
+				+ vcNetwork->NI_list[i]->in_port-> authorweightCollsionCountInportCount;
 	}
-	cout << " YZGlobalFlit_id " << YZGlobalFlit_id 
-			<< " YZGlobalFlitPass(total) " << YZGlobalFlitPass 
-			<< " YZGlobalRouterHopCount " << YZGlobalRouterHopCount
-			<< " YZGlobalNIHopCount " << YZGlobalNIHopCount
-			<< " YZGlobalRespFlitPass " << YZGlobalRespFlitPass 
-			<< " yzWeightCollsionInRouterCountSum "
-			<< yzWeightCollsionInRouterCountSum
-			<< " yzWeightCollsionInNICountSum "
-			<< yzWeightCollsionInNICountSum
-			<< " yzFlitCollsionCountSum "
-			<< yzFlitCollsionCountSum  << endl;
+	cout << " authorGlobalFlit_id " << authorGlobalFlit_id
+			<< " authorGlobalFlitPass(total) " << authorGlobalFlitPass
+			<< " authorGlobalRouterHopCount " << authorGlobalRouterHopCount
+			<< " authorGlobalNIHopCount " << authorGlobalNIHopCount
+			<< " authorGlobalRespFlitPass " << authorGlobalRespFlitPass
+			<< " authorWeightCollsionInRouterCountSum "
+			<< authorWeightCollsionInRouterCountSum
+			<< " authorWeightCollsionInNICountSum "
+			<< authorWeightCollsionInNICountSum
+			<< " authorFlitCollsionCountSum "
+			<< authorFlitCollsionCountSum  << endl;
 	cout << " tempRouterNetWholeFlipCount " << tempRouterNetWholeFlipCount
 			<< " tempRouterNetWholeFlipCount_fix35 "
 			<< tempRouterNetWholeFlipCount_fix35 << endl;
-	
+
 	// Message type-specific bit flip statistics
-	cout << " reqRouterFlip " << reqRouterFlip 
-		 << " respRouterFlip " << respRouterFlip 
+	cout << " reqRouterFlip " << reqRouterFlip
+		 << " respRouterFlip " << respRouterFlip
 		 << " resRouterFlip " << resRouterFlip << endl;
-	
+
 	// Message type-specific hop count statistics
-	cout << " reqRouterHop " << reqRouterHop 
-		 << " respRouterHop " << respRouterHop 
+	cout << " reqRouterHop " << reqRouterHop
+		 << " respRouterHop " << respRouterHop
 		 << " resRouterHop " << resRouterHop << endl;
-	
+
 	// Add formatted single-line output for batch processing
-	// Use YZGlobalRouterHopCount for router-only statistics
-	double avg_bit_trans_float = YZGlobalRouterHopCount > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalRouterHopCount : 0;
-	double avg_bit_trans_fixed = YZGlobalRouterHopCount > 0 ? (double)tempRouterNetWholeFlipCount_fix35/YZGlobalRouterHopCount : 0;
-	double avg_hops_per_flit = YZGlobalFlit_id > 0 ? (double)YZGlobalFlitPass/YZGlobalFlit_id : 0;
-	double avg_flips_per_flit_total = YZGlobalFlit_id > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalFlit_id : 0;
-	double avg_flips_per_flit_per_router_hop = YZGlobalRouterHopCount > 0 ? (double)tempRouterNetWholeFlipCount/YZGlobalRouterHopCount : 0;
-	
+	// Use authorGlobalRouterHopCount for router-only statistics
+	double avg_bit_trans_float = authorGlobalRouterHopCount > 0 ? (double)tempRouterNetWholeFlipCount/authorGlobalRouterHopCount : 0;
+	double avg_bit_trans_fixed = authorGlobalRouterHopCount > 0 ? (double)tempRouterNetWholeFlipCount_fix35/authorGlobalRouterHopCount : 0;
+	double avg_hops_per_flit = authorGlobalFlit_id > 0 ? (double)authorGlobalFlitPass/authorGlobalFlit_id : 0;
+	double avg_flips_per_flit_total = authorGlobalFlit_id > 0 ? (double)tempRouterNetWholeFlipCount/authorGlobalFlit_id : 0;
+	double avg_flips_per_flit_per_router_hop = authorGlobalRouterHopCount > 0 ? (double)tempRouterNetWholeFlipCount/authorGlobalRouterHopCount : 0;
+
 	cout << "BATCH_STATS: "
 		<< "total_cycles=" << cycles << " "
 		<< "packetid=" << packet_id << " "
-		<< "YZGlobalFlit_id=" << YZGlobalFlit_id << " "
-		<< "YZGlobalFlitPass=" << YZGlobalFlitPass << " "
+		<< "authorGlobalFlit_id=" << authorGlobalFlit_id << " "
+		<< "authorGlobalFlitPass=" << authorGlobalFlitPass << " "
 		<< "avg_hops_per_flit=" << avg_hops_per_flit << " "
 		<< "avg_flips_per_flit_total=" << avg_flips_per_flit_total << " "
 		<< "avg_flips_per_flit_per_router_hop=" << avg_flips_per_flit_per_router_hop << " "
@@ -291,17 +291,17 @@ int main(int arg_num, char *arg_vet[]) {
 		<< "bit_transition_fixed_per_hop=" << avg_bit_trans_fixed << " "
 		<< "total_bit_transition_float=" << tempRouterNetWholeFlipCount << " "
 		<< "total_bit_transition_fixed=" << tempRouterNetWholeFlipCount_fix35 << endl;
-	
+
 
 
 	// Basic statistics (always shown)
 	cout << "Core Metrics:" << endl;
 	cout << "  Total Cycles: " << cycles << endl;
-	cout << "  Total Flits Created: " << YZGlobalFlit_id << endl;
-	cout << "  Total Hop Count (Router+NI): " << YZGlobalFlitPass << endl;
-	cout << "  Router Hop Count: " << YZGlobalRouterHopCount << endl;
-	cout<<" mainyzRouterZeroBTHopTotalCount  " <<mainyzRouterZeroBTHopTotalCount <<endl;
-	cout << "  NI Hop Count: " << YZGlobalNIHopCount << endl;
+	cout << "  Total Flits Created: " << authorGlobalFlit_id << endl;
+	cout << "  Total Hop Count (Router+NI): " << authorGlobalFlitPass << endl;
+	cout << "  Router Hop Count: " << authorGlobalRouterHopCount << endl;
+	cout<<" mainauthorRouterZeroBTHopTotalCount  " <<mainauthorRouterZeroBTHopTotalCount <<endl;
+	cout << "  NI Hop Count: " << authorGlobalNIHopCount << endl;
 	cout << "  Total Bit Flips (Router-only): " << tempRouterNetWholeFlipCount << endl;
 	// Calculate per-flit averages
 
@@ -309,14 +309,14 @@ int main(int arg_num, char *arg_vet[]) {
 	float avg_ni_hops_per_flit = 0.0;
 	float avg_flips_per_flit = 0.0;
 	float avg_flips_per_router_hop = 0.0;
-	if (YZGlobalFlit_id > 0) {
-		avg_hops_per_flit = (float)YZGlobalFlitPass / YZGlobalFlit_id;
-		avg_router_hops_per_flit = (float)YZGlobalRouterHopCount / YZGlobalFlit_id;
-		avg_ni_hops_per_flit = (float)YZGlobalNIHopCount / YZGlobalFlit_id;
-		avg_flips_per_flit = (float)tempRouterNetWholeFlipCount / YZGlobalFlit_id;
+	if (authorGlobalFlit_id > 0) {
+		avg_hops_per_flit = (float)authorGlobalFlitPass / authorGlobalFlit_id;
+		avg_router_hops_per_flit = (float)authorGlobalRouterHopCount / authorGlobalFlit_id;
+		avg_ni_hops_per_flit = (float)authorGlobalNIHopCount / authorGlobalFlit_id;
+		avg_flips_per_flit = (float)tempRouterNetWholeFlipCount / authorGlobalFlit_id;
 	}
-	if (YZGlobalRouterHopCount > 0) {
-		avg_flips_per_router_hop = (float)tempRouterNetWholeFlipCount / YZGlobalRouterHopCount;
+	if (authorGlobalRouterHopCount > 0) {
+		avg_flips_per_router_hop = (float)tempRouterNetWholeFlipCount / authorGlobalRouterHopCount;
 	}
 	cout << "  Average Hops per Flit (total): " << fixed << setprecision(2) << avg_hops_per_flit << endl;
 	cout << "  Average Router Hops per Flit: " << fixed << setprecision(2) << avg_router_hops_per_flit << endl;
@@ -333,7 +333,7 @@ int main(int arg_num, char *arg_vet[]) {
 
 	    // time in secods
 	    double elapsed_time = double(end - start) / CLOCKS_PER_SEC;
-	    std::cout << "运行时间: " << elapsed_time << " 秒" << std::endl;
+	    std::cout << ": " << elapsed_time << " " << std::endl;
 	delete macnet;
 	delete cnnmodel;
 	return 0;
@@ -348,7 +348,7 @@ int main(int arg_num, char *arg_vet[]) {
 
 
 
-#ifdef YZLLMSwitchON
+#ifdef AUTHORLLMSwitchON
 int main(int arg_num, char *arg_vet[]) {
 	clock_t start, end;
 	start = clock();
@@ -415,7 +415,7 @@ int main(int arg_num, char *arg_vet[]) {
 
 	cout << "Starting LLM attention simulation..." << endl;
 	cout << "Maximum simulation cycles: " << simulate_cycles << endl;
-	
+
 	// Track real-time performance
 	auto simulation_start = std::chrono::high_resolution_clock::now();
 	int last_cycle_count = 0;
@@ -425,12 +425,12 @@ int main(int arg_num, char *arg_vet[]) {
 	for (; cycles < simulate_cycles; cycles++) {
 		// Check and manage LLM attention tasks
 		llmMacnet->llmCheckStatus();
-		
+
 			// Performance monitoring (configurable)
 		#ifdef PERF_REPORT_ENABLED
 		auto current_time = std::chrono::high_resolution_clock::now();
 		auto time_since_last = std::chrono::duration_cast<std::chrono::seconds>(current_time - last_time);
-		
+
 		bool should_report = false;
 		#if PERF_USE_TIME_BASED
 		// Time-based reporting
@@ -443,24 +443,24 @@ int main(int arg_num, char *arg_vet[]) {
 			should_report = true;
 		}
 		#endif
-		
+
 		if (should_report) {
 			auto total_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - simulation_start);
 			auto interval_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_time);
-			
+
 			// Convert to seconds for display
 			float total_seconds = total_duration_ms.count() / 1000.0f;
 			float interval_seconds = interval_duration_ms.count() / 1000.0f;
-			
+
 			float total_cycles_per_sec = cycles / (total_seconds + 0.001f);
 			float interval_cycles_per_sec = (cycles - last_cycle_count) / (interval_seconds + 0.001f);
-			
-			std::cout << "[PERF] Cycle " << cycles 
+
+			std::cout << "[PERF] Cycle " << cycles
 			          << " | Total time: " << std::fixed << std::setprecision(1) << total_seconds << "s"
 			          << " | Avg speed: " << std::fixed << std::setprecision(1) << total_cycles_per_sec << " cycles/sec"
 			          << " | Recent speed: " << std::fixed << std::setprecision(1) << interval_cycles_per_sec << " cycles/sec"
-			          << " | Flits: " << YZGlobalFlit_id << std::endl;
-			
+			          << " | Flits: " << authorGlobalFlit_id << std::endl;
+
 			last_cycle_count = cycles;
 			last_time = current_time;
 		}
@@ -493,21 +493,21 @@ int main(int arg_num, char *arg_vet[]) {
 	// Mapping strategy
 	#ifdef rowmapping
 	cout << "  Mapping: Baseline (Row Mapping)" << endl;
-	#elif defined(YZSAMOSSampleMapping)
+	#elif defined(AUTHORSAMOSSampleMapping)
 	cout << "  Mapping: SAMOS Adaptive Mapping" << endl;
 	#else
 	cout << "  Mapping: Unknown" << endl;
 	#endif
 
 	// Ordering optimization
-	#ifdef YzAffiliatedOrdering
+	#ifdef AuthorAffiliatedOrdering
 	cout << "  Ordering: Flit-Level Flipping Enabled" << endl;
 	#else
 	cout << "  Ordering: No Ordering Optimization" << endl;
 	#endif
 
 	// Separated ordering
-	#ifdef YZSeperatedOrdering_reArrangeInput
+	#ifdef AUTHORSeperatedOrdering_reArrangeInput
 	cout << "  Separated Ordering: Enabled" << endl;
 	#endif
 
@@ -523,22 +523,22 @@ int main(int arg_num, char *arg_vet[]) {
 
 	cout << "  NoC Size: " << X_NUM << "x" << Y_NUM << " (" << TOT_NUM << " nodes)" << endl;
 	cout << "  LLM Test Case: " << LLM_TOKEN_SIZE << endl;
-	
+
 	cout << "\nExecution Metrics:" << endl;
 	cout << "  Total Cycles: " << cycles << endl;
-	cout << "  Total Flits Transmitted: " << YZGlobalFlit_id << endl;
+	cout << "  Total Flits Transmitted: " << authorGlobalFlit_id << endl;
 	cout << "  Total Packets Sent: " << packet_id << endl;
 	cout << "  Pixels Completed: " << llmMacnet->executed_tasks << "/" << llmMacnet->total_output_pixels << endl;
 	cout << "  Total Sub-tasks: " << llmMacnet->total_task_slicedPixels << " (" << llmMacnet->tasks_per_pixel << " per pixel)" << endl;
 	float completion_rate = (float)llmMacnet->executed_tasks * 100.0f / llmMacnet->total_output_pixels;
 	cout << "  Completion Rate: " << fixed << setprecision(2) << completion_rate << "%" << endl;
-	
+
 	// Hop statistics
 	cout << "\nNetwork Hop Statistics:" << endl;
 	// Estimate based on typical packet types (request + response + result = 3 packets per task)
 	int estimated_total_hops = 0;
 	float avg_hops_per_packet = 0;
-	
+
 	// For LLM tasks, we have 3 packet types per task
 	if (llmMacnet->executed_tasks > 0 || llmMacnet->total_task_slicedPixels > 0) {
 		// Use completed tasks if available, otherwise use total tasks
@@ -546,11 +546,11 @@ int main(int arg_num, char *arg_vet[]) {
 		// Assuming average 6 hops per packet based on 16x16 NoC
 		avg_hops_per_packet = 6.0; // This is typical for 16x16 NoC
 		estimated_total_hops = task_count * 3 * avg_hops_per_packet; // 3 packets per task
-		
+
 		cout << "  Estimated Total Hops: " << estimated_total_hops << endl;
 		cout << "  Average Hops per Packet: " << fixed << setprecision(2) << avg_hops_per_packet << endl;
 		cout << "  Packets per Task: 3 (request, response, result)" << endl;
-		cout << "  Total Network Traversals: " << YZGlobalFlitPass << " flits" << endl;
+		cout << "  Total Network Traversals: " << authorGlobalFlitPass << " flits" << endl;
 	}
 
 	// Print layer completion times
@@ -609,9 +609,9 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "[DEBUG-MAIN-10] Starting network statistics collection" << endl;
 	long long tempRouterNetWholeFlipCount = 0;
 	long long tempRouterNetWholeFlipCount_fix35 = 0;
-	long long tempyzWeightCollsionInRouterCountSum = 0;
-	long long tempyzWeightCollsionInNICountSum = 0;
-	long long mainyzRouterZeroBTHopTotalCount = 0;
+	long long tempauthorWeightCollsionInRouterCountSum = 0;
+	long long tempauthorWeightCollsionInNICountSum = 0;
+	long long mainauthorRouterZeroBTHopTotalCount = 0;
 	long long reqRouterFlip = 0;
 	long long respRouterFlip = 0;
 	long long resRouterFlip = 0;
@@ -621,30 +621,30 @@ int main(int arg_num, char *arg_vet[]) {
 	for (int i = 0; i < TOT_NUM; i++) {
 		for (int j = 0; j < 5; j++) {
 			tempRouterNetWholeFlipCount +=
-				vcNetwork->router_list[i]->in_port_list[j]->totalyzInportFlipping;
+				vcNetwork->router_list[i]->in_port_list[j]->totalauthorInportFlipping;
 			tempRouterNetWholeFlipCount_fix35 +=
-				vcNetwork->router_list[i]->in_port_list[j]->totalyzInportFixFlipping;
-			tempyzWeightCollsionInRouterCountSum +=
-				vcNetwork->router_list[i]->in_port_list[j]->yzweightCollsionCountInportCount;
-			mainyzRouterZeroBTHopTotalCount  = mainyzRouterZeroBTHopTotalCount  +vcNetwork->router_list[i]->in_port_list[j]->zeroBTHopCount;
+				vcNetwork->router_list[i]->in_port_list[j]->totalauthorInportFixFlipping;
+			tempauthorWeightCollsionInRouterCountSum +=
+				vcNetwork->router_list[i]->in_port_list[j]->authorweightCollsionCountInportCount;
+			mainauthorRouterZeroBTHopTotalCount  = mainauthorRouterZeroBTHopTotalCount  +vcNetwork->router_list[i]->in_port_list[j]->zeroBTHopCount;
 
-			reqRouterFlip = reqRouterFlip 
+			reqRouterFlip = reqRouterFlip
 					+ vcNetwork->router_list[i]->in_port_list[j]->reqRouterFlipInport;
-			respRouterFlip = respRouterFlip 
+			respRouterFlip = respRouterFlip
 					+ vcNetwork->router_list[i]->in_port_list[j]->respRouterFlipInport;
-			resRouterFlip = resRouterFlip 
+			resRouterFlip = resRouterFlip
 					+ vcNetwork->router_list[i]->in_port_list[j]->resRouterFlipInport;
-			
-			reqRouterHop = reqRouterHop 
+
+			reqRouterHop = reqRouterHop
 					+ vcNetwork->router_list[i]->in_port_list[j]->reqRouterHopInport;
-			respRouterHop = respRouterHop 
+			respRouterHop = respRouterHop
 					+ vcNetwork->router_list[i]->in_port_list[j]->respRouterHopInport;
-			resRouterHop = resRouterHop 
+			resRouterHop = resRouterHop
 					+ vcNetwork->router_list[i]->in_port_list[j]->resRouterHopInport;
 
 		}
-		tempyzWeightCollsionInNICountSum +=
-			vcNetwork->NI_list[i]->in_port->yzweightCollsionCountInportCount;
+		tempauthorWeightCollsionInNICountSum +=
+			vcNetwork->NI_list[i]->in_port->authorweightCollsionCountInportCount;
 	}
 
 	// Collect port utilization statistics
@@ -691,37 +691,37 @@ int main(int arg_num, char *arg_vet[]) {
 	// Basic statistics (always shown)
 	cout << "Core Metrics:" << endl;
 	cout << "  Total Cycles: " << cycles << endl;
-	cout << "  Total Flits Created: " << YZGlobalFlit_id << endl;
-	cout << "  Total Hop Count (Router+NI): " << YZGlobalFlitPass << endl;
-	cout << "  Router Hop Count: " << YZGlobalRouterHopCount << endl;
-	cout<<" mainyzRouterZeroBTHopTotalCount  " <<mainyzRouterZeroBTHopTotalCount <<endl;
-	cout << "  NI Hop Count: " << YZGlobalNIHopCount << endl;
+	cout << "  Total Flits Created: " << authorGlobalFlit_id << endl;
+	cout << "  Total Hop Count (Router+NI): " << authorGlobalFlitPass << endl;
+	cout << "  Router Hop Count: " << authorGlobalRouterHopCount << endl;
+	cout<<" mainauthorRouterZeroBTHopTotalCount  " <<mainauthorRouterZeroBTHopTotalCount <<endl;
+	cout << "  NI Hop Count: " << authorGlobalNIHopCount << endl;
 	cout << "  Total Bit Flips (Router-only): " << tempRouterNetWholeFlipCount << endl;
-	
+
 	// Calculate per-flit averages
 	float avg_hops_per_flit = 0.0;
 	float avg_router_hops_per_flit = 0.0;
 	float avg_ni_hops_per_flit = 0.0;
 	float avg_flips_per_flit = 0.0;
 	float avg_flips_per_router_hop = 0.0;
-	if (YZGlobalFlit_id > 0) {
-		avg_hops_per_flit = (float)YZGlobalFlitPass / YZGlobalFlit_id;
-		avg_router_hops_per_flit = (float)YZGlobalRouterHopCount / YZGlobalFlit_id;
-		avg_ni_hops_per_flit = (float)YZGlobalNIHopCount / YZGlobalFlit_id;
-		avg_flips_per_flit = (float)tempRouterNetWholeFlipCount / YZGlobalFlit_id;
+	if (authorGlobalFlit_id > 0) {
+		avg_hops_per_flit = (float)authorGlobalFlitPass / authorGlobalFlit_id;
+		avg_router_hops_per_flit = (float)authorGlobalRouterHopCount / authorGlobalFlit_id;
+		avg_ni_hops_per_flit = (float)authorGlobalNIHopCount / authorGlobalFlit_id;
+		avg_flips_per_flit = (float)tempRouterNetWholeFlipCount / authorGlobalFlit_id;
 	}
-	if (YZGlobalRouterHopCount > 0) {
-		avg_flips_per_router_hop = (float)tempRouterNetWholeFlipCount / YZGlobalRouterHopCount;
+	if (authorGlobalRouterHopCount > 0) {
+		avg_flips_per_router_hop = (float)tempRouterNetWholeFlipCount / authorGlobalRouterHopCount;
 	}
 
 	// Message type-specific bit flip statistics
-	cout << " reqRouterFlip " << reqRouterFlip 
-		 << " respRouterFlip " << respRouterFlip 
+	cout << " reqRouterFlip " << reqRouterFlip
+		 << " respRouterFlip " << respRouterFlip
 		 << " resRouterFlip " << resRouterFlip << endl;
-	
+
 	// Message type-specific hop count statistics
-	cout << " reqRouterHop " << reqRouterHop 
-		 << " respRouterHop " << respRouterHop 
+	cout << " reqRouterHop " << reqRouterHop
+		 << " respRouterHop " << respRouterHop
 		 << " resRouterHop " << resRouterHop << endl;
 	cout << "  Average Hops per Flit (total): " << fixed << setprecision(2) << avg_hops_per_flit << endl;
 	cout << "  Average Router Hops per Flit: " << fixed << setprecision(2) << avg_router_hops_per_flit << endl;
@@ -798,7 +798,7 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "\nMemory Controller (MC) Router Utilization:" << endl;
 
 	// Define MC locations based on NoC size
-	int mc_locations[YZMEMCount];
+	int mc_locations[AUTHORMEMCount];
 
 #if defined NOCSIZEMC2_4X4
 	// 4x4: 2 MCs at (2,1) and (2,3)
@@ -838,7 +838,7 @@ int main(int arg_num, char *arg_vet[]) {
 	}
 #endif
 
-	for (int i = 0; i < YZMEMCount; i++) {
+	for (int i = 0; i < AUTHORMEMCount; i++) {
 		int mc_id = mc_locations[i];
 		int mc_x = mc_id / X_NUM;
 		int mc_y = mc_id % X_NUM;
@@ -853,8 +853,8 @@ int main(int arg_num, char *arg_vet[]) {
 
 	cout << "\n!!LLM ATTENTION SIMULATION END!!" << endl;
 
-#ifdef YZLLMSwitchON
-#ifdef YZSeperatedOrdering_reArrangeInput
+#ifdef AUTHORLLMSwitchON
+#ifdef AUTHORSeperatedOrdering_reArrangeInput
 	// Separated Ordering mode: Skip output matrix printing
 	// This mode breaks input-query pairing for bit flip optimization
 	// Output matrix requires extra ID tracking to reconstruct correct results
@@ -869,17 +869,17 @@ int main(int arg_num, char *arg_vet[]) {
 	cout << "Matrix dimensions: " << llmMacnet->input_sequence_length << " x " << llmMacnet->query_output_dim << endl;
 	cout << "\nFirst 5x5 elements of attention_output_table:" << endl;
 	cout << "-----------------------------------------------" << endl;
-	
+
 	int rows_to_print = min(5, llmMacnet->input_sequence_length);
 	int cols_to_print = min(5, llmMacnet->query_output_dim);
-	
+
 	// Print column headers
 	cout << "      ";
 	for (int j = 0; j < cols_to_print; j++) {
 		cout << "    [" << j << "]     ";
 	}
 	cout << endl;
-	
+
 	// Print matrix values
 	for (int i = 0; i < rows_to_print; i++) {
 		cout << "[" << i << "]  ";
@@ -891,27 +891,27 @@ int main(int arg_num, char *arg_vet[]) {
 		}
 		cout << endl;
 	}
-	
+
 	if (llmMacnet->input_sequence_length > 5) {
 		cout << "...   (showing first 5 of " << llmMacnet->input_sequence_length << " rows)" << endl;
 	}
-	
+
 	// Print last 5x5 elements (bottom-right corner)
 	cout << "\nLast 5x5 elements of attention_output_table:" << endl;
 	cout << "-----------------------------------------------" << endl;
-	
+
 	int start_row = max(0, llmMacnet->input_sequence_length - 5);
 	int start_col = max(0, llmMacnet->query_output_dim - 5);
 	int end_row = llmMacnet->input_sequence_length;
 	int end_col = llmMacnet->query_output_dim;
-	
+
 	// Print column headers for last columns
 	cout << "      ";
 	for (int j = start_col; j < end_col; j++) {
 		cout << "   [" << j << "]    ";
 	}
 	cout << endl;
-	
+
 	// Print matrix values for bottom-right corner
 	for (int i = start_row; i < end_row; i++) {
 		cout << "[" << i << "]  ";
@@ -921,7 +921,7 @@ int main(int arg_num, char *arg_vet[]) {
 		}
 		cout << endl;
 	}
-	
+
 	// Calculate and print some statistics about the output matrix
 	cout << "\nOutput Matrix Statistics:" << endl;
 	cout << "-------------------------" << endl;
@@ -1097,8 +1097,8 @@ int main(int arg_num, char *arg_vet[]) {
 	}
 
 	cout << "==================== END OUTPUT MATRIX ====================" << endl;
-#endif // YZSeperatedOrdering_reArrangeInput
-#endif // YZLLMSwitchON
+#endif // AUTHORSeperatedOrdering_reArrangeInput
+#endif // AUTHORLLMSwitchON
 
 	// Calculate and display execution time
 	end = clock();

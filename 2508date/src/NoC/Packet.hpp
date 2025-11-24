@@ -26,7 +26,7 @@ struct Message{
   int source_id;
   int signal_id;
   deque<float> data;
-  deque<float> yzMSGPayload;//real data
+  deque<float> authorMSGPayload;//real data
   //for pooling
   int poutid;	// for pooling table check
   int penable;  // 0 no, 1 max, 2 avg

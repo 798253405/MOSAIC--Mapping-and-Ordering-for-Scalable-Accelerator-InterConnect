@@ -2,7 +2,6 @@
  * ROutPort.cpp
  *
  *  Created on: 2019年8月22日
- *      Author: wr
  */
 
 #include "ROutPort.hpp"

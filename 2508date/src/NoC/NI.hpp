@@ -2,7 +2,6 @@
  * NI.hpp
  *
  *  Created on: 2019年8月23日
- *      Author: wr
  */
 
 #ifndef NI_HPP_

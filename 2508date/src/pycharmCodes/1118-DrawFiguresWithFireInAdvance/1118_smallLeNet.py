@@ -303,8 +303,8 @@ def create_comprehensive_analysis():
     bars_legend = ax5.get_legend_handles_labels()
 
     # Combine bar chart and line chart legends
-    combined_handles = bars_legend[0] + [line1[0], line2[0], line3[0], line4[0]]
-    combined_labels = bars_legend[1] + ['TravelTime Reduction', 'MOSAIC-1 Reduction', 'Affiliated Reduction', 'Combo-1 Reduction']
+    combined_handles = bars_legend[0] + [line1[0], line3[0], line4[0], line2[0]]
+    combined_labels = bars_legend[1] + ['TravelTime', 'Affiliated', 'Combo-1', 'MOSAIC-1']
 
     # Create combined legend
     ax5.legend(combined_handles, combined_labels, loc='best', fontsize=7, ncol=1)

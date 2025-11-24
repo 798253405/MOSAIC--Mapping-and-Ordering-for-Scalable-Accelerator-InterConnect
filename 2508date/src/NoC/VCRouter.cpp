@@ -262,8 +262,8 @@ VCRouter::~VCRouter ()
 {
   RInPort* inPort;
   while(in_port_list.size()!=0){
-      inPort = in_port_list.back();//yz vector.back Returns a reference to the last element in the vector. Unlike member vector::end, which returns an iterator just past this element, this function returns a direct reference.
-      in_port_list.pop_back();//yz popback Removes the last element in the vector, effectively reducing the container size by one.
+      inPort = in_port_list.back();//Anonymous: vector.back Returns a reference to the last element in the vector. Unlike member vector::end, which returns an iterator just past this element, this function returns a direct reference.
+      in_port_list.pop_back();//Anonymous: popback Removes the last element in the vector, effectively reducing the container size by one.
       delete inPort;
   }
 

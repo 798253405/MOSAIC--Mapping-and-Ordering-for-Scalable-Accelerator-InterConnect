@@ -4,8 +4,7 @@
  * 
  * 实现LLM特定的IEEE754浮点数排序优化算法。
  * 这些函数从llmmac.cpp中提取，专门处理Transformer Attention计算的数据优化。
- * 
- * @author YZ
+ *
  * @date 2025
  */
 

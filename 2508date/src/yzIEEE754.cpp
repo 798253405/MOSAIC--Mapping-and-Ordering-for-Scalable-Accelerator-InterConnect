@@ -2,7 +2,6 @@
  * yzIEEE754.CPP
  *
  *  Created on: Jun 24, 2024
- *      Author: yz
  */
 
 #include "yzIEEE754.hpp"

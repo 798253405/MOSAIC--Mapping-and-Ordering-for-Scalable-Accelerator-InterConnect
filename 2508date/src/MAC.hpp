@@ -26,8 +26,7 @@
  * - 卷积计算: weight * input的累加
  * - 池化操作: 最大池化、平均池化
  * - 数据传输: 通过NoC请求和发送数据
- * 
- * @author wenyao (original), YZ (comments)
+ *
  * @date 2022-12-19 (original), 2025 (updated)
  */
 

@@ -2,7 +2,6 @@
  * Link.hpp
  *
  *  Created on: 2019年8月19日
- *      Author: wr
  */
 
 #ifndef VC_LINK_HPP_

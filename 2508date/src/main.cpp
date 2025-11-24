@@ -170,7 +170,7 @@ int main(int arg_num, char *arg_vet[]) {
 	// File writing disabled for speed - statistics still collected in memory
 	/*
 	ofstream outfile_delay(
-			"/home/yz/myprojects/2025/ESWEEKFlipping_250315/250315/src/output/lenetdelay.txt",
+			"src/output/lenetdelay.txt",
 			ios::out);
 	for (int i = 0; i < packet_id * 3; i++) {
 		for (int j = 0; j < 8; j++) {
@@ -185,7 +185,7 @@ int main(int arg_num, char *arg_vet[]) {
 	// File writing disabled for speed - statistics still collected in memory
 	/*
 	ofstream file(
-			"/home/yz/myprojects/2025/ESWEEKFlipping_250315/250315/src/output/authorLeaveOutportPerRouter.txt");
+			"src/output/authorLeaveOutportPerRouter.txt");
 	if (!file.is_open()) {
 		std::cerr << "Failed to open " << "  authorLeaveOutportPerRouter.txt"
 				<< std::endl;
@@ -955,11 +955,11 @@ int main(int arg_num, char *arg_vet[]) {
 	string golden_file;
 	#if LLM_TOKEN_SIZE == 1
 		// Test Case 1: 8-sequence version
-		golden_file = "/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/llminput/Q_result_python.txt";
+		golden_file = "src/Input/llminput/Q_result_python.txt";
 		cout << "Using golden reference: Q_result_python.txt (8 sequences)" << endl;
 	#elif LLM_TOKEN_SIZE == 2
 		// Test Case 2: 128-sequence version
-		golden_file = "/home/yz/myprojects/2025/202508/try_uneven+samos+flipping/2508date/src/Input/llminput/Q_result_python_128seq.txt";
+		golden_file = "src/Input/llminput/Q_result_python_128seq.txt";
 		cout << "Using golden reference: Q_result_python_128seq.txt (128 sequences)" << endl;
 	#else
 		#error "Unknown LLM_TOKEN_SIZE value"

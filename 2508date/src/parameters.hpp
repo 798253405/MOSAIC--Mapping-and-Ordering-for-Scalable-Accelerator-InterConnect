@@ -9,27 +9,17 @@
 
 #define AUTHORLLMSwitchON
 
-#define fulleval
-
-////////ZONE A: optimization enable  /#define DelayBasedRoutingBalancing
-//#define bianryroutingSwitch // Binary Routing Switch - If enabled, response packets use YX routing, request packets use XY routing
-
-//#define fireAdvance  // Fire Advance - If enabled, PE sends next request before current task completes
-
-
 //Test Case: NoC size Configuration - Choose one
 //#define NOCSIZEMC2_4X4      // 2 MCs in 4x4 mesh (base tile pattern)
 #define NOCSIZEMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
 //#define NOCSIZEMC32_16X16   // 32 MCs in 16x16 mesh (4x4 tiles)
 //#define NOCSIZEMC128_32X32  // 128 MCs in 32x32 mesh (8x8 tiles)
 
-
-
 #define LLM_TOKEN_SIZE 1  // 8tokesn  ~50 seconds on Intel 10700.
 //#define LLM_TOKEN_SIZE 2    //128tokens . This takes more than ~20minutes.
 
 // Test Case Configuration - Choose one
-//#define case1_default
+#define case1_default
 //#define case2_samos
 //#define case3_affiliatedordering
 //#define case4_seperratedordering
@@ -103,7 +93,7 @@
 
 
 
-
+#define fulleval
 #ifdef fireAdvance
 const int FIRE_ADVANCE_DELAY = 5;
 #endif
@@ -117,6 +107,9 @@ const int FIRE_ADVANCE_DELAY = 5;
 //#define CNN_RANDOM_DATA_TEST  // Enable this to make CNN use pure random data like LLM
 
 //#define  PADDING_RANDOM
+////////: optimization enable  /#define DelayBasedRoutingBalancing
+//#define bianryroutingSwitch // Binary Routing Switch - If enabled, response packets use YX routing, request packets use XY routing
+//#define fireAdvance  // Fire Advance - If enabled, PE sends next request before current task completes
 
 
 //#define LLMPADDING_RANDOM

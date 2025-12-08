@@ -14,7 +14,7 @@ inline int get_mc_for_pe(int ni_id, int x_num, int y_num) {
     int pe_x = ni_id / x_num;  // 行坐标
     int pe_y = ni_id % x_num;  // 列坐标
     
-#if defined DATEMC2_4X4
+#if defined TACOMC2_4X4
     // 2个MC在4x4网格：简单的左右分区
     // MC在 (2,1) 和 (2,3)
     // 左半部分(y<2)映射到MC[0]，右半部分(y>=2)映射到MC[1]
@@ -24,7 +24,7 @@ inline int get_mc_for_pe(int ni_id, int x_num, int y_num) {
         return dest_list[1];  // 右侧MC at (2,3)
     }
     
-#elif defined DATEMC8_8X8
+#elif defined TACOMC8_8X8
     // 8个MC在8x8网格：2x2瓦片，每个瓦片2个MC
     // 确定PE所在的瓦片
     int tile_row = pe_x / 4;  // 0 or 1
@@ -43,44 +43,32 @@ inline int get_mc_for_pe(int ni_id, int x_num, int y_num) {
         return dest_list[base_mc_idx + 1];  // 瓦片内右侧MC
     }
     
-#elif defined DATEMC32_16X16
-    // 32个MC在16x16网格：4x4瓦片，每个瓦片2个MC
-    int tile_row = pe_x / 4;  // 0-3
-    int tile_col = pe_y / 4;  // 0-3
-    int tile_id = tile_row * 4 + tile_col;  // 0-15
-    
-    // 每个瓦片内的局部坐标
-    int local_x = pe_x % 4;
-    int local_y = pe_y % 4;
-    
-    // 每个瓦片有2个MC，根据局部位置选择
-    int base_mc_idx = tile_id * 2;
-    if (local_y < 2) {
-        return dest_list[base_mc_idx];      // 瓦片内左侧MC
-    } else {
-        return dest_list[base_mc_idx + 1];  // 瓦片内右侧MC
-    }
-    
-#elif defined DATEMC128_32X32
-    // 128个MC在32x32网格：8x8瓦片，每个瓦片2个MC
-    int tile_row = pe_x / 4;  // 0-7
-    int tile_col = pe_y / 4;  // 0-7
-    int tile_id = tile_row * 8 + tile_col;  // 0-63
-    
-    // 每个瓦片内的局部坐标
-    int local_x = pe_x % 4;
-    int local_y = pe_y % 4;
-    
-    // 每个瓦片有2个MC，根据局部位置选择
-    int base_mc_idx = tile_id * 2;
-    if (local_y < 2) {
-        return dest_list[base_mc_idx];      // 瓦片内左侧MC
-    } else {
-        return dest_list[base_mc_idx + 1];  // 瓦片内右侧MC
-    }
 #elif defined TACOMC4_4X4
+    // 4个MC在4x4网格：分成4个2x2象限
+    // dest_list[] = {5, 13, 7, 15} -> (1,1), (3,1), (1,3), (3,3)
+    // 象限0: (0-1, 0-1) → MC[0]=5
+    // 象限1: (0-1, 2-3) → MC[2]=7
+    // 象限2: (2-3, 0-1) → MC[1]=13
+    // 象限3: (2-3, 2-3) → MC[3]=15
+    int quadrant_row = pe_x / 2;  // 0 or 1
+    int quadrant_col = pe_y / 2;  // 0 or 1
+    int mc_idx = quadrant_row * 2 + quadrant_col;
+    // 映射: (0,0)->0, (0,1)->2, (1,0)->1, (1,1)->3
+    int mc_map[] = {0, 2, 1, 3};
+    return dest_list[mc_map[mc_idx]];
 
 #elif defined TACOMC4_8X8
+    // 4个MC在8x8网格：分成4个4x4象限
+    // dest_list[] = {18, 21, 50, 53} -> (2,2), (2,5), (6,2), (6,5)
+    // 象限0: (0-3, 0-3) → MC[0]=18
+    // 象限1: (0-3, 4-7) → MC[1]=21
+    // 象限2: (4-7, 0-3) → MC[2]=50
+    // 象限3: (4-7, 4-7) → MC[3]=53
+    int quadrant_row = pe_x / 4;  // 0 or 1
+    int quadrant_col = pe_y / 4;  // 0 or 1
+    int mc_idx = quadrant_row * 2 + quadrant_col;
+    return dest_list[mc_idx];
+
 #else
     // 默认返回第一个MC
     return dest_list[0];

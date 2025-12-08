@@ -20,9 +20,8 @@
  * 
  * 2. **MAC分配阶段** (mapping)
  *    - xmapping(): 按行映射neurons到MAC单元
- *    - ymapping(): 按列映射neurons到MAC单元  
- *    - yzFuncSAMOSSampleMapping(): 基于延迟采样的动态映射
- *    - 将neurons均匀或按性能分配给各MAC单元
+ *    - ymapping(): 按列映射neurons到MAC单元
+ *    - 将neurons均匀分配给各MAC单元
  * 
  * 3. **数据请求阶段** (MAC发送请求)
  *    - MAC单元向内存节点发送type 0消息请求数据
@@ -313,288 +312,6 @@ void MACnet::xmapping(int neuronnum) {
 }
 
 
-int MACnet::yzFuncSAMOSSampleMapping(int neuronnum) {
-	// 清空并按 macNum 大小准备映射表
-	this->mapping_table.clear();
-	this->mapping_table.resize(macNum);
-
-	// 1) 收集可计算节点（排除内存节点）
-	std::vector<int> pe_ids;
-	pe_ids.reserve(macNum);
-	for (int id = 0; id < macNum; ++id) {
-		if (!contains(dest_list, id))
-			pe_ids.push_back(id);
-	}
-	if (pe_ids.empty() || neuronnum <= 0)
-		return 0;
-
-	// 2) 计算每个节点的平均延迟（采样窗口平均），以及缺失/0 值的回退
-	//    回退策略：用所有非零样本的均值作为默认延迟，避免除零/未采到样本时的不稳定
-	// Debug: Print what SAMOS function actually sees
-	cout << "\n[DEBUG] Inside yzFuncSAMOSSampleMapping:" << endl;
-	cout << "[DEBUG] Reading samplingWindowDelay values:" << endl;
-	double sum_lat = 0.0;
-	int nz = 0;
-	for (int id : pe_ids) {
-		double lat = double(samplingWindowDelay[id])
-				/ std::max(1, samplingTasksPerMAC);
-		if (samplingWindowDelay[id] > 0) {
-			cout << "  MAC " << id << ": raw_delay=" << samplingWindowDelay[id] 
-			     << " window_len=" << samplingTasksPerMAC
-			     << " avg_lat=" << lat << endl;
-		}
-		if (lat > 0.0) {
-			sum_lat += lat;
-			++nz;
-		}
-	}
-	const double default_lat = (nz > 0) ? (sum_lat / nz) : 1.0; // 全 0 时兜底为 1
-	const double eps = 1e-12;
-
-	struct NodeW {
-		int id;
-		double w;     // 权重 = 1/lat
-		double want;  // 理想配额
-		int alloc;    // 实际整数配额
-		double frac;  // 小数余量
-	};
-
-	std::vector<NodeW> nodes;
-	nodes.reserve(pe_ids.size());
-
-	double sumW = 0.0;
-	for (int id : pe_ids) {
-		double lat = double(samplingWindowDelay[id])
-				/ std::max(1, samplingTasksPerMAC);
-		if (lat <= 0.0)
-			lat = default_lat;
-		double w = 1.0 / (lat + eps);
-		nodes.push_back( { id, w, 0.0, 0, 0.0 });
-		sumW += w;
-	}
-	if (sumW <= 0.0) { // 极端兜底：均匀分配
-		int base = neuronnum / int(nodes.size());
-		int rem = neuronnum - base * int(nodes.size());
-		int j = 0;
-		for (auto &n : nodes) {
-			for (int k = 0; k < base; ++k)
-				this->mapping_table[n.id].push_back(j++);
-		}
-		for (int i = 0; i < rem; ++i)
-			this->mapping_table[nodes[i].id].push_back(j++);
-		return 0;
-	}
-
-	// 3) Hamilton 最大余数配额
-	int allocated = 0;
-	for (auto &n : nodes) {
-		double exact = neuronnum * (n.w / sumW);
-		n.want = exact;
-		n.alloc = int(std::floor(exact));
-		n.frac = exact - n.alloc;
-		allocated += n.alloc;
-	}
-	int remainder = neuronnum - allocated;
-
-	// 把余量大的优先补 1
-	std::sort(nodes.begin(), nodes.end(), [](const NodeW &a, const NodeW &b) {
-		return a.frac > b.frac;
-	});
-	for (int i = 0; i < remainder; ++i)
-		nodes[i % nodes.size()].alloc++;
-
-	// 4) 生成具体路由映射（任务 id 连续递增）
-	int j = 0;
-	for (auto &n : nodes) {
-		for (int k = 0; k < n.alloc; ++k)
-			this->mapping_table[n.id].push_back(j++);
-	}
-
-	// 可选：调试输出
-
-	std::cout << "[SAMOS auto]TOTneuronnum=" << neuronnum << " TOTPE="
-			<< nodes.size() << " TOTallocated=" << j << "\n";
-	for (auto &n : nodes) {
-		double avgLat = double(samplingWindowDelay[n.id])
-				/ std::max(1, samplingTasksPerMAC);
-		std::cout << "  node " << n.id << " lat=" << avgLat << " w=" << n.w
-				<< " want=" << n.want << " alloc=" << n.alloc << "\n";
-	}
-
-	return 0;
-}
-
-int MACnet::yzPostSimTravelMapping(int neuronnum) {
-
-	cout << " yzPostSimTravelMappingneuronnumis " << neuronnum << " atcycles "
-			<< cycles << endl;
-	this->mapping_table.clear();
-	this->mapping_table.resize(macNum);
-	int j = 0;
-	int countPerPE = 0;
-	int tempAllocatedCount = 0;
-
-	double timeHop1 = samplingWindowDelay[13] / samplingTasksPerMAC, timeHop2 =
-			samplingWindowDelay[5] / samplingTasksPerMAC, timeHop3 =
-			samplingWindowDelay[8] / samplingTasksPerMAC, timeHop4 =
-			samplingWindowDelay[1] / samplingTasksPerMAC, timeHop5 =
-			samplingWindowDelay[4] / samplingTasksPerMAC, timeHop6 =
-			samplingWindowDelay[12] / samplingTasksPerMAC, timeHop7 =
-			samplingWindowDelay[0] / samplingTasksPerMAC;
-	timeHop1 = 36.80357142857143; // layer1postsimulation
-	timeHop2 = 37.729166666666664;
-	timeHop3 = 39.839285714285715;
-	timeHop4 = 43.666666666666664;
-	timeHop5 = 45.520833333333336;
-	timeHop6 = 45.67559523809524;
-	timeHop7 = 51.11011904761905;
-
-	/*	timeHop1 = 17.511904761904763; // layer2postsimulation
-	 timeHop2 = 17.88095238095238;
-	 timeHop3 = 17.345238095238095;
-	 timeHop4 = 23.80952380952381;
-	 timeHop5 = 23.55952380952381;
-	 timeHop6 = 23.607142857142854;
-	 timeHop7 = 30.19047619047619;*/
-
-	/*	timeHop1 = 116.55263157894737; // layer3postsimulation
-	 timeHop2 = 116.66666666666667;
-	 timeHop3 = 150.37719298245617;
-	 timeHop4 = 119.34782608695653;
-	 timeHop5 = 153.7719298245614;
-	 timeHop6 = 150.9298245614035;
-	 timeHop7 = 159.62608695652173;*/
-
-	/*
-	 timeHop1 = 17.607142857142858; // layer4postsimulation
-	 timeHop2 = 17.655172413793103;
-	 timeHop3 = 17.25;
-	 timeHop4 = 24.06896551724138;
-	 timeHop5 = 23.448275862068968;
-	 timeHop6 = 23.607142857142858;
-	 timeHop7 = 29.89655172413793;
-	 */
-
-	/*	timeHop1 = 306.0; // layer5postsimulation
-	 timeHop2 = 340.6666666666667;
-	 timeHop3 = 414.375;
-	 timeHop4 = 352.33333333333337;
-	 timeHop5 = 384.77777777777777;
-	 timeHop6 = 447.375;
-	 timeHop7 = 409.44444444444446;*/
-
-	/*	timeHop1 = 93.0; // layer6postsimulation
-	 timeHop2 = 97.5;
-	 timeHop3 = 113.5;
-	 timeHop4 = 104.0;
-	 timeHop5 = 119.83333333333333;
-	 timeHop6 = 120.83333333333334;
-	 timeHop7 = 128.66666666666666;*/
-
-	cout << " timeHop1totimeHop7 " << " " << timeHop1 << " " << timeHop2 << " "
-			<< timeHop3 << " " << timeHop4 << " " << timeHop5 << " " << timeHop6
-			<< " " << timeHop7 << endl;
-	cout << " timeHop1totimeHop7 " << " " << samplingWindowDelay[13] << " "
-			<< samplingWindowDelay[5] << " " << samplingWindowDelay[8] << " "
-			<< samplingWindowDelay[1] << " " << samplingWindowDelay[4] << " "
-			<< samplingWindowDelay[12] << " " << samplingWindowDelay[0] << endl;
-	double c1double = neuronnum
-			* (timeHop2 * timeHop3 * timeHop4 * timeHop5 * timeHop6 * timeHop7)
-			/ (timeHop2 * timeHop3 * timeHop4 * timeHop5 * timeHop6 * timeHop7
-					+ timeHop1 * timeHop3 * timeHop4 * timeHop5 * timeHop6
-							* timeHop7
-					+ timeHop1 * timeHop2 * timeHop4 * timeHop5 * timeHop6
-							* timeHop7
-					+ timeHop1 * timeHop2 * timeHop3 * timeHop5 * timeHop6
-							* timeHop7
-					+ timeHop1 * timeHop2 * timeHop3 * timeHop4 * timeHop6
-							* timeHop7
-					+ timeHop1 * timeHop2 * timeHop3 * timeHop4 * timeHop5
-							* timeHop7
-					+ timeHop1 * timeHop2 * timeHop3 * timeHop4 * timeHop5
-							* timeHop6) / 2;
-	// cout << " fenzi " << numeratorfenzi << " " << denominatorfenmu << endl;
-	double c2double = c1double * timeHop1 / timeHop2;
-	double c3double = c1double * timeHop1 / timeHop3;
-	double c4double = c1double * timeHop1 / timeHop4;
-	double c5double = c1double * timeHop1 / timeHop5;
-	double c6double = c1double * timeHop1 / timeHop6;
-	double c7double = c1double * timeHop1 / timeHop7;
-	int c1 = int(c1double);
-	int c2 = int(c2double);
-	int c3 = int(c3double);
-	int c4 = int(c4double);
-	int c5 = int(c5double);
-	int c6 = int(c6double);
-	int c7 = int(c7double);
-	cout << " c1line436 " << neuronnum << " " << " " << " " << c1 << " " << c2
-			<< " " << c3 << " " << endl;
-	int numeratorfenzi = timeHop1 * timeHop2;
-	int denominatorfenmu = 3 * timeHop3 * timeHop1 + 3 * timeHop3 * timeHop2
-			+ timeHop1 * timeHop2;
-	//cout << " fenzi " << numeratorfenzi <<" "<< denominatorfenmu<< endl;
-	// 9and 11 are memnodes  // or 9and10
-	for (int i = 0; i < macNum; i++) {
-		int countPerPE;
-		if (i == 0 || i == 2) {
-			countPerPE = c7;
-			tempAllocatedCount = tempAllocatedCount + countPerPE;
-			cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
-					<< endl;
-		} else if (i == 13 || i == 15) {
-			countPerPE = c1;
-			tempAllocatedCount = tempAllocatedCount + countPerPE;
-			cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
-					<< endl;
-		} else if (i == 5 || i == 7) {
-			countPerPE = c2;
-			tempAllocatedCount = tempAllocatedCount + countPerPE;
-			cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
-					<< endl;
-		} else if (i == 8 || i == 10) {
-			countPerPE = c3;
-			tempAllocatedCount = tempAllocatedCount + countPerPE;
-			cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
-					<< endl;
-		} else if (i == 1 || i == 3) {
-			countPerPE = c4;
-			tempAllocatedCount = tempAllocatedCount + countPerPE;
-			cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
-					<< endl;
-		} else if (i == 4 || i == 6) {
-			countPerPE = c5;
-			tempAllocatedCount = tempAllocatedCount + countPerPE;
-			cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
-					<< endl;
-		} else if (i == 12 || i == 14) {
-			countPerPE = c6;
-			tempAllocatedCount = tempAllocatedCount + countPerPE;
-			cout << "travelTimeMappingcountPerPE " << i << " " << countPerPE
-					<< endl;
-		} else {
-			continue; // 或者 assert(1 == 1);
-		}
-
-		for (int k = 0; k < countPerPE; k++) {
-			this->mapping_table[i].push_back(j);
-			j = j + 1;
-			//cout << " mapping  notdone" <<" iis "<<i<< " jis " << j << endl;
-		}
-	}
-	cout << " belowyzPostSimTravelMapping tail " << j << endl;
-	// Assuming 'neuronnum' and other relevant variables are defined elsewhere
-	int customOrder[] = { 13, 15, 5, 7, 8, 10, 12, 6, 4, 14, 1, 3, 0, 2 }; // Custom order specified
-	int orderSize = sizeof(customOrder) / sizeof(customOrder[0]); // Size of the custom order array
-	int orderIndex = 0; // Start from the first element in the custom order
-
-	for (int k = tempAllocatedCount; k < neuronnum; k++) {
-		int idLoop = customOrder[orderIndex]; // Use the current order from the custom sequence
-		this->mapping_table[idLoop].push_back(j);
-		j = j + 1;
-		orderIndex = (orderIndex + 1) % orderSize; // Move to the next index in the custom order, loop back if at the end
-	}
-	return 0;
-}
 
 
 
@@ -619,11 +336,8 @@ void MACnet::checkStatus() {
 
 	if (readyflag == 0) // every new layer
 			{
-		if (mappingagain == 0) { // only first time mapping of layer
-			this->vcNetwork->resetVNRoundRobin(); //everylayer,reset vn rr
-			this->create_input();
-
-		}
+		this->vcNetwork->resetVNRoundRobin(); //everylayer,reset vn rr
+		this->create_input();
 #ifdef rowmapping
 		this->xmapping(o_ch * o_x * o_y);
 #endif
@@ -638,87 +352,6 @@ void MACnet::checkStatus() {
 #endif
 #ifdef YZDistanacemapping
 			this->yzDistancemapping(o_ch * o_x * o_y);
-#endif
-#ifdef YZSAMOSSampleMapping
-		if ((o_ch * o_x * o_y) / (macNum - YZMEMCount) < samplingTasksPerMAC) {
-			cout
-					<< " thisLayerIsShorterThan15SamplingWindow！！！noSAMOSMapping！JustRowMapping！！！   "
-					<< endl;
-			this->xmapping(o_ch * o_x * o_y);
-		} else {
-			if (mappingagain == 0) {
-				// Debug: Show values BEFORE reset
-				cout << "\n[DEBUG] About to RESET samplingWindowDelay (mappingagain==0), Layer " << current_layerSeq << endl;
-				cout << "[DEBUG] Values BEFORE reset:" << endl;
-				for(int i = 0; i < TOT_NUM; i++) {
-					if(samplingWindowDelay[i] > 0) {
-						cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i] << endl;
-					}
-				}
-				samplingAccumlatedCounter = 0;
-				std::fill_n(samplingWindowDelay, TOT_NUM, 0); //rest samping window statistic
-				cout << " samplingWindowDelay[0] AFTER reset: " << samplingWindowDelay[0]
-						<< endl;
-				cout << " samplingAccumlatedCounter "
-						<< samplingAccumlatedCounter << " macnum " << macNum
-						<< endl;
-				cout << endl;
-				// if sampling window has not been done in this layer, do sampling window
-				this->xmapping((macNum - YZMEMCount) * samplingTasksPerMAC);
-				mappingagain = 1; // normal = 0, doing sampling and need to do body mapping later = 1, doing body mapping =2 (should be set after complete samping )
-
-			} else if (mappingagain == 2) { // if sampling window has been done in this layer, do left parts
-				packet_id = packet_id
-						+ (macNum - YZMEMCount) * samplingTasksPerMAC;
-				// Debug: Print samplingWindowDelay RIGHT BEFORE calling SAMOS
-				cout << "\n[DEBUG] About to call SAMOS (mappingagain==2), Layer " << current_layerSeq << endl;
-				cout << "[DEBUG] samplingWindowDelay values BEFORE SAMOS:" << endl;
-				for(int i = 0; i < TOT_NUM; i++) {
-					if(samplingWindowDelay[i] > 0) {
-						cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i] 
-						     << " avg=" << (double)samplingWindowDelay[i]/samplingTasksPerMAC << endl;
-					}
-				}
-				cout << " samplingWindowDelay[0] " << samplingWindowDelay[0]
-						<< endl;
-				cout << " samplingAccumlatedCounter "
-						<< samplingAccumlatedCounter << " macnum " << macNum
-						<< endl;
-				// Debug: Check delay before SAMOS
-				cout << "[DEBUG] Right before calling SAMOS: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
-				
-				this->yzFuncSAMOSSampleMapping(
-						o_ch * o_x
-								* o_y- (macNum -YZMEMCount) * samplingTasksPerMAC);
-				
-				// Debug: Check delay after SAMOS
-				cout << "[DEBUG] Right after calling SAMOS: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
-				// 3) ✅ 把局部编号统一转换为“全局编号”（关键修复）
-				{
-					const int offset = (macNum - YZMEMCount)
-							* samplingTasksPerMAC;
-					for (int i = 0; i < macNum; ++i) {
-						for (int &gid : this->mapping_table[i]) {
-							gid += offset;
-						}
-					}
-				}
-				cout << " this is second mappi of one layer" << endl;
-				
-				// Debug: Check delay before resetting mappingagain
-				cout << "[DEBUG] Before mappingagain=0: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
-				mappingagain = 0; //reset
-				cout << "[DEBUG] After mappingagain=0: samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
-			} else {
-				cout
-						<< " error!line878, mapping again should be 0 or 2 when readyflag=0(new mapping) "
-						<< endl;
-			}
-		}
-#endif
-
-#ifdef YZPostSimTravelTime
-		this->yzPostSimTravelMapping(o_ch * o_x * o_y);
 #endif
 		for (int i = 0; i < macNum; i++) {
 			if (mapping_table[i].size() == 0) {
@@ -754,47 +387,6 @@ void MACnet::checkStatus() {
 		}
 #endif
 	}
-	if (mappingagain == 1) {	// if  =1 , hold up before going to next steps.
-		readyflag = 0;
-		// Debug: Print samplingWindowDelay BEFORE changing mappingagain
-		cout << "\n[DEBUG] End of sampling (mappingagain 1->2), Layer " << current_layerSeq << endl;
-		cout << "[DEBUG] samplingWindowDelay values BEFORE transition:" << endl;
-		for(int i = 0; i < TOT_NUM; i++) {
-			if(samplingWindowDelay[i] > 0) {
-				cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i] 
-				     << " avg=" << (double)samplingWindowDelay[i]/samplingTasksPerMAC << endl;
-			}
-		}
-		mappingagain = 2;
-
-		// 再次检查
-		    cout << "[DEBUG] After mappingagain 1->2 transition:" << endl;
-		    for(int i = 0; i < TOT_NUM; i++) {
-		        if(samplingWindowDelay[i] > 0) {
-		            cout << "  MAC " << i << ": delay=" << samplingWindowDelay[i] << endl;
-		        }
-		    }
-
-		// 在重置MAC状态前再检查一次
-		cout << "[DEBUG] Before resetting MAC status:" << endl;
-		cout << "  samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
-		
-		for (int i = 0; i < macNum; i++) {
-			MAC_list[i]->selfstatus = 0;
-		}
-		
-		// 重置MAC状态后再检查
-		cout << "[DEBUG] After resetting MAC status:" << endl;
-		cout << "  samplingWindowDelay[0]=" << samplingWindowDelay[0] << endl;
-		
-		return;
-	}
-
-	cout << "mappingagain(shouldbe0)  " << mappingagain << " " << cycles
-			<< "  current_layerSeq " << current_layerSeq << " " << n_layer
-			<< " leftTasksCount "
-			<< ((o_ch * o_x * o_y)
-					- (TOT_NUM - YZMEMCount) * samplingTasksPerMAC) << endl;
 // after layer complete, fetch new layer
 	deque<int> layer_info;
 	in_x = o_x; // in_x
@@ -823,16 +415,7 @@ void MACnet::checkStatus() {
 
 		readyflag = 2;
 		cout << "debug packetid1395 " << packet_id << endl;
-#ifdef YZSAMOSSampleMapping  //last layer
-		// Always increment packet_id by total tasks to avoid signalid conflicts
-		int total_tasks = o_ch * o_x * o_y;
-		packet_id = packet_id + total_tasks;  // Use full task count for unique signalids
-		cout << "[DEBUG] Last layer, packet_id updated: " << (packet_id - total_tasks) 
-		     << " -> " << packet_id 
-		     << " (added " << total_tasks << " tasks)" << endl;
-#else
 		packet_id = packet_id + o_ch * o_x * o_y;
-#endif
 		cout << "debug packetid1407 " << packet_id << "  o_ch " << o_ch
 				<< " o_x " << o_x << " o_y " << o_y << endl;
 		lastLayerPacketID = packet_id;
@@ -843,17 +426,7 @@ void MACnet::checkStatus() {
 		cout << "intermediate Layer finished " << (current_layerSeq - 1)
 				<< " at cycle " << cycles << endl;
 		Layer_latency.push_back(cycles);
-#ifdef YZSAMOSSampleMapping  //pakcetid compensation
-		// Always increment packet_id by total tasks to avoid signalid conflicts
-		int total_tasks = o_ch * o_x * o_y;
-		packet_id = packet_id + total_tasks;  // Use full task count for unique signalids
-		cout << "[DEBUG] Layer " << (current_layerSeq - 1) 
-		     << " completed, packet_id updated: " << (packet_id - total_tasks) 
-		     << " -> " << packet_id 
-		     << " (added " << total_tasks << " tasks)" << endl;
-#else
 		packet_id = packet_id + o_ch * o_x * o_y;
-#endif
 
 		lastLayerPacketID = packet_id;
 

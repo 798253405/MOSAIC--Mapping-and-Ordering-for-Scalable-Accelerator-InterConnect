@@ -106,28 +106,28 @@
 	#define X_NUM 4
 	#define Y_NUM 4
 	#define TOT_NUM 16
-	#define YZMEMCount 2
+	#define AuthorMEMCount 2
 #elif defined DATEMC8_8X8
 	#define PE_X_NUM 8
 	#define PE_Y_NUM 8
 	#define X_NUM 8
 	#define Y_NUM 8
 	#define TOT_NUM 64
-	#define YZMEMCount 8
+	#define AuthorMEMCount 8
 #elif defined DATEMC32_16X16
 	#define PE_X_NUM 16
 	#define PE_Y_NUM 16
 	#define X_NUM 16
 	#define Y_NUM 16
 	#define TOT_NUM 256
-	#define YZMEMCount 32
+	#define AuthorMEMCount 32
 #elif defined DATEMC128_32X32
 	#define PE_X_NUM 32
 	#define PE_Y_NUM 32
 	#define X_NUM 32
 	#define Y_NUM 32
 	#define TOT_NUM 1024
-	#define YZMEMCount 128
+	#define AuthorMEMCount 128
 #endif
 
 #define LINK_TIME 2

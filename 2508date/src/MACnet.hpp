@@ -76,14 +76,11 @@ public:
 	void rmapping(int neuronnum);
 	void yzrmapping(int neuronnum);
 	int yzDistancemapping(int neuronnum);
-	int yzFuncSAMOSSampleMapping(int neuronnum);
-	int yzPostSimTravelMapping(int neuronnum);
 
 
 
 	int breakDownTime[TOT_NUM][4][11];//all nodes ->sum, travel1 travel2 create3 travel3 -> 1 average + 10 recorded values
 	int lastLayerPacketID;
-	int mappingagain;
 	int yzLastSeenPid = 0;
 
 	void runOneStep();

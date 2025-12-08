@@ -602,15 +602,14 @@ void NI::inputCheck() {
 					//0 and 1 is in samping window
 					if (flit->packet->message.msgtype == 0) { //request  for req/response/ack
 						samplingAccumlatedCounter += 1;
-						#ifndef YZLLMSwitchON  // Don't accumulate in LLM mode
 						// Debug: Check if this is a pooling request
 						if (DNN_latency[flit->signalid * 3][0] == 2 || DNN_latency[flit->signalid * 3][0] == 4) {
 							cout << "[DEBUG] NI.cpp POOLING Request arrived at memory!" << endl;
-							cout << "  signalid=" << flit->signalid 
+							cout << "  signalid=" << flit->signalid
 							     << " [5]=" << DNN_latency[flit->signalid * 3][5]
 							     << " [6]=" << DNN_latency[flit->signalid * 3][6]
 							     << " delay=" << (DNN_latency[flit->signalid * 3][6] - DNN_latency[flit->signalid * 3][5])
-							     << " Layer=" << DNN_latency[flit->signalid * 3][0] 
+							     << " Layer=" << DNN_latency[flit->signalid * 3][0]
 							     << " MAC=" << DNN_latency[flit->signalid * 3][2] << endl;
 						}
 						if (DNN_latency[flit->signalid * 3][6] == 0 || DNN_latency[flit->signalid * 3][5] == 0) {
@@ -622,22 +621,19 @@ void NI::inputCheck() {
 							samplingWindowDelay[mac_id_w] += delay_add_w;
 
 						} else {
-							cout << "[DEBUG] NI.cpp:594 Skipped negative/zero delay: " << delay_add_w 
+							cout << "[DEBUG] NI.cpp:594 Skipped negative/zero delay: " << delay_add_w
 							     << " for MAC " << mac_id_w << endl;
 						}
-						#endif
 
 					} else if (flit->packet->message.msgtype == 1) { //response  for req/response/ack
-						#ifndef YZLLMSwitchON  // Don't accumulate in LLM mode
 						int mac_id_i = DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][2];
 						int delay_add_i = DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6]
 										- DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][5];
 						samplingWindowDelay[mac_id_i] += delay_add_i;
 						// Debug print
-						cout << "[LAT_ADD] NI.cpp:601 Input_Req MAC " << mac_id_i 
-						     << " += " << delay_add_i 
+						cout << "[LAT_ADD] NI.cpp:601 Input_Req MAC " << mac_id_i
+						     << " += " << delay_add_i
 						     << " (total=" << samplingWindowDelay[mac_id_i] << ")" << endl;
-						#endif
 						samplingAccumlatedCounter += 1;
 
 					}

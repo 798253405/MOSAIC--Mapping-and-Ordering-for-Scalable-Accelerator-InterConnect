@@ -130,7 +130,7 @@ void VCRouter::outPortDequeue(){
 
 		   //cout<<"aaaa "<<cycles<<" yzflippinginrouter "<< yzRouterID <<" port "<<i<<" "<<flit->id <<" reqresprestype "<<flit->packet->message.msgtype<<endl;
 
-		#ifdef  all128BitInvert //如果做convert，那link要用特别的link比较，现在是128bit + 1个bit invert line
+		#ifdef case2_TACOall128BitInvert //如果做convert，那link要用特别的link比较，现在是128bit + 1个bit invert line
 		  out_port_list[i]->out_link->rInPort->yzInportall128BitInvertFlippingCounts(flit,  yzRouterID ,/* i is the portseqID*/ i  );
 		#else //正常情况下，就是正常的128 bit link，直接比较
 		  out_port_list[i]->out_link->rInPort->yzInportFlippingCounts(flit,  yzRouterID ,/* i is the portseqID*/ i  );

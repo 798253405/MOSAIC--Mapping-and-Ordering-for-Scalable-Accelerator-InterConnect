@@ -13,10 +13,8 @@
 
 
 // NoC Configuration - Choose one
-//#define DATEMC2_4X4      // 2 MCs in 4x4 mesh (base tile pattern)
-//#define DATEMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
-//#define DATEMC32_16X16   // 32 MCs in 16x16 mesh (4x4 tiles)
-//#define DATEMC128_32X32  // 128 MCs in 32x32 mesh (8x8 tiles)
+//#define TACOMC2_4X4      // 2 MCs in 4x4 mesh (base tile pattern)
+//#define TACOMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
 #define TACOMC4_4X4
 //#define TACOMC4_8X8
 
@@ -24,66 +22,27 @@
 
 // Test Case Configuration - Choose one
 #define case1_default
-//#define case2_samos
-//#define case3_affiliatedordering
-//#define case4_seperratedordering
-//#define case5_MOSAIC1
-//#define case6_MOSAIC2
+//#define case2_TACOall128BitInvert
+//#define case3_PartialBusInvert
+//#define case4_affiliatedordering
+//#define case5_seperratedordering
+//#define case6_affiliatedordering_TACOall128BitInvert
+//#define case7_affiliatedordering__PartialBusInvert
+//#define case8_seperratedordering_TACOall128BitInvert
+//#define case9_seperratedordering__PartialBusInvert
 
 
- //#define TACOall128BitInvert
-//#define TACOpartionedInvert
-
+#ifdef case3_PartialBusInvert
+#define  case2_TACOall128BitInvert
+#define TACOpartionedInvert
+#endif
 
 
 //#define  PADDING_RANDOM
 
-//#define YZLLMSwitchON
-//#define LLMPADDING_RANDOM
-#define LLM_OPTIMIZED_TYPE03_HANDLING  // Enable optimized Type 0/3 handling (16 elements only)
-#define LLM_OUTPUT_PATH "src/output/"
-#define LLM_TEST_CASE 2
-#define LLM_DEBUG_LEVEL 1
-#define LLM_RANDOM_SEED 0
-#define LLM_SUBCHUNKS_PER_PIXEL 64  // Number of subchunks per pixel for task decomposition (4096/64=64 per chunk)
+#define rowmapping // in this version mapping is constantly rowmapinng
 
-// LLM Data Mode - Toggle between weight-based and input-based
-// #define LLM_INPUT_BASED  // Comment this out for weight-based mode
-
-// LLM Type 0/3 Message Handling - Toggle between original and optimized versions
-
-// Test Case Logic
-#if defined(case1_default)
-    #define rowmapping
-#elif defined(case2_samos)
-    #define YZSAMOSSampleMapping
-#elif defined(case3_affiliatedordering)
-    #define rowmapping
-    #define YzAffiliatedOrdering
-#elif defined(case4_seperratedordering)
-    #define rowmapping
-    #define YzAffiliatedOrdering
-    #define YZSeperatedOrdering_reArrangeInput
-#elif defined(case5_MOSAIC1)
-    #define YZSAMOSSampleMapping
-    #define YzAffiliatedOrdering
-#elif defined(case6_MOSAIC2)
-    #define YZSAMOSSampleMapping
-    #define YzAffiliatedOrdering
-    #define YZSeperatedOrdering_reArrangeInput
-#else
-    #define rowmapping
-#endif
-
-
-#define samplingTasksPerMAC 100
-#define USE_SCALED_HAMILTONLLM
 //#define FIXED_POINT_SORTING
-
-// Hamilton方法改进开关
-// 定义USE_SCALED_HAMILTON启用放大系数法（提高精度）
-// 注释掉则使用原始Hamilton方法
-
 
 #define only3type
 #define outPortNoInfinite
@@ -96,9 +55,7 @@
 #define bitsPerElement 32
 #define payloadElementNum 16
 #define headerPerFlit 0
-#ifndef YZLLMSwitchON  // dnn latency has some problems in LLM mode. Commented it for LLM
 #define SoCC_Countlatency
-#endif
 #define VN_NUM 1
 #define VC_PER_VN 4
 #define VC_PRIORITY_PER_VN 0
@@ -110,34 +67,20 @@
 #define CACHE_DELAY 0
 #define flitcomparison
 
-#if defined DATEMC2_4X4
+#if defined TACOMC2_4X4
 	#define PE_X_NUM 4
 	#define PE_Y_NUM 4
 	#define X_NUM 4
 	#define Y_NUM 4
 	#define TOT_NUM 16
-	#define YZMEMCount 2
-#elif defined DATEMC8_8X8
+	#define AuthorMEMCount 2
+#elif defined TACOMC8_8X8
 	#define PE_X_NUM 8
 	#define PE_Y_NUM 8
 	#define X_NUM 8
 	#define Y_NUM 8
 	#define TOT_NUM 64
-	#define YZMEMCount 8
-#elif defined DATEMC32_16X16
-	#define PE_X_NUM 16
-	#define PE_Y_NUM 16
-	#define X_NUM 16
-	#define Y_NUM 16
-	#define TOT_NUM 256
-	#define YZMEMCount 32
-#elif defined DATEMC128_32X32
-	#define PE_X_NUM 32
-	#define PE_Y_NUM 32
-	#define X_NUM 32
-	#define Y_NUM 32
-	#define TOT_NUM 1024
-	#define YZMEMCount 128
+	#define AuthorMEMCount 8
 #elif defined  TACOMC4_4X4
 	#define PE_X_NUM 4
 	#define PE_Y_NUM 4
@@ -145,7 +88,7 @@
 	#define X_NUM 4
 	#define Y_NUM 4
 	#define TOT_NUM 16
-	#define YZMEMCount 4
+	#define AuthorMEMCount 4
 #elif defined TACOMC4_8X8
 	#define PE_X_NUM 8
 	#define PE_Y_NUM 8
@@ -153,11 +96,13 @@
 	#define X_NUM 8
 	#define Y_NUM 8
 	#define TOT_NUM 64
-	#define YZMEMCount 4
+	#define AuthorMEMCount 4
 #endif
 
 #define LINK_TIME 2
 #define DISTRIBUTION_NUM 10
+
+
 struct GlobalParams { 
     static char NNmodel_filename[128]; 
     static char NNweight_filename[128]; 

@@ -8,7 +8,7 @@
 #define fulleval
 
 
-//#define FIXED_POINT_SORTING
+//#define FIXED_POINT_SORTING  // default is floating based.
 
 
 // NoC Configuration - Choose one

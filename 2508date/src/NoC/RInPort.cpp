@@ -674,7 +674,7 @@ int RInPort::yzInportall128BitInvertFlippingCounts(Flit *t_yztempFlit,
 				flips++;
 			}
 		}
-#ifdef TACOpartionedInvert
+#ifdef case3_PartialBusInvert
 		if(flips > 16){
 			flips = 32-flips;
 		}
@@ -694,7 +694,7 @@ int RInPort::yzInportall128BitInvertFlippingCounts(Flit *t_yztempFlit,
 				flips++;
 			}
 		}
-#ifdef TACOpartionedInvert
+#ifdef case3_PartialBusInvert
 		if(flips > 4 ){
 			flips = 8-flips;
 		}
@@ -703,8 +703,8 @@ int RInPort::yzInportall128BitInvertFlippingCounts(Flit *t_yztempFlit,
 	}
 
 	// globalbit
-#ifdef case2_TACOall128BitInvert
-#ifndef TACOpartionedInvert
+#if defined(case2_TACOall128BitInvert) || defined(case3_PartialBusInvert)
+#ifndef case3_PartialBusInvert
 	if (oneTimeFlipping > 16 * 32/2) {
 		oneTimeFlipping = 16 * 32 - oneTimeFlipping;
 	}

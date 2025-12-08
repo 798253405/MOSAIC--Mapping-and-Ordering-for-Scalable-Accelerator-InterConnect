@@ -6,10 +6,9 @@
 
 //#define randomeval
 #define fulleval
-//#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
 
-// CNN Random Data Test - Replace CNN inbuffer data with random values (same as LLM)
-//#define CNN_RANDOM_DATA_TEST  // Enable this to make CNN use pure random data like LLM
+
+//#define FIXED_POINT_SORTING
 
 
 // NoC Configuration - Choose one
@@ -27,22 +26,38 @@
 //#define case4_affiliatedordering
 //#define case5_seperratedordering
 //#define case6_affiliatedordering_TACOall128BitInvert
-//#define case7_affiliatedordering__PartialBusInvert
-//#define case8_seperratedordering_TACOall128BitInvert
-//#define case9_seperratedordering__PartialBusInvert
+//#define case7_affiliatedordering_PartialBusInvert
+#define case8_seperratedordering_TACOall128BitInvert
+//#define case9_seperratedordering_PartialBusInvert
 
 
-#ifdef case3_PartialBusInvert
-#define  case2_TACOall128BitInvert
-#define TACOpartionedInvert
+
+
+// 组合case派生
+#ifdef case6_affiliatedordering_TACOall128BitInvert
+#define case4_affiliatedordering
+#define case2_TACOall128BitInvert
 #endif
+#ifdef case7_affiliatedordering_PartialBusInvert
+#define case4_affiliatedordering
+#define case3_PartialBusInvert
+#endif
+#ifdef case8_seperratedordering_TACOall128BitInvert
+#define case5_seperratedordering
+#define case2_TACOall128BitInvert
+#endif
+#ifdef case9_seperratedordering_PartialBusInvert
+#define case5_seperratedordering
+#define case3_PartialBusInvert
+#endif
+
 
 
 //#define  PADDING_RANDOM
 
-#define rowmapping // in this version mapping is constantly rowmapinng
 
-//#define FIXED_POINT_SORTING
+
+
 
 #define only3type
 #define outPortNoInfinite
@@ -101,8 +116,11 @@
 
 #define LINK_TIME 2
 #define DISTRIBUTION_NUM 10
+#define rowmapping // in this version mapping is constantly rowmapinng
 
 
+
+//#define PADDING_RANDOM  // THIS IS JUST FOR DEbugging！
 struct GlobalParams { 
     static char NNmodel_filename[128]; 
     static char NNweight_filename[128]; 

@@ -599,23 +599,6 @@ void MACnet::runOneStep() {
 					// normal allocate inputs from input table
 					// assuming  in_ch=6 input channels, kernel=3x3: 3 input "figures", pick up 3 rows, one row contains 3 data. o
 					// overall = 6x3x3 floating point inputs
-#ifdef CNN_RANDOM_DATA_TEST
-					// Generate random input data instead of using real input_table data
-					static bool cnn_random_warning_printed = false;
-					if (!cnn_random_warning_printed) {
-						cout << "WARNING: CNN_RANDOM_DATA_TEST enabled - CNN using random input data [-0.5, 0.5]" << endl;
-						cnn_random_warning_printed = true;
-					}
-					for (int k = 0; k < in_ch; k++) {
-						for (int p = 0; p < w_y; p++) {
-							for (int q = 0; q < w_x; q++) {
-								float random_input = static_cast<float>(rand()) / RAND_MAX - 0.5f;
-								tmpMAC->inbuffer.push_back(random_input);
-							}
-						}
-					}
-#else
-					// Original: Use real input_table data
 					for (int k = 0; k < in_ch; k++) {
 						for (int p = 0; p < w_y; p++) {
 							tmpMAC->inbuffer.insert(tmpMAC->inbuffer.end(),
@@ -629,22 +612,8 @@ void MACnet::runOneStep() {
 											+ tmpx * stride + w_x);
 						}
 					}
-#endif
 
 					// for conv weight
-#ifdef CNN_RANDOM_DATA_TEST
-					// Generate random weight data instead of using real weight_table data
-					for (int k = 0; k < in_ch; k++) {
-						for (int i = 0; i < w_x * w_y; i++) {
-							float random_weight = static_cast<float>(rand()) / RAND_MAX - 0.5f;
-							tmpMAC->inbuffer.push_back(random_weight);
-						}
-					}
-					// Generate random bias
-					float random_bias = static_cast<float>(rand()) / RAND_MAX - 0.5f;
-					tmpMAC->inbuffer.push_back(random_bias);
-#else
-					// Original: Use real weight_table data
 					for (int k = 0; k < in_ch; k++) {
 						//weight// according to current kernelID(output channel), for example, jume every 6 outchannels
 						// pick up 3(in_ch) vectors. These 3 vectors is one single 3D-kernel.
@@ -655,7 +624,6 @@ void MACnet::runOneStep() {
 					}
 					tmpMAC->inbuffer.push_back(
 							this->weight_table[tmpMAC->tmpch * in_ch].back()); //bias
-#endif
 
 					// 遍历并输出inbuffer中的所有元素 //  先是功能code，1代表relu。然后in—ch，然后
 					//for (float value : tmpMAC->inbuffer) {

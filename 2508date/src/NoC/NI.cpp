@@ -583,12 +583,12 @@ void NI::inputCheck() {
 #ifdef SoCC_Countlatency
 			if (flit->type == 1 || flit->type == 10) {
 				// Debug: Check if this is a pooling packet
-				if (flit->signalid >= 4704 && flit->signalid <= 4850) {  // Pooling range for Layer 2
-					cout << "[DEBUG] NI_" << this->id << " received packet signalid=" << flit->signalid 
-					     << " msgtype=" << (int)flit->packet->message.msgtype
-					     << " dest=" << flit->packet->message.destination
-					     << " at cycle " << cycles << endl;
-				}
+//				if (flit->signalid >= 4704 && flit->signalid <= 4850) {  // Pooling range for Layer 2
+//					cout << "[DEBUG] NI_" << this->id << " received packet signalid=" << flit->signalid 
+//					     << " msgtype=" << (int)flit->packet->message.msgtype
+//					     << " dest=" << flit->packet->message.destination
+//					     << " at cycle " << cycles << endl;
+//				}
 				//statistics for tail flit arrived at NI in all types
 				#ifdef SoCC_Countlatency
 				// Debug pooling
@@ -603,18 +603,18 @@ void NI::inputCheck() {
 					if (flit->packet->message.msgtype == 0) { //request  for req/response/ack
 						samplingAccumlatedCounter += 1;
 						// Debug: Check if this is a pooling request
-						if (DNN_latency[flit->signalid * 3][0] == 2 || DNN_latency[flit->signalid * 3][0] == 4) {
-							cout << "[DEBUG] NI.cpp POOLING Request arrived at memory!" << endl;
-							cout << "  signalid=" << flit->signalid
-							     << " [5]=" << DNN_latency[flit->signalid * 3][5]
-							     << " [6]=" << DNN_latency[flit->signalid * 3][6]
-							     << " delay=" << (DNN_latency[flit->signalid * 3][6] - DNN_latency[flit->signalid * 3][5])
-							     << " Layer=" << DNN_latency[flit->signalid * 3][0]
-							     << " MAC=" << DNN_latency[flit->signalid * 3][2] << endl;
-						}
-						if (DNN_latency[flit->signalid * 3][6] == 0 || DNN_latency[flit->signalid * 3][5] == 0) {
-							cout << "[DEBUG] NI.cpp Request timestamps not set! signalid=" << flit->signalid << endl;
-						}
+//						if (DNN_latency[flit->signalid * 3][0] == 2 || DNN_latency[flit->signalid * 3][0] == 4) {
+//							cout << "[DEBUG] NI.cpp POOLING Request arrived at memory!" << endl;
+//							cout << "  signalid=" << flit->signalid
+//							     << " [5]=" << DNN_latency[flit->signalid * 3][5]
+//							     << " [6]=" << DNN_latency[flit->signalid * 3][6]
+//							     << " delay=" << (DNN_latency[flit->signalid * 3][6] - DNN_latency[flit->signalid * 3][5])
+//							     << " Layer=" << DNN_latency[flit->signalid * 3][0]
+//							     << " MAC=" << DNN_latency[flit->signalid * 3][2] << endl;
+//						}
+//						if (DNN_latency[flit->signalid * 3][6] == 0 || DNN_latency[flit->signalid * 3][5] == 0) {
+//							cout << "[DEBUG] NI.cpp Request timestamps not set! signalid=" << flit->signalid << endl;
+//						}
 						int mac_id_w = DNN_latency[flit->signalid * 3][2];
 						int delay_add_w = DNN_latency[flit->signalid * 3][6] - DNN_latency[flit->signalid* 3][5];
 						if (delay_add_w > 0) {
@@ -630,10 +630,10 @@ void NI::inputCheck() {
 						int delay_add_i = DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][6]
 										- DNN_latency[flit->signalid * 3 + flit->packet->message.msgtype][5];
 						samplingWindowDelay[mac_id_i] += delay_add_i;
-						// Debug print
-						cout << "[LAT_ADD] NI.cpp:601 Input_Req MAC " << mac_id_i
-						     << " += " << delay_add_i
-						     << " (total=" << samplingWindowDelay[mac_id_i] << ")" << endl;
+						// Debug print (commented out for performance)
+						// cout << "[LAT_ADD] NI.cpp:601 Input_Req MAC " << mac_id_i
+						//      << " += " << delay_add_i
+						//      << " (total=" << samplingWindowDelay[mac_id_i] << ")" << endl;
 						samplingAccumlatedCounter += 1;
 
 					}

@@ -1,0 +1,137 @@
+=== Test Started: Tue Dec  9 17:33:01 2025
+Initialize
+Running with default parameters
+model file loading (filename: src/Input/darknetSimplify.txt)...
+
+layer_ID |    type | Neu_num |       X |       Y | channel |   C/P_X |   C/P_Y |  stride | padding | act_fun |
+--------------------------------------------------------------------------------------------------------------
+       0 |   Input |   12288 |      64 |      64 |       3 |         |         |         |         |         |
+ this is conv2d layer        1 |  Conv2D |      96 |       3 |       3 |      32 |         |         |       1 |       1 |    relu |
+       2 |    Pool |      32 |       2 |       2 |      32 |         |         |       2 |       0 |         |
+ this is conv2d layer        3 |  Conv2D |    2048 |       3 |       3 |      64 |         |         |       1 |       1 |    relu |
+       4 |    Pool |      64 |       2 |       2 |      64 |         |         |       2 |       0 |         |
+ this is conv2d layer        5 |  Conv2D |    8192 |       3 |       3 |     128 |         |         |       1 |       1 |    relu |
+ this is conv2d layer        6 |  Conv2D |    8192 |       3 |       3 |      64 |         |         |       1 |       1 |    relu |
+ this is conv2d layer        7 |  Conv2D |    8192 |       3 |       3 |     128 |         |         |       1 |       1 |    relu |
+       8 |    Pool |     128 |       2 |       2 |     128 |         |         |       2 |       0 |         |
+ this is conv2d layer        9 |  Conv2D |   32768 |       3 |       3 |     256 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       10 |  Conv2D |   32768 |       3 |       3 |     128 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       11 |  Conv2D |   32768 |       3 |       3 |     256 |         |         |       1 |       1 |    relu |
+      12 |    Pool |     256 |       2 |       2 |     256 |         |         |       2 |       0 |         |
+ this is conv2d layer       13 |  Conv2D |  131072 |       3 |       3 |     512 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       14 |  Conv2D |  131072 |       3 |       3 |     256 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       15 |  Conv2D |  131072 |       3 |       3 |     512 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       16 |  Conv2D |  131072 |       3 |       3 |     256 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       17 |  Conv2D |  131072 |       3 |       3 |     512 |         |         |       1 |       1 |    relu |
+      18 |    Pool |     512 |       2 |       2 |     512 |         |         |       2 |       0 |         |
+ this is conv2d layer       19 |  Conv2D |  524288 |       3 |       3 |    1024 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       20 |  Conv2D |  524288 |       3 |       3 |     512 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       21 |  Conv2D |  524288 |       3 |       3 |    1024 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       22 |  Conv2D |  524288 |       3 |       3 |     512 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       23 |  Conv2D |  524288 |       3 |       3 |    1024 |         |         |       1 |       1 |    relu |
+ this is conv2d layer       24 |  Conv2D | 1024000 |       1 |       1 |    1000 |         |         |       1 |       0 |    relu |
+Model layer loading complete
+All neurons:4612288
+4096 with input size 64 64
+Load weight 8200 (lines) with weight size 8200
+Object is being created
+Layer in total 25
+MAC[0] at (0,0) -> MC 5
+MAC[1] at (0,1) -> MC 5
+MAC[2] at (0,2) -> MC 7
+MAC[3] at (0,3) -> MC 7
+ layer_info[4]  3  layer_info[3] 32 3 96
+!!MACnet created!!
+yzzzzprintlayer 1 created c in_ch 3 o_ch  32 outNeruons 131072 currentpacket_id 0
+ cycles 0
+ cycles 50000
+ cycles 100000
+ cycles 150000
+ cycles 200000
+ cycles 250000
+ cycles 300000
+ cycles 350000
+ cycles 400000
+ cycles 450000
+ cycles 500000
+ cycles 550000
+ cycles 600000
+intermediate Layer finished 1 at cycle 602340
+now have sent packetID131072 this layer is finished  
+
+ 
+ 
+cyclesare 602340 packet_id 131072 layer2 yzLastSeenPid 131066 p 32 32768
+ cycles 650000
+ cycles 700000
+intermediate Layer finished 2 at cycle 701124
+now have sent packetID163840 this layer is finished  
+
+ 
+ 
+ 
+conv print newlayer atcycle 701124 packetd_id 163840 yzLastSeenPid 163834 layer3 c in_ch  32 ofmap 65536
+ cycles 750000
+ cycles 800000
+ cycles 850000
+ cycles 900000
+ cycles 950000
+ cycles 1000000
+ cycles 1050000
+ cycles 1100000
+ cycles 1150000
+ cycles 1200000
+ cycles 1250000
+ cycles 1300000
+ cycles 1350000
+ cycles 1400000
+ cycles 1450000
+ cycles 1500000
+ cycles 1550000
+ cycles 1600000
+ cycles 1650000
+ cycles 1700000
+ cycles 1750000
+ cycles 1800000
+intermediate Layer finished 3 at cycle 1812940
+now have sent packetID229376 this layer is finished  
+
+ 
+ 
+cyclesare 1812940 packet_id 229376 layer4 yzLastSeenPid 229374 p 64 16384
+ cycles 1850000
+intermediate Layer finished 4 at cycle 1862356
+now have sent packetID245760 this layer is finished  
+
+ 
+ 
+ 
+conv print newlayer atcycle 1862356 packetd_id 245760 yzLastSeenPid 245758 layer5 c in_ch  64 ofmap 32768
+ cycles 1900000
+ cycles 1950000
+ cycles 2000000
+ cycles 2050000
+ cycles 2100000
+ cycles 2150000
+ cycles 2200000
+ cycles 2250000
+ cycles 2300000
+ cycles 2350000
+ cycles 2400000
+ cycles 2450000
+ cycles 2500000
+ cycles 2550000
+ cycles 2600000
+ cycles 2650000
+ cycles 2700000
+ cycles 2750000
+ cycles 2800000
+ cycles 2850000
+ cycles 2900000
+intermediate Layer finished 5 at cycle 2914877
+now have sent packetID278528 this layer is finished  
+
+ 
+ 
+ 
+conv print newlayer atcycle 2914877 packetd_id 278528 yzLastSeenPid 278522 layer6 c in_ch  128 ofmap 16384

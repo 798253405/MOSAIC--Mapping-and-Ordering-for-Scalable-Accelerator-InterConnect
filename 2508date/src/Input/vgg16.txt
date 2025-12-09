@@ -1,3 +1,8 @@
+% Input ( 3D_shape )
+% Dense ( size  activation:"relu"/"tanh"/"sigmoid"/"linear" )
+% padding / stride after activation
+% VGG16
+
 Input 224 224 3
 Conv2D 3 3 3 64 relu 1 1
 Conv2D 64 3 3 64 relu 1 1
@@ -13,10 +18,10 @@ Conv2D 256 3 3 512 relu 1 1
 Conv2D 512 3 3 512 relu 1 1
 Conv2D 512 3 3 512 relu 1 1
 Pool 512 2 2 512 0 2
-Conv2D 256 3 3 512 relu 1 1
+Conv2D 512 3 3 512 relu 1 1
 Conv2D 512 3 3 512 relu 1 1
 Conv2D 512 3 3 512 relu 1 1
 Pool 512 2 2 512 0 2
 Dense 25088 4096 relu
 Dense 4096 4096 relu
-Dense 4096 10 linear
+Dense 4096 1000 linear

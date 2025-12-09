@@ -75,6 +75,10 @@ int main(int arg_num, char *arg_vet[]) {
 	clock_t start, end;
 	/// clock for start
 	    start = clock();
+	// Print current date and time
+	auto now = std::chrono::system_clock::now();
+	std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+	cout << "=== Test Started: " << std::ctime(&now_time);
 	cout << "Initialize" << endl;
 	parseCmdLine(arg_num, arg_vet);
 

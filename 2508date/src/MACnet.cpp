@@ -303,11 +303,11 @@ void MACnet::xmapping(int neuronnum) {
 				break;
 		}
 	}
-	cout << " line209 xmapping_ Jis " << j << " " << endl;
-	for (int i = 0; i < macNum; i++) {
-		cout << "xmappingthis->mapping_table[i]size " << i << " "
-				<< this->mapping_table[i].size() << endl;
-	}
+	// cout << " line209 xmapping_ Jis " << j << " " << endl;
+	// for (int i = 0; i < macNum; i++) {
+	// 	cout << "xmappingthis->mapping_table[i]size " << i << " "
+	// 			<< this->mapping_table[i].size() << endl;
+	// }
 	return;
 }
 

@@ -62,3 +62,10 @@
 2508date/src/pycharmCodes/1105uselessJUSTdemoplot/
 
 output/llm_batch_20251114_165950/
+
+CLAUDE.md
+
+# Large weight files
+2508date/src/Input/CNNWeightsGenerate/darknet19.weights
+2508date/src/Input/darknet_weight.txt
+2508date/src/Input/vgg16_weight.txt

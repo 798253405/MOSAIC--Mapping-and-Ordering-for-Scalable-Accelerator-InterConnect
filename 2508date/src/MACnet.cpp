@@ -726,6 +726,12 @@ void MACnet::checkStatus() {
 			} else {
 				this->MAC_list[i]->cnn_task_queue.assign(
 						mapping_table[i].begin(), mapping_table[i].end()); //mapping table -
+#ifdef fireAdvance
+				this->MAC_list[i]->total_tasks = mapping_table[i].size();
+				this->MAC_list[i]->requests_sent = 0;
+				this->MAC_list[i]->responses_received = 0;
+				this->MAC_list[i]->tasks_completed = 0;
+#endif
 			}
 		}
 		readyflag = 1; // loading complete
@@ -945,6 +951,15 @@ void MACnet::checkStatus() {
 		MAC_list[i]->selfstatus = 0;
 		//added hard sync
 		MAC_list[i]->pecycle = cycles;
+#ifdef fireAdvance
+		MAC_list[i]->fire_advance_counter = 0;
+		MAC_list[i]->fire_advance_armed = false;
+		MAC_list[i]->total_tasks = 0;
+		MAC_list[i]->requests_sent = 0;
+		MAC_list[i]->responses_received = 0;
+		MAC_list[i]->tasks_completed = 0;
+		MAC_list[i]->computing_task_id = -1;
+#endif
 	}
 
 }
@@ -1286,12 +1301,7 @@ void MACnet::runOneStep() {
 			tmpMAC->responses_received++;
 			tmpMAC->computing_task_id = tmpMAC->cnn_saved_task_id;
 
-			// ， Fire Advance
-			if (tmpMAC->requests_sent < tmpMAC->total_tasks &&
-			    tmpMAC->cnn_task_queue.size() > 0) {
-				tmpMAC->fire_advance_counter = FIRE_ADVANCE_DELAY;
-				tmpMAC->fire_advance_armed = true;
-			}
+			// fire advance is armed in state 3 where calctime is known
 #endif
 
 			tmpNI->packet_buffer_out[0].pop_front();

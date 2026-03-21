@@ -15,6 +15,9 @@
 
 namespace authorLLMIEEE754 {
 
+
+
+
 void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload) {
     // Step 1: payload
     // LLM payload: [input(64), query(64)]

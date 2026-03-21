@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Small LLM Performance Analysis on NoC - Comprehensive Visualization
+128-Token Small LLM Performance Analysis on NoC - Comprehensive Visualization
 """
 
 import pandas as pd
@@ -10,39 +10,45 @@ from pathlib import Path
 
 
 def create_dataframe():
-    """Create DataFrame from provided data"""
+    """Create DataFrame from provided 128-token configuration data"""
     data = {
         'NoC_Size': ['2_4x4'] * 8 + ['4_8x8'] * 8 + ['4_16x16'] * 8 + ['4_32x32'] * 8,
         'Strategy': ['baseline', 'TravelTime', 'affiliated', 'separated', 'mosaic-1', 'mosaic-2', 'mosaic_new-1', 'mosaic_new-2'] * 4,
         'Total_Cycles': [
             # 2_4x4
-            420525, 397033, 420525, 420525, 397033, 397033, 328296, 328296,
+            6321329, 6670838, 6321329, 6321329, 6670838, 6670838, 5338596, 5338596,
+            # 4_4x4
+            #7070360, 6777316, 7070360, 7070360, 6777316, 6777316,
             # 4_8x8
-            108283, 103120, 108283, 108283, 103120, 103120, 85382, 85382,
+            1601064, 1601679, 1601064, 1601064, 1601679, 1601679, 1296362, 1296362,
             # 4_16x16
-            28625, 28625, 28625, 28625, 28625, 28625, 23682, 23682,
+            420393, 397033, 420393, 420393, 397033, 397033, 328296, 328296,
             # 4_32x32
-            11588, 11588, 11588, 11588, 11588, 11588, 9572, 9572,
+            108320, 103120, 108320, 108320, 103120, 103120, 85382, 85382,
         ],
         'Avg_Hops': [
             # 2_4x4
-            1.72, 1.69, 1.72, 1.72, 1.69, 1.69, 1.69, 1.69,
+            1.71, 1.68, 1.71, 1.71, 1.68, 1.68, 1.68, 1.68,
+            # 4_4x4
+            #1.33, 1.32, 1.33, 1.33, 1.32, 1.32,
             # 4_8x8
-            1.72, 1.70, 1.72, 1.72, 1.70, 1.70, 1.70, 1.70,
+            1.71, 1.68, 1.71, 1.71, 1.68, 1.68, 1.69, 1.69,
             # 4_16x16
-            1.73, 1.73, 1.73, 1.73, 1.73, 1.73, 1.73, 1.73,
+            1.71, 1.69, 1.71, 1.71, 1.69, 1.69, 1.69, 1.69,
             # 4_32x32
-            1.73, 1.73, 1.73, 1.73, 1.73, 1.73, 1.73, 1.73,
+            1.72, 1.70, 1.72, 1.72, 1.70, 1.70, 1.70, 1.70,
         ],
         'BitTransitions': [
             # 2_4x4
-            187594617, 184478613, 132051283, 128341675, 129880247, 126243317, 130266197, 126637265,
+            2996483603, 2937201979, 2104938412, 2048925106, 2063408240, 2008985952, 2077658598, 2022834046,
+            # 4_4x4
+            #2329050107, 2301856884, 1636809877, 1593298336, 1619139887, 1576234065,
             # 4_8x8
-            187981955, 186305559, 132344558, 128616426, 131131595, 127445142, 131338550, 127663255,
+            2996456395, 2939766001, 2105881456, 2049770511, 2068054420, 2013128138, 2078177546, 2023261870,
             # 4_16x16
-            188659706, 188659706, 132932483, 129148839, 132932483, 129148839, 133078378, 129344788,
+            2997578083, 2949227654, 2110651477, 2054537810, 2076357221, 2020989029, 2083541604, 2028153817,
             # 4_32x32
-            188484220, 188484220, 132879145, 128923774, 132879145, 128923774, 133045579, 129208722,
+            2998282220, 2976012302, 2110862399, 2054636629, 2095626629, 2039702294, 2098401044, 2042427605,
         ]
     }
 
@@ -84,53 +90,19 @@ def create_comprehensive_analysis():
     except:
         plt.style.use('default')
 
-    fig = plt.figure(figsize=(20, 10))  # Reduced height for tighter layout
+    fig = plt.figure(figsize=(20, 10))
 
-    # Define color schemes - Choose your preferred scheme here
-
-    # Option 1: Nature Publishing Group Style (蓝绿色系) - 推荐
-    colors_nature = {
-        'Baseline': '#0173B2',  # 深蓝
-        'TravelTime': '#56B4E9',  # 天蓝
-        'Affiliated': '#009E73',  # 蓝绿
-        'Separated': '#F0E442',  # 黄色
-        'MOSAIC-1': '#E69F00',  # 橙色
-        'MOSAIC-2': '#CC79A7'  # 粉紫
-    }
-
-    # Option 2: IEEE Style (经典蓝红色系)
-    colors_ieee = {
-        'Baseline': '#1f77b4',  # 标准蓝
-        'TravelTime': '#ff7f0e',  # 橙色
-        'Affiliated': '#2ca02c',  # 绿色
-        'Separated': '#d62728',  # 红色
-        'MOSAIC-1': '#9467bd',  # 紫色
-        'MOSAIC-2': '#8c564b'  # 棕色
-    }
-
-    # Option 3: Science/Cell Style (冷色调专业)
-    colors_science = {
+    # Define colors
+    colors = {
         'Baseline': '#003f5c',  # 深海蓝
-        'TravelTime': '#2f4b7c',  # 皇家蓝
+        'TravelTime': '#edc948',
         'Affiliated': '#665191',  # 紫罗兰
         'Separated': '#a05195',  # 洋红
-        'MOSAIC-1': '#d45087',  # 玫瑰红
-        'MOSAIC-2': '#ff7c43'  # 珊瑚橙
+        'Combo-1': '#bc5090',  # 新增
+        'Combo-2': '#ef5675',  # 新增
+        'MOSAIC-1': '#009E73',  # 深绿色
+        'MOSAIC-2': '#4ECDC4'  # 青色
     }
-
-    # Option 4: Original (原始配色)
-    colors_original = {
-    'Baseline': '#003f5c',     # 深海蓝
-    'TravelTime': '#edc948',   # 金黄
-    'Affiliated': '#665191',   # 紫罗兰
-    'Separated': '#a05195',    # 洋红
-    'Combo-1': '#bc5090',      # 新增
-    'Combo-2': '#ef5675',      # 新增
-    'MOSAIC-1': '#009E73',     # 深绿色
-    'MOSAIC-2': '#4ECDC4'      # 青色
-    }
-    # SELECT YOUR PREFERRED COLOR SCHEME HERE
-    colors = colors_original # Change this to colors_ieee, colors_science, or colors_original
 
     # Create gridspec
     import matplotlib.gridspec as gridspec
@@ -155,31 +127,53 @@ def create_comprehensive_analysis():
 
     ax1.set_xlabel('NoC Configuration', fontweight='bold')
     ax1.set_ylabel('Execution Cycles', fontweight='bold')
-    ax1.set_title('(a) Execution Cycles', fontweight='bold', fontsize=11)
+    ax1.set_title('(a) Execution Cycles (128 Token)', fontweight='bold', fontsize=11)
     ax1.set_xticks(x_base + bar_width * 3.5)
     ax1.set_xticklabels(noc_order, rotation=15, ha='right')
     ax1.legend(loc='upper right', fontsize=7, ncol=2)
     ax1.grid(True, alpha=0.3, axis='y')
 
-    # (b) Energy Consumption (Bit Transitions)
+    # (b) Standalone Method Improvement (128-token LLM)
     ax2 = fig.add_subplot(gs[0, 1])
 
-    for i, strategy in enumerate(strategies):
-        values = []
-        for noc in noc_order:
-            noc_data = df[(df['NoC_Display'] == noc) & (df['Strategy'] == strategy)]
-            values.append(noc_data['BitTransitions'].values[0] / 1e6 if len(noc_data) > 0 else 0)  # Convert to M
+    base_cyc = 6321329
+    base_bt  = 2996483603
 
-        bars = ax2.bar(x_base + i * bar_width, values, bar_width,
-                       label=strategy, color=colors[strategy], alpha=0.85)
+    standalone_methods = ['TravelTime', 'Affiliated', 'Separated', 'FIA', 'Rout.Switch', 'LSBS-A']
+    cyc_vals = [6670838, 6321329, 6321329, 5382931, 6558268, 6321329]
+    bt_vals  = [2937201979, 2104938412, 2048925106, 2996582769, 2997452448, 2021964536]
 
-    ax2.set_xlabel('NoC Configuration', fontweight='bold')
-    ax2.set_ylabel('Total Bit Transitions (M)', fontweight='bold')
-    ax2.set_title('(b) Link Energy Consumption', fontweight='bold', fontsize=11)
-    ax2.set_xticks(x_base + bar_width * 3.5)
-    ax2.set_xticklabels(noc_order, rotation=15, ha='right')
-    ax2.legend(loc='upper left', fontsize=7, ncol=2)
+    cyc_red = [(base_cyc - v) / base_cyc * 100 for v in cyc_vals]
+    bt_red  = [(base_bt - v) / base_bt * 100 for v in bt_vals]
+
+    x_m = np.arange(len(standalone_methods))
+    w = 0.35
+
+    bars_cyc = ax2.bar(x_m - w/2, cyc_red, w, label='Cycle Reduction',
+                       color='#2166ac', edgecolor='black', linewidth=0.4)
+    bars_bt  = ax2.bar(x_m + w/2, bt_red, w, label='BT Reduction',
+                       color='#b2182b', edgecolor='black', linewidth=0.4)
+
+    for bar in bars_cyc:
+        h = bar.get_height()
+        #if abs(h) > 0.5:
+        ax2.text(bar.get_x() + bar.get_width()/2, h + 0.5,
+               f'{h:.4f}%', ha='center', va='bottom', fontsize=7, color='#2166ac')
+    for bar in bars_bt:
+        h = bar.get_height()
+        #if abs(h) > 0.5:
+        ax2.text(bar.get_x() + bar.get_width()/2, h + 0.5,
+               f'{h:.4f}%', ha='center', va='bottom', fontsize=7, color='#b2182b')
+               
+    ax2.axhline(y=0, color='gray', linewidth=0.5)
+    ax2.set_xlabel('Standalone Method', fontweight='bold')
+    ax2.set_ylabel('Improvement (%, higher is better)', fontweight='bold')
+    ax2.set_title('(b) Standalone Method Improvement', fontweight='bold', fontsize=11)
+    ax2.set_xticks(x_m)
+    ax2.set_xticklabels(standalone_methods, rotation=25, ha='right', fontsize=8)
+    ax2.legend(loc='upper left', fontsize=8)
     ax2.grid(True, alpha=0.3, axis='y')
+    ax2.set_ylim(-8, 38)
 
     # (c) Average Hops
     ax3 = fig.add_subplot(gs[1, 0])
@@ -203,15 +197,14 @@ def create_comprehensive_analysis():
         #     for j, (TravelTime_val, baseline_val) in enumerate(zip(values, baseline_values)):
         #         if baseline_val > 0:
         #             reduction = ((baseline_val - TravelTime_val) / baseline_val) * 100
-        #             # Show all values, including 0%
         #             ax3.text(x_base[j] + i * bar_width, TravelTime_val + 0.1,
         #                      f'-{reduction:.1f}%',
-        #                      ha='center', va='bottom', fontsize=15,
+        #                      ha='center', va='bottom', fontsize=9,
         #                      color='darkgreen', fontweight='bold')
 
     ax3.set_xlabel('NoC Configuration', fontweight='bold')
     ax3.set_ylabel('Average Hops per Flit', fontweight='bold')
-    ax3.set_title('(c) Network Communication Distance', fontweight='bold', fontsize=11)
+    ax3.set_title('(c) Network Communication Distance (128 Token)', fontweight='bold', fontsize=11)
     ax3.set_xticks(x_base + bar_width * 3.5)
     ax3.set_xticklabels(noc_order, rotation=15, ha='right')
     ax3.legend(loc='upper left', fontsize=7, ncol=2)
@@ -244,7 +237,7 @@ def create_comprehensive_analysis():
 
     ax4.set_xlabel('NoC Configuration', fontweight='bold')
     ax4.set_ylabel('Bit Transitions Reduction (%)', fontweight='bold')
-    ax4.set_title('(d) Power Efficiency Improvement', fontweight='bold', fontsize=11)
+    ax4.set_title('(d) Power Efficiency Improvement (128 Token)', fontweight='bold', fontsize=11)
     ax4.set_xticks(range(len(noc_order)))
     ax4.set_xticklabels(noc_order, rotation=15, ha='right')
     ax4.legend(loc='best', fontsize=7)
@@ -267,8 +260,8 @@ def create_comprehensive_analysis():
     baseline_bittrans = []
     TravelTime_bittrans = []
     mosaic1_bittrans = []
-    affiliated_bittrans = []
-    combo1_bittrans = []
+    affiliated_bittrans = []  # Add for Affiliated strategy
+    combo1_bittrans = []  # Add for Combo-1 strategy
 
     for noc in noc_order:
         noc_data = df[df['NoC_Display'] == noc]
@@ -279,8 +272,10 @@ def create_comprehensive_analysis():
         baseline_bittrans.append(noc_data[noc_data['Strategy'] == 'Baseline']['BitTransitions'].values[0])
         TravelTime_bittrans.append(noc_data[noc_data['Strategy'] == 'TravelTime']['BitTransitions'].values[0])
         mosaic1_bittrans.append(noc_data[noc_data['Strategy'] == 'MOSAIC-1']['BitTransitions'].values[0])
-        affiliated_bittrans.append(noc_data[noc_data['Strategy'] == 'Affiliated']['BitTransitions'].values[0])
-        combo1_bittrans.append(noc_data[noc_data['Strategy'] == 'Combo-1']['BitTransitions'].values[0])
+        affiliated_bittrans.append(
+            noc_data[noc_data['Strategy'] == 'Affiliated']['BitTransitions'].values[0])  # Add Affiliated data
+        combo1_bittrans.append(
+            noc_data[noc_data['Strategy'] == 'Combo-1']['BitTransitions'].values[0])  # Add Combo-1 data
 
     # Plot cycles - 4 bars
     bars1 = ax5.bar(x_positions - bar_width_e * 1.5, baseline_cycles, bar_width_e,
@@ -295,23 +290,29 @@ def create_comprehensive_analysis():
     # Calculate and plot power reduction
     TravelTime_reduction = [(b - s) / b * 100 for b, s in zip(baseline_bittrans, TravelTime_bittrans)]
     mosaic1_reduction = [(b - m) / b * 100 for b, m in zip(baseline_bittrans, mosaic1_bittrans)]
-    affiliated_reduction = [(b - a) / b * 100 for b, a in zip(baseline_bittrans, affiliated_bittrans)]
-    combo1_reduction = [(b - c) / b * 100 for b, c in zip(baseline_bittrans, combo1_bittrans)]
+    affiliated_reduction = [(b - a) / b * 100 for b, a in
+                           zip(baseline_bittrans, affiliated_bittrans)]  # Add Affiliated reduction
+    combo1_reduction = [(b - c) / b * 100 for b, c in
+                           zip(baseline_bittrans, combo1_bittrans)]  # Add Combo-1 reduction
 
     line1 = ax5_twin.plot(x_positions, TravelTime_reduction, 'o-', linewidth=2.5,
                           markersize=9, color=colors['TravelTime'], label='TravelTime Power Reduction')
     line2 = ax5_twin.plot(x_positions, mosaic1_reduction, 's-', linewidth=2.5,
                           markersize=9, color=colors['MOSAIC-1'], label='MOSAIC-1 Power Reduction')
     line3 = ax5_twin.plot(x_positions, affiliated_reduction, '^-', linewidth=2.5,
-                          markersize=9, color=colors['Affiliated'], label='Affiliated Power Reduction')
+                          markersize=9, color=colors['Affiliated'],
+                          label='Affiliated Power Reduction')  # Add Affiliated line
     line4 = ax5_twin.plot(x_positions, combo1_reduction, 'D-', linewidth=2.5,
-                          markersize=9, color=colors['Combo-1'], label='Combo-1 Power Reduction')
+                          markersize=9, color=colors['Combo-1'],
+                          label='Combo-1 Power Reduction')  # Add Combo-1 line
+
+
 
     # Labels and formatting
     ax5.set_xlabel('NoC Configuration', fontweight='bold')
     ax5.set_ylabel('Execution Cycles', fontweight='bold', color='black')
     ax5_twin.set_ylabel('Bit Transitions Reduction (%)', fontweight='bold', color='darkgreen')
-    ax5.set_title('(e) Performance-Power Trade-off', fontweight='bold', fontsize=11)
+    ax5.set_title('(e) Performance-Power Trade-off (128 Token)', fontweight='bold', fontsize=11)
 
     ax5.set_xticks(x_positions)
     ax5.set_xticklabels(noc_order, rotation=15, ha='right')
@@ -327,6 +328,7 @@ def create_comprehensive_analysis():
 
     # Create combined legend
     ax5.legend(combined_handles, combined_labels, loc='best', fontsize=7, ncol=1)
+
     ax5.grid(True, alpha=0.3)
     ax5_twin.set_ylim(-5, 35)
 
@@ -334,8 +336,13 @@ def create_comprehensive_analysis():
     plt.tight_layout()
 
     # Save figure as PDF (vector format for papers)
-    plt.savefig('noc_performance_analysis.pdf', dpi=150, bbox_inches='tight')
-    print(f"Analysis saved to: noc_performance_analysis.pdf")
+    output_filename = '128token_noc_performance_analysis.pdf'
+    plt.savefig(output_filename, dpi=150, bbox_inches='tight')
+    print(f"Analysis saved to: {output_filename}")
+
+    # Also save as high-resolution PNG for presentations
+    plt.savefig('128token_noc_performance_analysis.png', dpi=300, bbox_inches='tight')
+    print(f"PNG version saved to: 128token_noc_performance_analysis.png")
 
     plt.show()
 

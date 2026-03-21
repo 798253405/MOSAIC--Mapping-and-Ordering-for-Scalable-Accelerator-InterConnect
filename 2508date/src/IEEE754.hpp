@@ -32,6 +32,6 @@ std::string singleFloat_to_fixed17(float float_num);
 void  print_FlitPayload(const std::deque<float>& floatDeque);
 void sortMatrix_CNNAffiliated(std::deque<float> &inputData, std::deque<float> &weightData, int colnum_per_row, int rownum_per_col);
 
-
+float lsb_saturate(float value, int l);
 #endif // AUTHORIEEE754_HPP
 

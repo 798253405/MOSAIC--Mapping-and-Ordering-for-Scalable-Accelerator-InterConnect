@@ -567,3 +567,24 @@ void print_FlitPayload(const std::deque<float> &floatDeque) {
 	}
 	std::cout << " " << std::endl;
 }
+
+
+float lsb_saturate(float value, int l) {
+          if (l <= 0 || l >= 32) return value;
+          union {
+            float f;
+              uint32_t u;
+          } data;
+           data.f = value;
+          uint32_t bit_l = (data.u >> l) & 1;
+           uint32_t mask = (1u << l) - 1;
+           if (bit_l) {
+                data.u |= mask;    // same as the l-th bit， all 1
+           } else {
+               data.u &= ~mask;   // same as the l-th bit， all 0
+           }
+           return data.f;
+       }
+
+
+

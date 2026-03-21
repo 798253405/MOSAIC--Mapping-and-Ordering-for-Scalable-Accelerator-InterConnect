@@ -10,8 +10,8 @@
 #define AUTHORLLMSwitchON
 
 //Test Case: NoC size Configuration - Choose one
-//#define NOCSIZEMC2_4X4      // 2 MCs in 4x4 mesh (base tile pattern)
-#define NOCSIZEMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
+#define NOCSIZEMC2_4X4      // 2 MCs in 4x4 mesh (base tile pattern)
+//#define NOCSIZEMC8_8X8      // 8 MCs in 8x8 mesh (2x2 tiles)
 //#define NOCSIZEMC32_16X16   // 32 MCs in 16x16 mesh (4x4 tiles)
 //#define NOCSIZEMC128_32X32  // 128 MCs in 32x32 mesh (8x8 tiles)
 
@@ -29,8 +29,8 @@
 //#define case8_BinarySwitch
 //#define case9_MOSAIC1
 //#define case10_MOSAIC2
-
-
+#define case11_LSBSaturation
+//#define case12_LSBSaturationAffilaited
 
 
 #define LLM_DEBUG_LEVEL 1
@@ -82,9 +82,22 @@
     #define fireAdvance
     #define binaryroutingSwitch
 
-#else
-    #define rowmapping
+#elif defined(case11_LSBSaturation)
+	const int LSBS_BITS = 12;  // Saturation l，    4, 8, 12   etc
+	#define rowmapping //default  no combination with one of the MOSAIC-sub approaches.
+
+#elif defined(case12_LSBSaturationAffilaited)
+	const int LSBS_BITS = 12;  // Saturation l，   4, 8, 12  etc
+	#define rowmapping //default  no combination with one of the MOSAIC-sub approaches.
+	#define AuthorAffiliatedOrdering
+
+
+
+	#else
+    #define rowmapping //default
 #endif
+
+
 
 
 
@@ -94,10 +107,11 @@
 
 
 #define fulleval
-#ifdef fireAdvance
-const int FIRE_ADVANCE_DELAY = 5;
-#endif
 //#define randomeval
+#ifdef fireAdvance
+const int FIRE_ADVANCE_PERCENT = 25;  // fire advance delay as percentage of calctime, fire at  25% = 75% earlier.
+#endif
+
 #define samplingTasksPerMAC 10//100 or 10
 #define USE_SCALED_HAMILTONLLM
 //#define FIXED_POINT_SORTING

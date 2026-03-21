@@ -48,6 +48,10 @@ namespace authorLLMIEEE754 {
  *
  * @param payload /，128float（64 query + 64 key）
  */
+
+
+
+
 void llmReshapeFlatToQueryKeyMatrix(std::deque<float>& payload);
 
 /**

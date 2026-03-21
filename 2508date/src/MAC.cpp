@@ -222,17 +222,17 @@ void MAC::runOneStep() {
 				selfstatus = 0;
 				pecycle = cycles;
 			} else {
-#ifdef fireAdvance
-				// （）
-				if (total_tasks == 0) {
-					total_tasks = cnn_task_queue.size();
-					requests_sent = 0;
-					responses_received = 0;
-					tasks_completed = 0;
-				}
-#endif
 				pecycle = cycles;
 				selfstatus = 1;
+#ifdef fireAdvance
+				fire_advance_armed = false;
+				fire_advance_counter = 0;
+				total_tasks = cnn_task_queue.size();
+				requests_sent = 0;
+				responses_received = 0;
+				tasks_completed = 0;
+				computing_task_id = -1;
+#endif
 			}
 		}
 		// request data state
@@ -375,6 +375,10 @@ void MAC::runOneStep() {
 
 #endif
 				//packet_id++;
+#ifdef fireAdvance
+				tasks_completed++;
+				computing_task_id = -1;
+#endif
 				return;
 			}
 
@@ -430,11 +434,37 @@ void MAC::runOneStep() {
 				return;
 			}
 
+#ifdef fireAdvance
+			// Arm fire advance after pecycle is set (consistent with LLM)
+			{
+				int fire_delay = calctime * FIRE_ADVANCE_PERCENT / 100;
+				if (fire_delay > 0 && fire_delay < calctime &&
+				    requests_sent < total_tasks &&
+				    cnn_task_queue.size() > 0) {
+					fire_advance_counter = fire_delay;
+					fire_advance_armed = true;
+				}
+			}
+#endif
+
 			// inject
 #ifndef newpooling
+#ifdef fireAdvance
+			// Set out_cycle to current cycle so result packet doesn't block NI
+			// (computation delay is modeled by pecycle sleep, not packet delay)
+			{
+				int saved_pecycle = pecycle;
+				pecycle = cycles;
+				inject(2, dest_mem_id, 1, outfeature,
+						net->vcNetwork->NI_list[NI_id], packet_id + cnn_saved_task_id,
+						selfMACid);
+				pecycle = saved_pecycle;
+			}
+#else
 			inject(2, dest_mem_id, 1, outfeature,
 					net->vcNetwork->NI_list[NI_id], packet_id + cnn_saved_task_id,
 					selfMACid); // inject type 2
+#endif
 			//cout<<" injectdest "<<dest_mem_id <<" "<<id<<endl;
 #ifdef SoCC_Countlatency
 			//statistics
@@ -455,23 +485,37 @@ void MAC::runOneStep() {
 #endif
 			//packet_id++;
 #endif
+#ifdef fireAdvance
+			tasks_completed++;
+			computing_task_id = -1;
+#endif
 			return;
 		} else if (selfstatus == 4) {
 #ifdef only3type
 			this->send = 0;
 
 #ifdef fireAdvance
-			// Fire Advance:
-			tasks_completed++;
-			computing_task_id = -1;
-#endif
-
+			// Fire advance: decide next state based on task completion
+			if (tasks_completed >= total_tasks) {
+				this->selfstatus = 5;
+				this->send = 3; // Result packet may have arrived before status 5
+			} else if (computing_task_id >= 0) {
+				this->selfstatus = 4;
+			} else if (responses_received < requests_sent) {
+				// Outstanding requests, wait for response
+				this->selfstatus = 2;
+			} else {
+				// Idle, waiting for fire advance to trigger next request
+				this->selfstatus = 0;
+			}
+#else
 			if (this->cnn_task_queue.size() == 0) {
 				this->selfstatus = 5;
 				//cout << cycles << " status=5currentPEis " << selfMACid << endl;
 			} else {
 				this->selfstatus = 0; 				// back to initial state
 			}
+#endif
 			//cout << "from mac " << this->id << " output " << this->outfeature << " " << selfstatus << endl;
 			this->weight.clear();
 			this->infeature.clear();

@@ -513,7 +513,7 @@ int main(int arg_num, char *arg_vet[]) {
 
 	// Fire Advance
 	#ifdef fireAdvance
-	cout << "  Fire Advance: Enabled (Delay=" << FIRE_ADVANCE_DELAY << " cycles)" << endl;
+	cout << "  Fire Advance: Enabled (Percent=" << FIRE_ADVANCE_PERCENT << "% of calctime)" << endl;
 	#endif
 
 	// Binary Routing Switch

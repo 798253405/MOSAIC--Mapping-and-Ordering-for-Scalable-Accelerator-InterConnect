@@ -404,6 +404,15 @@ int RInPort::authorInportFlippingCounts(Flit *t_authortempFlit,
 					+ t_authortempFlit->seqid * (tempDataCount),
 			t_authortempFlit->packet->message.authorMSGPayload.begin()
 					+ (t_authortempFlit->seqid + 1) * (tempDataCount));
+#if  defined(case11_LSBSaturation) || defined(case12_LSBSaturationAffilaited )
+	//
+	         //  LSB Saturation to the  flit (a copy of one payrd of the msgpayload. original msgpayload is not influenced.)
+	for (size_t i = 0; i < currentFlitInLink->authorFlitPayload.size(); ++i) {
+		 currentFlitInLink->authorFlitPayload[i] = lsb_saturate(currentFlitInLink->authorFlitPayload[i], LSBS_BITS);
+	}
+#endif
+
+
 
 #ifdef CoutDebugAll0
         if(currentFlitInLink->authorFlitPayload[i] != 0)

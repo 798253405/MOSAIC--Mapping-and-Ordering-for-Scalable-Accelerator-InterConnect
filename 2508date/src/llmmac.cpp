@@ -424,6 +424,10 @@ void LLMMAC::llmRunOneStep() {
 			} else {
 				pecycle = cycles;
 				selfstatus = 1;
+#ifdef fireAdvance
+				fire_advance_armed = false;
+				fire_advance_counter = 0;
+#endif
 			}
 		}
 		// State 1: REQUEST
@@ -505,6 +509,18 @@ void LLMMAC::llmRunOneStep() {
 			selfstatus = 4;
 			pecycle = cycles + calc_time;
 
+#ifdef fireAdvance
+			// Arm fire advance now that calc_time is known
+			{
+				int fire_delay = calc_time * FIRE_ADVANCE_PERCENT / 100;
+				if (fire_delay > 0 && fire_delay < calc_time &&
+				    requests_sent < total_tasks) {
+					fire_advance_counter = fire_delay;
+					fire_advance_armed = true;
+				}
+			}
+#endif
+
 			// Track computation end and result send
 			current_task_timing.compute_end_cycle = cycles + calc_time;
 			current_task_timing.result_send_cycle = cycles + calc_time;
@@ -584,7 +600,7 @@ void LLMMAC::llmRunOneStep() {
 
 #ifdef fireAdvance
 			tasks_completed++;
-			computing_task_id = -1;  // ，
+			computing_task_id = -1;
 #endif
 
 			return;
@@ -818,31 +834,7 @@ void LLMMAC::llmPEReceiveResp(Message* re_msg) {
 		computing_task_id = inPETaskIDFromResp;
 		currentRequestedTaskIDd = -1;
 
-		// fire advance：request
-		// ：fire advance，
-		if (requests_sent < total_tasks) {
-			fire_advance_counter = FIRE_ADVANCE_DELAY;
-			fire_advance_armed = true;
-
-			#ifdef AUTHORSAMOSSampleMapping
-			// debug
-			// bool in_sampling_phase = (net && net->mapping_again == 1);
-//			std::cout << "[FIRE-ADVANCE-ARM] MAC " << selfMACid
-//			          << " @cycle=" << cycles
-//			          << " armed counter=" << FIRE_ADVANCE_DELAY
-//			          << " for task_id=" << inPETaskIDFromResp
-//			          << " (sent=" << requests_sent << "/" << total_tasks << ")"
-//			          << (in_sampling_phase ? " [SAMPLING]" : " [PHASE2]")
-//			          << std::endl;
-			#else
-//			std::cout << "[FIRE-ADVANCE-ARM] MAC " << selfMACid
-//			          << " @cycle=" << cycles
-//			          << " armed counter=" << FIRE_ADVANCE_DELAY
-//			          << " for task_id=" << inPETaskIDFromResp
-//			          << " (sent=" << requests_sent << "/" << total_tasks << ")"
-//			          << std::endl;
-			#endif
-		}
+		// fire advance is armed in state 3 where calc_time is known
 #endif
 	}
 	else {

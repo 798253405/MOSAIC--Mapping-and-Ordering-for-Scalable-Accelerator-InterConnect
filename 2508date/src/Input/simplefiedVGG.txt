@@ -1,0 +1,16 @@
+% 简化版vgg
+Input 224 224 3
+Conv2D 3 3 3 4 relu 0 1
+Conv2D 4 3 3 4 relu 0 1
+Pool 4 2 2 4 0 2
+Conv2D 4 3 3 8 relu 0 1
+Conv2D 4 3 3 8 relu 0 1
+Pool 8 2 2 8 0 2
+Conv2D 8 3 3 16 relu 0 1
+Conv2D 16 3 3 16 relu 0 1
+Conv2D 16 3 3 16 relu 0 1
+Pool 16 2 2 16 0 2
+Conv2D 16 3 3 32 relu 0 1
+Conv2D 32 3 3 32 relu 0 1
+Conv2D 32 3 3 32 relu 0 1
+Pool 32 2 2 32 0 2

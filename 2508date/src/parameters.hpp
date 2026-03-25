@@ -53,28 +53,48 @@
 //#define case5_seperratedordering
 //#define case6_affiliatedordering_TACOall128BitInvert
 //#define case7_affiliatedordering_PartialBusInvert
-#define case8_seperratedordering_TACOall128BitInvert
+//#define case8_seperratedordering_TACOall128BitInvert
 //#define case9_seperratedordering_PartialBusInvert
 
 
 
+// ============================================================
+// Case 功能宏展开 — 每个 case 直接定义所需的全部功能宏
+// Each case directly defines all feature macros it needs
+// ============================================================
+// case1: baseline — 无额外宏
+// case2: 全128位翻转 (TACOall128BitInvert)
+// case3: 部分总线翻转 (PartialBusInvert)
 
-// 组合case派生
+#ifdef case4_affiliatedordering
+  #define YzAffiliatedOrdering
+#endif
+
+#ifdef case5_seperratedordering
+  #define YzAffiliatedOrdering
+  #define YZSeperatedOrdering_reArrangeInput
+#endif
+
 #ifdef case6_affiliatedordering_TACOall128BitInvert
-#define case4_affiliatedordering
-#define case2_TACOall128BitInvert
+  #define YzAffiliatedOrdering
+  #define case2_TACOall128BitInvert
 #endif
+
 #ifdef case7_affiliatedordering_PartialBusInvert
-#define case4_affiliatedordering
-#define case3_PartialBusInvert
+  #define YzAffiliatedOrdering
+  #define case3_PartialBusInvert
 #endif
+
 #ifdef case8_seperratedordering_TACOall128BitInvert
-#define case5_seperratedordering
-#define case2_TACOall128BitInvert
+  #define YzAffiliatedOrdering
+  #define YZSeperatedOrdering_reArrangeInput
+  #define case2_TACOall128BitInvert
 #endif
+
 #ifdef case9_seperratedordering_PartialBusInvert
-#define case5_seperratedordering
-#define case3_PartialBusInvert
+  #define YzAffiliatedOrdering
+  #define YZSeperatedOrdering_reArrangeInput
+  #define case3_PartialBusInvert
 #endif
 
 
@@ -85,28 +105,7 @@
 
 
 
-#define only3type
-#define outPortNoInfinite
-#define FREQUENCY 2
-#define MEM_read_delay 0.0625
-#define PE_NUM_OP 64
-#define PRINT 100000
-#define valueBytes 4
-#define FLIT_LENGTH 512
-#define bitsPerElement 32
-#define payloadElementNum 16
-#define headerPerFlit 0
-#define SoCC_Countlatency
-#define VN_NUM 1
-#define VC_PER_VN 4
-#define VC_PRIORITY_PER_VN 0
-#define STARVATION_LIMIT 20
-#define LCS_URS_TRAFFIC
-#define INPORT_FLIT_BUFFER_SIZE 4;
-#define INFINITE 10000
-#define INFINITE1 10000
-#define CACHE_DELAY 0
-#define flitcomparison
+
 
 #if defined TACOMC2_4X4
 	#define PE_X_NUM 4
@@ -140,9 +139,34 @@
 	#define AuthorMEMCount 4
 #endif
 
+
+#define only3type
+#define outPortNoInfinite
+#define FREQUENCY 2
+#define MEM_read_delay 0.0625
+#define PE_NUM_OP 64
+#define PRINT 100000
+#define valueBytes 4
+#define FLIT_LENGTH 512
+#define bitsPerElement 32
+#define payloadElementNum 16
+#define headerPerFlit 0
+#define SoCC_Countlatency
+#define VN_NUM 1
+#define VC_PER_VN 4
+#define VC_PRIORITY_PER_VN 0
+#define STARVATION_LIMIT 20
+#define LCS_URS_TRAFFIC
+#define INPORT_FLIT_BUFFER_SIZE 4;
+#define INFINITE 10000
+#define INFINITE1 10000
+#define CACHE_DELAY 0
+#define flitcomparison
+
+
 #define LINK_TIME 2
 #define DISTRIBUTION_NUM 10
-#define rowmapping // in this version mapping is constantly rowmapinng
+#define rowmapping // in this BT reduction research version mapping is constantly rowmapinng
 
 
 
